@@ -239,9 +239,11 @@ export function FamilyDashboard({
         <SidebarFooter className="p-3">
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton className="h-11 rounded-xl" tooltip="Settings">
-                <Settings />
-                <span>সেটিংস</span>
+              <SidebarMenuButton asChild className="h-11 rounded-xl" tooltip="Settings">
+                <a href="/setup">
+                  <Settings />
+                  <span>সেটিংস</span>
+                </a>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

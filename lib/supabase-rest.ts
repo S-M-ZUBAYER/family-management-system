@@ -55,7 +55,6 @@ export async function supabaseRest<T>(
     headers: {
       Accept: "application/json",
       apikey: secretKey,
-      Authorization: `Bearer ${secretKey}`,
       ...(init.body ? { "Content-Type": "application/json" } : {}),
       ...init.headers,
     },
@@ -72,4 +71,3 @@ export async function supabaseRest<T>(
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
-
