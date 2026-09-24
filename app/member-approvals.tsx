@@ -1,7 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Download, Eye, Filter, Search, UserCheck, UserRoundPlus, X } from "lucide-react";
+import {
+  Check,
+  Database,
+  Download,
+  Eye,
+  Filter,
+  LoaderCircle,
+  Search,
+  UserCheck,
+  UserRoundPlus,
+  X,
+} from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +36,7 @@ import {
 } from "@/components/ui/table";
 
 type Applicant = {
-  id: number;
+  id: string;
   name: string;
   english: string;
   relation: string;
@@ -37,16 +48,50 @@ type Applicant = {
 };
 
 const initialApplicants: Applicant[] = [
-  { id: 1, name: "মেহেদী হাসান", english: "Mehedi Hasan", relation: "রাশেদের ছেলে", sponsor: "মো. রাশেদ", requestedRole: "সাধারণ সদস্য", submitted: "১২ মিনিট আগে", initials: "মে", duplicate: false },
-  { id: 2, name: "নাজিয়া রহমান", english: "Nazia Rahman", relation: "নাসরিনের মেয়ে", sponsor: "নাসরিন আক্তার", requestedRole: "সাধারণ সদস্য", submitted: "১ ঘণ্টা আগে", initials: "না", duplicate: true },
-  { id: 3, name: "তানভীর মনছুফ", english: "Tanvir Monsuf", relation: "আব্দুল করিমের নাতি", sponsor: "Family invitation", requestedRole: "সাধারণ সদস্য", submitted: "গতকাল", initials: "তা", duplicate: false },
-  { id: 4, name: "সাবিহা সুলতানা", english: "Sabiha Sultana", relation: "বিবাহসূত্রে সদস্য", sponsor: "শারমিন হক", requestedRole: "সদস্য", submitted: "২ দিন আগে", initials: "সা", duplicate: false },
+  { id: "demo-1", name: "মেহেদী হাসান", english: "Mehedi Hasan", relation: "রাশেদের ছেলে", sponsor: "মো. রাশেদ", requestedRole: "সাধারণ সদস্য", submitted: "১২ মিনিট আগে", initials: "মে", duplicate: false },
+  { id: "demo-2", name: "নাজিয়া রহমান", english: "Nazia Rahman", relation: "নাসরিনের মেয়ে", sponsor: "নাসরিন আক্তার", requestedRole: "সাধারণ সদস্য", submitted: "১ ঘণ্টা আগে", initials: "না", duplicate: true },
+  { id: "demo-3", name: "তানভীর মনছুফ", english: "Tanvir Monsuf", relation: "আব্দুল করিমের নাতি", sponsor: "Family invitation", requestedRole: "সাধারণ সদস্য", submitted: "গতকাল", initials: "তা", duplicate: false },
+  { id: "demo-4", name: "সাবিহা সুলতানা", english: "Sabiha Sultana", relation: "বিবাহসূত্রে সদস্য", sponsor: "শারমিন হক", requestedRole: "সদস্য", submitted: "২ দিন আগে", initials: "সা", duplicate: false },
 ];
+
+type DataSource = "loading" | "postgresql" | "demo" | "error";
+
+type ApiMemberRequest = {
+  id: string;
+  requested_name_bn: string;
+  requested_name_en: string | null;
+  relationship_text: string;
+  sponsor_name: string | null;
+  requested_role: string;
+  duplicate_hint: boolean;
+  created_at: string;
+};
+
+function applicantFromApi(request: ApiMemberRequest): Applicant {
+  const name = request.requested_name_bn;
+  return {
+    id: request.id,
+    name,
+    english: request.requested_name_en ?? "",
+    relation: request.relationship_text,
+    sponsor: request.sponsor_name ?? "সরাসরি আবেদন",
+    requestedRole: request.requested_role === "manager" ? "ম্যানেজার" : "সাধারণ সদস্য",
+    submitted: new Intl.DateTimeFormat("bn-BD", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(request.created_at)),
+    initials: name.trim().slice(0, 2),
+    duplicate: request.duplicate_hint,
+  };
+}
 
 export function MemberApprovals() {
   const [applicants, setApplicants] = useState(initialApplicants);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Applicant | null>(null);
+  const [dataSource, setDataSource] = useState<DataSource>("loading");
+  const [reviewing, setReviewing] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   const visibleApplicants = useMemo(
     () =>
@@ -58,9 +103,68 @@ export function MemberApprovals() {
     [applicants, query],
   );
 
-  function completeReview(id: number) {
-    setApplicants((items) => items.filter((item) => item.id !== id));
-    setSelected(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/member-requests", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = (await response.json()) as {
+          code?: string;
+          error?: string;
+          requests?: ApiMemberRequest[];
+        };
+        if (response.ok && payload.requests) {
+          setApplicants(payload.requests.map(applicantFromApi));
+          setDataSource("postgresql");
+          return;
+        }
+        if (payload.code === "BACKEND_NOT_CONFIGURED") {
+          setDataSource("demo");
+          return;
+        }
+        setDataSource("error");
+        setFeedback(payload.error ?? "সদস্য আবেদন লোড করা যায়নি।");
+      })
+      .catch((error: unknown) => {
+        if ((error as { name?: string }).name === "AbortError") return;
+        setDataSource("error");
+        setFeedback("সদস্য আবেদন লোড করা যায়নি।");
+      });
+    return () => controller.abort();
+  }, []);
+
+  async function completeReview(
+    id: string,
+    decision: "approve" | "reject",
+  ) {
+    if (dataSource !== "postgresql") {
+      throw new Error("PostgreSQL সংযোগ না হওয়া পর্যন্ত approval save করা যাবে না।");
+    }
+
+    setReviewing(true);
+    setFeedback(null);
+    try {
+      const response = await fetch(`/api/member-requests/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Review save করা যায়নি।");
+
+      setApplicants((items) => items.filter((item) => item.id !== id));
+      setSelected(null);
+      setFeedback(
+        decision === "approve"
+          ? "সদস্য অনুমোদিত হয়েছে এবং audit log সংরক্ষিত হয়েছে।"
+          : "আবেদনটি প্রত্যাখ্যান করা হয়েছে।",
+      );
+      return { requestId: id, decision, status: "completed", persisted: true };
+    } finally {
+      setReviewing(false);
+    }
   }
 
   useEffect(() => {
@@ -81,6 +185,7 @@ export function MemberApprovals() {
           inputSchema: { type: "object", properties: {}, additionalProperties: false },
           annotations: { readOnlyHint: true, untrustedContentHint: false },
           execute: () => ({
+            source: dataSource,
             count: applicants.length,
             requests: applicants.map(({ id, name, english, relation, duplicate }) => ({ id, name, english, relation, duplicate })),
           }),
@@ -98,22 +203,25 @@ export function MemberApprovals() {
           inputSchema: {
             type: "object",
             properties: {
-              requestId: { type: "number" },
+              requestId: { type: "string" },
               decision: { type: "string", enum: ["approve", "reject"] },
             },
             required: ["requestId", "decision"],
             additionalProperties: false,
           },
           annotations: { readOnlyHint: false, untrustedContentHint: false },
-          execute: (input: unknown) => {
+          execute: async (input: unknown) => {
             const value = input as { requestId?: unknown; decision?: unknown };
-            if (typeof value.requestId !== "number" || !["approve", "reject"].includes(String(value.decision))) {
+            if (typeof value.requestId !== "string" || !["approve", "reject"].includes(String(value.decision))) {
               throw new Error("A valid requestId and decision are required.");
             }
             const request = applicants.find((item) => item.id === value.requestId);
             if (!request) throw new Error("The membership request is not pending.");
-            completeReview(request.id);
-            return { requestId: request.id, member: request.english, decision: value.decision, status: "completed" };
+            const result = await completeReview(
+              request.id,
+              value.decision as "approve" | "reject",
+            );
+            return { ...result, member: request.english || request.name };
           },
         },
         { signal: lifecycle.signal },
@@ -121,7 +229,7 @@ export function MemberApprovals() {
     ).catch(() => undefined);
 
     return () => lifecycle.abort();
-  }, [applicants]);
+  }, [applicants, dataSource]);
 
   return (
     <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
@@ -144,6 +252,35 @@ export function MemberApprovals() {
           </Button>
         </div>
       </section>
+
+      <div
+        className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${
+          dataSource === "postgresql"
+            ? "border-emerald-500/25 bg-emerald-500/8 text-emerald-800 dark:text-emerald-200"
+            : "border-amber-500/30 bg-amber-500/8 text-amber-800 dark:text-amber-200"
+        }`}
+      >
+        {dataSource === "loading" ? (
+          <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
+        ) : (
+          <Database className="mt-0.5 size-4 shrink-0" />
+        )}
+        <div>
+          <p className="font-semibold">
+            {dataSource === "postgresql"
+              ? "Live PostgreSQL সংযুক্ত"
+              : dataSource === "loading"
+                ? "PostgreSQL সংযোগ যাচাই হচ্ছে"
+                : "Demo data দেখানো হচ্ছে"}
+          </p>
+          {dataSource !== "postgresql" && dataSource !== "loading" ? (
+            <p className="mt-0.5 opacity-85">
+              Supabase environment values যোগ করার পর approval, role assignment ও audit log স্থায়ীভাবে save হবে।
+            </p>
+          ) : null}
+          {feedback ? <p className="mt-1 font-medium">{feedback}</p> : null}
+        </div>
+      </div>
 
       <section className="grid gap-4 sm:grid-cols-3">
         {[
@@ -251,11 +388,31 @@ export function MemberApprovals() {
             </div>
           ) : null}
           <DialogFooter className="gap-2 sm:justify-between">
-            <Button variant="outline" className="gap-2 rounded-xl" onClick={() => selected && completeReview(selected.id)}>
+            <Button
+              variant="outline"
+              className="gap-2 rounded-xl"
+              disabled={reviewing || dataSource !== "postgresql"}
+              onClick={() =>
+                selected &&
+                void completeReview(selected.id, "reject").catch((error: unknown) =>
+                  setFeedback(error instanceof Error ? error.message : "Review save করা যায়নি।"),
+                )
+              }
+            >
               <X className="size-4" /> Reject
             </Button>
-            <Button className="gap-2 rounded-xl" onClick={() => selected && completeReview(selected.id)}>
-              <Check className="size-4" /> Approve member
+            <Button
+              className="gap-2 rounded-xl"
+              disabled={reviewing || dataSource !== "postgresql"}
+              onClick={() =>
+                selected &&
+                void completeReview(selected.id, "approve").catch((error: unknown) =>
+                  setFeedback(error instanceof Error ? error.message : "Review save করা যায়নি।"),
+                )
+              }
+            >
+              {reviewing ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
+              Approve member
             </Button>
           </DialogFooter>
         </DialogContent>
