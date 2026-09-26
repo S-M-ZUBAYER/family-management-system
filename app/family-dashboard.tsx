@@ -376,9 +376,11 @@ export function FamilyDashboard({
                   <Progress value={74} className="h-2.5" />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button className="rounded-xl">কোরবানি ড্যাশবোর্ড</Button>
-                  <Button variant="outline" className="gap-2 rounded-xl">
-                    <Download className="size-4" /> XLSX
+                  <Button className="rounded-xl" asChild>
+                    <a href="/qurbani">কোরবানি ড্যাশবোর্ড</a>
+                  </Button>
+                  <Button variant="outline" className="gap-2 rounded-xl" asChild>
+                    <a href="/qurbani"><Download className="size-4" /> XLSX</a>
                   </Button>
                 </div>
               </CardContent>

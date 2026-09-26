@@ -37,3 +37,7 @@ export function canManageNotices(role: FamilyRole) {
 export function canManageEvents(role: FamilyRole) {
   return role === "owner" || role === "family_admin" || role === "manager";
 }
+
+export function canManageQurbani(role: FamilyRole) {
+  return role === "owner" || role === "family_admin" || role === "manager";
+}
