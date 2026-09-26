@@ -26,3 +26,7 @@ export function canReviewMembers(role: FamilyRole) {
   return role === "owner" || role === "family_admin";
 }
 
+export function canManageProfiles(role: FamilyRole) {
+  return role === "owner" || role === "family_admin" || role === "manager";
+}
+

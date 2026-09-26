@@ -55,7 +55,9 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { MemberApprovals } from "./member-approvals";
+import { MemberDirectory } from "./member-directory";
 import { QurbaniSuite } from "./qurbani-suite";
+import { FamilyTreeView } from "./family-tree-view";
 
 type ThemeId = "heritage" | "emerald" | "indigo" | "terracotta";
 
@@ -93,8 +95,9 @@ const themes: Array<{
 
 const mainNavigation = [
   { id: "dashboard", href: "/", label: "ড্যাশবোর্ড", english: "Overview", icon: Home },
-  { id: "members", href: "/members", label: "পরিবার", english: "Members", icon: Users, badge: "48" },
-  { id: "tree", href: "#", label: "ফ্যামিলি ট্রি", english: "Family tree", icon: GitFork },
+  { id: "directory", href: "/directory", label: "সদস্য ডিরেক্টরি", english: "Directory", icon: Users, badge: "48" },
+  { id: "tree", href: "/family-tree", label: "ফ্যামিলি ট্রি", english: "Family tree", icon: GitFork },
+  { id: "members", href: "/members", label: "সদস্য অনুমোদন", english: "Approvals", icon: UserCheck, badge: "3" },
   { id: "notices", href: "#", label: "নোটিশ", english: "Notices", icon: Megaphone, badge: "3" },
   { id: "events", href: "#", label: "ইভেন্ট", english: "Events", icon: CalendarDays },
   { id: "qurbani", href: "/qurbani", label: "কোরবানি", english: "Qurbani", icon: CircleDollarSign },
@@ -178,7 +181,7 @@ function ThemeSelector({
 export function FamilyDashboard({
   view = "dashboard",
 }: {
-  view?: "dashboard" | "members" | "qurbani";
+  view?: "dashboard" | "directory" | "tree" | "members" | "qurbani";
 }) {
   const [theme, setTheme] = useState<ThemeId>("heritage");
   const [dark, setDark] = useState(false);
@@ -294,7 +297,7 @@ export function FamilyDashboard({
           </div>
         </header>
 
-        {view === "members" ? <MemberApprovals /> : view === "qurbani" ? <QurbaniSuite /> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
+        {view === "directory" ? <MemberDirectory /> : view === "tree" ? <FamilyTreeView /> : view === "members" ? <MemberApprovals /> : view === "qurbani" ? <QurbaniSuite /> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
           <section className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">

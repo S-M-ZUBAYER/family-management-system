@@ -43,6 +43,22 @@ create unique index if not exists member_profiles_family_auth_user_unique
   on public.member_profiles(family_id, auth_user_id)
   where auth_user_id is not null;
 
+create table if not exists public.family_relationships (
+  id uuid primary key default gen_random_uuid(),
+  family_id uuid not null references public.families(id) on delete cascade,
+  from_member_id uuid not null references public.member_profiles(id) on delete cascade,
+  to_member_id uuid not null references public.member_profiles(id) on delete cascade,
+  relationship_type text not null
+    check (relationship_type in ('parent', 'spouse', 'guardian')),
+  created_by_user_id text not null,
+  created_at timestamptz not null default now(),
+  check (from_member_id <> to_member_id),
+  unique (family_id, from_member_id, to_member_id, relationship_type)
+);
+
+create index if not exists family_relationships_family_idx
+  on public.family_relationships(family_id, relationship_type);
+
 create table if not exists public.family_memberships (
   id uuid primary key default gen_random_uuid(),
   family_id uuid not null references public.families(id) on delete cascade,
@@ -105,6 +121,7 @@ create index if not exists audit_logs_family_created_idx
 
 alter table public.families enable row level security;
 alter table public.member_profiles enable row level security;
+alter table public.family_relationships enable row level security;
 alter table public.family_memberships enable row level security;
 alter table public.family_member_requests enable row level security;
 alter table public.audit_logs enable row level security;
@@ -237,4 +254,3 @@ revoke all on function public.review_member_request(uuid, text, text, text)
   from public, anon, authenticated;
 grant execute on function public.review_member_request(uuid, text, text, text)
   to service_role;
-
