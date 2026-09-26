@@ -6,6 +6,25 @@
   scrollbar-width: thin;
 }
 
+@keyframes notice-ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.notice-ticker-track {
+  animation: notice-ticker-scroll 28s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notice-ticker-track {
+    animation: none;
+  }
+}
+
 @utility scrollbar-none {
   scrollbar-width: none;
 
