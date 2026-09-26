@@ -33,3 +33,7 @@ export function canManageProfiles(role: FamilyRole) {
 export function canManageNotices(role: FamilyRole) {
   return role === "owner" || role === "family_admin" || role === "manager";
 }
+
+export function canManageEvents(role: FamilyRole) {
+  return role === "owner" || role === "family_admin" || role === "manager";
+}
