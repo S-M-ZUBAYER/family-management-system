@@ -45,3 +45,7 @@ export function canManageQurbani(role: FamilyRole) {
 export function canManageChat(role: FamilyRole) {
   return role === "owner" || role === "family_admin" || role === "manager";
 }
+
+export function canManageHealth(role: FamilyRole) {
+  return role === "owner" || role === "family_admin" || role === "manager";
+}
