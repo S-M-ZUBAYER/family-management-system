@@ -23,6 +23,7 @@ import {
   Sun,
   UserCheck,
   Users,
+  WalletCards,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -61,6 +62,7 @@ import { FamilyTreeView } from "./family-tree-view";
 import { NoticeCenter } from "./notice-center";
 import { DashboardNoticeTicker } from "./notice-ticker";
 import { EventCenter } from "./event-center";
+import { PersonalFinanceCenter } from "./personal-finance-center";
 
 type ThemeId = "heritage" | "emerald" | "indigo" | "terracotta";
 
@@ -104,6 +106,7 @@ const mainNavigation = [
   { id: "notices", href: "/notices", label: "নোটিশ", english: "Notices", icon: Megaphone },
   { id: "events", href: "/events", label: "ইভেন্ট ও ট্যুর", english: "Events", icon: CalendarDays },
   { id: "qurbani", href: "/qurbani", label: "কোরবানি", english: "Qurbani", icon: CircleDollarSign },
+  { id: "finance", href: "/finance", label: "ব্যক্তিগত হিসাব", english: "Private finance", icon: WalletCards },
   { id: "messages", href: "#", label: "চ্যাট", english: "Messages", icon: MessageCircle, badge: "12" },
   { id: "health", href: "#", label: "স্বাস্থ্য ও SOS", english: "Health", icon: HeartPulse },
 ];
@@ -184,7 +187,7 @@ function ThemeSelector({
 export function FamilyDashboard({
   view = "dashboard",
 }: {
-  view?: "dashboard" | "directory" | "tree" | "members" | "notices" | "events" | "qurbani";
+  view?: "dashboard" | "directory" | "tree" | "members" | "notices" | "events" | "qurbani" | "finance";
 }) {
   const [theme, setTheme] = useState<ThemeId>("heritage");
   const [dark, setDark] = useState(false);
@@ -300,7 +303,7 @@ export function FamilyDashboard({
           </div>
         </header>
 
-        {view === "directory" ? <MemberDirectory /> : view === "tree" ? <FamilyTreeView /> : view === "members" ? <MemberApprovals /> : view === "notices" ? <NoticeCenter /> : view === "events" ? <EventCenter /> : view === "qurbani" ? <QurbaniSuite /> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
+        {view === "directory" ? <MemberDirectory /> : view === "tree" ? <FamilyTreeView /> : view === "members" ? <MemberApprovals /> : view === "notices" ? <NoticeCenter /> : view === "events" ? <EventCenter /> : view === "qurbani" ? <QurbaniSuite /> : view === "finance" ? <PersonalFinanceCenter /> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
           <section className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
