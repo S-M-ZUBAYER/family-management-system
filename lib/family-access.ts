@@ -49,3 +49,7 @@ export function canManageChat(role: FamilyRole) {
 export function canManageHealth(role: FamilyRole) {
   return role === "owner" || role === "family_admin" || role === "manager";
 }
+
+export function canManageWelfare(role: FamilyRole) {
+  return role === "owner" || role === "family_admin" || role === "manager";
+}
