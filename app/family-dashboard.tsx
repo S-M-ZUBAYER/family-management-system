@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   Bell,
   CalendarDays,
@@ -11,6 +11,7 @@ import {
   HandHeart,
   HeartPulse,
   Home,
+  House,
   Languages,
   MapPin,
   Megaphone,
@@ -56,17 +57,19 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { MemberApprovals } from "./member-approvals";
-import { MemberDirectory } from "./member-directory";
-import { QurbaniSuite } from "./qurbani-suite";
-import { FamilyTreeView } from "./family-tree-view";
-import { NoticeCenter } from "./notice-center";
 import { DashboardNoticeTicker } from "./notice-ticker";
-import { EventCenter } from "./event-center";
-import { PersonalFinanceCenter } from "./personal-finance-center";
-import { FamilyChat } from "./family-chat";
-import { HealthCenter } from "./health-center";
-import { WelfareCenter } from "./welfare-center";
+
+const MemberApprovals = lazy(() => import("./member-approvals").then((module) => ({ default: module.MemberApprovals })));
+const MemberDirectory = lazy(() => import("./member-directory").then((module) => ({ default: module.MemberDirectory })));
+const QurbaniSuite = lazy(() => import("./qurbani-suite").then((module) => ({ default: module.QurbaniSuite })));
+const FamilyTreeView = lazy(() => import("./family-tree-view").then((module) => ({ default: module.FamilyTreeView })));
+const NoticeCenter = lazy(() => import("./notice-center").then((module) => ({ default: module.NoticeCenter })));
+const EventCenter = lazy(() => import("./event-center").then((module) => ({ default: module.EventCenter })));
+const PersonalFinanceCenter = lazy(() => import("./personal-finance-center").then((module) => ({ default: module.PersonalFinanceCenter })));
+const FamilyChat = lazy(() => import("./family-chat").then((module) => ({ default: module.FamilyChat })));
+const HealthCenter = lazy(() => import("./health-center").then((module) => ({ default: module.HealthCenter })));
+const WelfareCenter = lazy(() => import("./welfare-center").then((module) => ({ default: module.WelfareCenter })));
+const HouseholdCenter = lazy(() => import("./household-center").then((module) => ({ default: module.HouseholdCenter })));
 
 type ThemeId = "heritage" | "emerald" | "indigo" | "terracotta";
 
@@ -114,6 +117,7 @@ const mainNavigation = [
   { id: "chat", href: "/chat", label: "চ্যাট", english: "Messages", icon: MessageCircle },
   { id: "health", href: "/health", label: "স্বাস্থ্য ও SOS", english: "Health", icon: HeartPulse },
   { id: "welfare", href: "/welfare", label: "কল্যাণ তহবিল", english: "Welfare fund", icon: HandHeart },
+  { id: "household", href: "/household", label: "বাসা ব্যবস্থাপনা", english: "Household", icon: House },
 ];
 
 const approvals = [
@@ -192,7 +196,7 @@ function ThemeSelector({
 export function FamilyDashboard({
   view = "dashboard",
 }: {
-  view?: "dashboard" | "directory" | "tree" | "members" | "notices" | "events" | "qurbani" | "finance" | "chat" | "health" | "welfare";
+  view?: "dashboard" | "directory" | "tree" | "members" | "notices" | "events" | "qurbani" | "finance" | "chat" | "health" | "welfare" | "household";
 }) {
   const [theme, setTheme] = useState<ThemeId>("heritage");
   const [dark, setDark] = useState(false);
@@ -308,7 +312,8 @@ export function FamilyDashboard({
           </div>
         </header>
 
-        {view === "directory" ? <MemberDirectory /> : view === "tree" ? <FamilyTreeView /> : view === "members" ? <MemberApprovals /> : view === "notices" ? <NoticeCenter /> : view === "events" ? <EventCenter /> : view === "qurbani" ? <QurbaniSuite /> : view === "finance" ? <PersonalFinanceCenter /> : view === "chat" ? <FamilyChat /> : view === "health" ? <HealthCenter /> : view === "welfare" ? <WelfareCenter /> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
+        <Suspense fallback={<main className="grid min-h-[calc(100vh-4rem)] place-items-center text-sm text-muted-foreground">Module loading…</main>}>
+        {view === "directory" ? <MemberDirectory /> : view === "tree" ? <FamilyTreeView /> : view === "members" ? <MemberApprovals /> : view === "notices" ? <NoticeCenter /> : view === "events" ? <EventCenter /> : view === "qurbani" ? <QurbaniSuite /> : view === "finance" ? <PersonalFinanceCenter /> : view === "chat" ? <FamilyChat /> : view === "health" ? <HealthCenter /> : view === "welfare" ? <WelfareCenter /> : view === "household" ? <HouseholdCenter /> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
           <section className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
@@ -476,6 +481,7 @@ export function FamilyDashboard({
             </Card>
           </section>
         </main>}
+        </Suspense>
       </SidebarInset>
     </SidebarProvider>
   );

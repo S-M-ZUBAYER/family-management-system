@@ -53,3 +53,7 @@ export function canManageHealth(role: FamilyRole) {
 export function canManageWelfare(role: FamilyRole) {
   return role === "owner" || role === "family_admin" || role === "manager";
 }
+
+export function canManageHousehold(role: FamilyRole) {
+  return role === "owner" || role === "family_admin" || role === "manager";
+}
