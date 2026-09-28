@@ -26,6 +26,14 @@ export function canReviewMembers(role: FamilyRole) {
   return role === "owner" || role === "family_admin";
 }
 
+export function canViewAdministration(role: FamilyRole) {
+  return role === "owner" || role === "family_admin";
+}
+
+export function canManageMembershipRoles(role: FamilyRole) {
+  return role === "owner";
+}
+
 export function canManageProfiles(role: FamilyRole) {
   return role === "owner" || role === "family_admin" || role === "manager";
 }

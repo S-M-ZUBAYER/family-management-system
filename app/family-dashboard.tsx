@@ -78,6 +78,7 @@ const WelfareCenter = lazy(() => import("./welfare-center").then((module) => ({ 
 const HouseholdCenter = lazy(() => import("./household-center").then((module) => ({ default: module.HouseholdCenter })));
 const ArchiveCenter = lazy(() => import("./archive-center").then((module) => ({ default: module.ArchiveCenter })));
 const GovernanceCenter = lazy(() => import("./governance-center").then((module) => ({ default: module.GovernanceCenter })));
+const AdminCenter = lazy(() => import("./admin-center").then((module) => ({ default: module.AdminCenter })));
 
 type ThemeId = "heritage" | "emerald" | "indigo" | "terracotta";
 
@@ -128,6 +129,7 @@ const mainNavigation = [
   { id: "household", href: "/household", label: "বাসা ব্যবস্থাপনা", english: "Household", icon: House },
   { id: "archives", href: "/archives", label: "আর্কাইভ ও ভল্ট", english: "Archives", icon: Archive },
   { id: "governance", href: "/governance", label: "ভোট ও সিদ্ধান্ত", english: "Polls & decisions", icon: Vote },
+  { id: "admin", href: "/admin", label: "অ্যাডমিন কন্ট্রোল", english: "Admin control", icon: ShieldCheck },
 ];
 
 const numberBn = new Intl.NumberFormat("bn-BD", { maximumFractionDigits: 2 });
@@ -232,7 +234,7 @@ function NotificationLink({ href, icon: Icon, title, detail, active }: { href: s
 export function FamilyDashboard({
   view = "dashboard",
 }: {
-  view?: "dashboard" | "directory" | "tree" | "members" | "notices" | "events" | "qurbani" | "finance" | "chat" | "health" | "welfare" | "household" | "archives" | "governance";
+  view?: "dashboard" | "directory" | "tree" | "members" | "notices" | "events" | "qurbani" | "finance" | "chat" | "health" | "welfare" | "household" | "archives" | "governance" | "admin";
 }) {
   const [theme, setTheme] = useState<ThemeId>("heritage");
   const [dark, setDark] = useState(false);
@@ -479,7 +481,7 @@ export function FamilyDashboard({
         </header>
 
         <Suspense fallback={<main className="grid min-h-[calc(100vh-4rem)] place-items-center text-sm text-muted-foreground">Module loading…</main>}>
-        {view === "directory" ? <MemberDirectory /> : view === "tree" ? <FamilyTreeView /> : view === "members" ? <MemberApprovals /> : view === "notices" ? <NoticeCenter /> : view === "events" ? <EventCenter /> : view === "qurbani" ? <QurbaniSuite /> : view === "finance" ? <PersonalFinanceCenter /> : view === "chat" ? <FamilyChat /> : view === "health" ? <HealthCenter /> : view === "welfare" ? <WelfareCenter /> : view === "household" ? <HouseholdCenter /> : view === "archives" ? <ArchiveCenter /> : view === "governance" ? <GovernanceCenter /> : setupRequired ? <main className="grid min-h-[calc(100vh-4rem)] place-items-center px-4 py-10"><Card className="w-full max-w-xl rounded-3xl"><CardContent className="flex flex-col items-center p-8 text-center md:p-10"><span className="grid size-16 place-items-center rounded-2xl bg-primary/10 text-primary"><UserCheck className="size-8" /></span><h1 className="mt-6 text-2xl font-bold">Family access সক্রিয় নয়</h1><p className="mt-3 max-w-md leading-7 text-muted-foreground">Join code দিয়ে আবেদন করুন। Family Owner বা Admin অনুমোদন করার পর dashboard এবং সব protected module ব্যবহার করতে পারবেন।</p><Button asChild className="mt-7 rounded-xl"><a href="/setup">Family onboarding খুলুন</a></Button></CardContent></Card></main> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
+        {view === "directory" ? <MemberDirectory /> : view === "tree" ? <FamilyTreeView /> : view === "members" ? <MemberApprovals /> : view === "notices" ? <NoticeCenter /> : view === "events" ? <EventCenter /> : view === "qurbani" ? <QurbaniSuite /> : view === "finance" ? <PersonalFinanceCenter /> : view === "chat" ? <FamilyChat /> : view === "health" ? <HealthCenter /> : view === "welfare" ? <WelfareCenter /> : view === "household" ? <HouseholdCenter /> : view === "archives" ? <ArchiveCenter /> : view === "governance" ? <GovernanceCenter /> : view === "admin" ? <AdminCenter /> : setupRequired ? <main className="grid min-h-[calc(100vh-4rem)] place-items-center px-4 py-10"><Card className="w-full max-w-xl rounded-3xl"><CardContent className="flex flex-col items-center p-8 text-center md:p-10"><span className="grid size-16 place-items-center rounded-2xl bg-primary/10 text-primary"><UserCheck className="size-8" /></span><h1 className="mt-6 text-2xl font-bold">Family access সক্রিয় নয়</h1><p className="mt-3 max-w-md leading-7 text-muted-foreground">Join code দিয়ে আবেদন করুন। Family Owner বা Admin অনুমোদন করার পর dashboard এবং সব protected module ব্যবহার করতে পারবেন।</p><Button asChild className="mt-7 rounded-xl"><a href="/setup">Family onboarding খুলুন</a></Button></CardContent></Card></main> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
           <section className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
