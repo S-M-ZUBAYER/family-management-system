@@ -17,6 +17,16 @@ const kinds: QurbaniRecordKind[] = [
   "distribution",
 ];
 
+const tableByKind: Record<QurbaniRecordKind, string> = {
+  participant: "qurbani_participants",
+  animal: "qurbani_animals",
+  transaction: "qurbani_transactions",
+  vendor: "qurbani_vendors",
+  schedule: "qurbani_schedules",
+  task: "qurbani_tasks",
+  distribution: "qurbani_distributions",
+};
+
 const textValue = (value: unknown, max: number) =>
   typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 
@@ -295,4 +305,101 @@ export async function POST(request: Request) {
     console.error("Unable to create Qurbani record", error);
     return Response.json({ error: "কোরবানি record save হয়নি।" }, { status: 500 });
   }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const user = await getChatGPTUser();
+    if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
+    const membership = await getActiveFamilyMembership(user.userId);
+    if (!membership || !canManageQurbani(membership.role)) return Response.json({ error: "কোরবানি record edit করার permission নেই।" }, { status: 403 });
+    const body = await request.json() as { kind?: QurbaniRecordKind; campaignId?: unknown; recordId?: unknown; data?: Record<string, unknown> };
+    const kind = body.kind;
+    const campaignId = textValue(body.campaignId, 80);
+    const recordId = textValue(body.recordId, 80);
+    const data = body.data ?? {};
+    if (!kind || !kinds.includes(kind) || !campaignId || !recordId) return Response.json({ error: "Valid record type, campaign ও record প্রয়োজন।" }, { status: 400 });
+    const campaign = (await supabaseRest<Array<Pick<QurbaniCampaign, "id" | "share_price">>>(`qurbani_campaigns?${new URLSearchParams({ select: "id,share_price", id: `eq.${campaignId}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
+    if (!campaign) return Response.json({ error: "Campaign পাওয়া যায়নি।" }, { status: 404 });
+    const table = tableByKind[kind];
+    const existing = (await supabaseRest<Array<{ id: string }>>(`${table}?${new URLSearchParams({ select: "id", id: `eq.${recordId}`, campaign_id: `eq.${campaignId}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
+    if (!existing) return Response.json({ error: "Record পাওয়া যায়নি।" }, { status: 404 });
+    const changes = await qurbaniRecordChanges(kind, data, campaignId, membership.family_id, Number(campaign.share_price));
+    if (changes instanceof Response) return changes;
+    if (!(["transaction", "distribution"] as QurbaniRecordKind[]).includes(kind)) changes.updated_at = new Date().toISOString();
+    const [updated] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${new URLSearchParams({ id: `eq.${recordId}`, campaign_id: `eq.${campaignId}`, family_id: `eq.${membership.family_id}` })}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
+    await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: `qurbani_${kind}_updated`, entity_type: `qurbani_${kind}`, entity_id: recordId, metadata: { campaign_id: campaignId } }) });
+    return Response.json({ record: updated, message: `${kind} record update হয়েছে।` });
+  } catch (error) {
+    return qurbaniRecordError(error, "Unable to update Qurbani record", "কোরবানি record update হয়নি।");
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const user = await getChatGPTUser();
+    if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
+    const membership = await getActiveFamilyMembership(user.userId);
+    if (!membership || !canManageQurbani(membership.role)) return Response.json({ error: "কোরবানি record delete করার permission নেই।" }, { status: 403 });
+    const body = await request.json() as { kind?: QurbaniRecordKind; campaignId?: unknown; recordId?: unknown };
+    const kind = body.kind;
+    const campaignId = textValue(body.campaignId, 80);
+    const recordId = textValue(body.recordId, 80);
+    if (!kind || !kinds.includes(kind) || !campaignId || !recordId) return Response.json({ error: "Valid record type, campaign ও record প্রয়োজন।" }, { status: 400 });
+    const table = tableByKind[kind];
+    const existing = (await supabaseRest<Array<{ id: string }>>(`${table}?${new URLSearchParams({ select: "id", id: `eq.${recordId}`, campaign_id: `eq.${campaignId}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
+    if (!existing) return Response.json({ error: "Record পাওয়া যায়নি।" }, { status: 404 });
+    await supabaseRest(`${table}?${new URLSearchParams({ id: `eq.${recordId}`, campaign_id: `eq.${campaignId}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: `qurbani_${kind}_deleted`, entity_type: `qurbani_${kind}`, entity_id: recordId, metadata: { campaign_id: campaignId } }) });
+    return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।` });
+  } catch (error) {
+    return qurbaniRecordError(error, "Unable to delete Qurbani record", "কোরবানি record delete হয়নি।");
+  }
+}
+
+async function qurbaniRecordChanges(kind: QurbaniRecordKind, data: Record<string, unknown>, campaignId: string, familyId: string, sharePrice: number): Promise<Record<string, unknown> | Response> {
+  if (kind === "participant") {
+    const memberName = textValue(data.memberName, 180), shareCount = numberValue(data.shareCount), amountPaid = numberValue(data.amountPaid, 0), amountDue = numberValue(data.amountDue, shareCount === undefined ? undefined : shareCount * sharePrice), animalId = textValue(data.animalId, 80);
+    if (!memberName || shareCount === undefined || shareCount <= 0 || shareCount > 100 || amountDue === undefined || amountDue < 0 || amountPaid === undefined || amountPaid < 0 || !(await referenceBelongsToCampaign("qurbani_animals", animalId, campaignId, familyId))) return Response.json({ error: "Participant, share, payment বা animal assignment সঠিক নয়।" }, { status: 400 });
+    return { animal_id: animalId, member_name: memberName, phone: textValue(data.phone, 40), share_count: shareCount, amount_due: amountDue, amount_paid: amountPaid, status: enumValue(data.status, ["pending", "confirmed", "cancelled"] as const, "pending"), notes: textValue(data.notes, 2000) };
+  }
+  if (kind === "animal") {
+    const tagCode = textValue(data.tagCode, 60), purchasePrice = numberValue(data.purchasePrice, 0), liveWeight = numberValue(data.liveWeightKg, 0), estimatedMeat = numberValue(data.estimatedMeatKg, 0), transportCost = numberValue(data.transportCost, 0), feedCost = numberValue(data.feedCost, 0);
+    if (!tagCode || [purchasePrice, liveWeight, estimatedMeat, transportCost, feedCost].some((value) => value === undefined || value < 0)) return Response.json({ error: "Animal tag, price ও weight সঠিকভাবে দিন।" }, { status: 400 });
+    return { tag_code: tagCode, animal_type: enumValue(data.animalType, ["cow", "goat", "sheep", "buffalo"] as const, "cow"), breed: textValue(data.breed, 120), color: textValue(data.color, 80), live_weight_kg: liveWeight, estimated_meat_kg: estimatedMeat, purchase_price: purchasePrice, vendor_name: textValue(data.vendorName, 180), purchase_date: textValue(data.purchaseDate, 20), health_status: enumValue(data.healthStatus, ["pending", "fit", "observation", "rejected"] as const, "pending"), vet_notes: textValue(data.vetNotes, 2000), transport_cost: transportCost, feed_cost: feedCost, status: enumValue(data.status, ["shortlisted", "purchased", "received", "slaughtered", "cancelled"] as const, "shortlisted") };
+  }
+  if (kind === "transaction") {
+    const amount = numberValue(data.amount), animalId = textValue(data.animalId, 80), participantId = textValue(data.participantId, 80);
+    const refs = await Promise.all([referenceBelongsToCampaign("qurbani_animals", animalId, campaignId, familyId), referenceBelongsToCampaign("qurbani_participants", participantId, campaignId, familyId)]);
+    if (!amount || amount <= 0 || refs.includes(false)) return Response.json({ error: "Transaction amount বা linked record সঠিক নয়।" }, { status: 400 });
+    return { participant_id: participantId, animal_id: animalId, transaction_type: enumValue(data.transactionType, ["collection", "expense", "refund"] as const, "collection"), category: enumValue(data.category, ["share_payment", "animal_purchase", "transport", "feed", "butcher", "logistics", "equipment", "distribution", "misc"] as const, "share_payment"), amount, payment_method: enumValue(data.paymentMethod, ["cash", "bank", "mobile", "other"] as const, "cash"), reference: textValue(data.reference, 180), transaction_date: textValue(data.transactionDate, 20) ?? new Date().toISOString().slice(0, 10), notes: textValue(data.notes, 2000) };
+  }
+  if (kind === "vendor") {
+    const name = textValue(data.name, 180), agreedAmount = numberValue(data.agreedAmount, 0), paidAmount = numberValue(data.paidAmount, 0);
+    if (!name || agreedAmount === undefined || agreedAmount < 0 || paidAmount === undefined || paidAmount < 0) return Response.json({ error: "Vendor name ও amount সঠিকভাবে দিন।" }, { status: 400 });
+    return { name, vendor_type: enumValue(data.vendorType, ["animal_seller", "butcher", "transport", "feed", "equipment", "other"] as const, "animal_seller"), phone: textValue(data.phone, 40), address: textValue(data.address, 500), agreed_amount: agreedAmount, paid_amount: paidAmount, status: enumValue(data.status, ["planned", "confirmed", "completed", "cancelled"] as const, "planned"), notes: textValue(data.notes, 2000) };
+  }
+  if (kind === "schedule") {
+    const scheduledAt = textValue(data.scheduledAt, 40), sequenceNo = numberValue(data.sequenceNo, 1), animalId = textValue(data.animalId, 80);
+    if (!scheduledAt || sequenceNo === undefined || sequenceNo < 1 || !(await referenceBelongsToCampaign("qurbani_animals", animalId, campaignId, familyId))) return Response.json({ error: "Schedule time, sequence বা animal সঠিক নয়।" }, { status: 400 });
+    return { animal_id: animalId, sequence_no: Math.round(sequenceNo), scheduled_at: scheduledAt, location: textValue(data.location, 220), butcher_team: textValue(data.butcherTeam, 180), status: enumValue(data.status, ["scheduled", "in_progress", "completed", "delayed"] as const, "scheduled"), notes: textValue(data.notes, 2000) };
+  }
+  if (kind === "task") {
+    const title = textValue(data.title, 220);
+    if (!title) return Response.json({ error: "Task title প্রয়োজন।" }, { status: 400 });
+    return { title, category: enumValue(data.category, ["procurement", "finance", "logistics", "slaughter", "distribution", "cleanup"] as const, "logistics"), assigned_to: textValue(data.assignedTo, 180), due_at: textValue(data.dueAt, 40), priority: enumValue(data.priority, ["normal", "high", "urgent"] as const, "normal"), status: enumValue(data.status, ["todo", "in_progress", "completed", "cancelled"] as const, "todo"), notes: textValue(data.notes, 2000) };
+  }
+  const recipientName = textValue(data.recipientName, 180), weightKg = numberValue(data.weightKg, 0), packageCount = numberValue(data.packageCount, 1);
+  if (!recipientName || weightKg === undefined || weightKg < 0 || packageCount === undefined || packageCount < 1) return Response.json({ error: "Recipient, weight ও package count সঠিকভাবে দিন।" }, { status: 400 });
+  return { recipient_name: recipientName, recipient_type: enumValue(data.recipientType, ["participant", "family", "relative", "needy", "worker", "other"] as const, "participant"), weight_kg: weightKg, package_count: Math.round(packageCount), collected_at: textValue(data.collectedAt, 40), notes: textValue(data.notes, 2000) };
+}
+
+function qurbaniRecordError(error: unknown, logMessage: string, message: string) {
+  if (error instanceof BackendNotConfiguredError) return Response.json({ error: "Backend configured নয়।" }, { status: 503 });
+  if (error instanceof SupabaseRequestError) {
+    console.error(logMessage, error.status, error.message);
+    return Response.json({ error: message }, { status: 502 });
+  }
+  console.error(logMessage, error);
+  return Response.json({ error: message }, { status: 500 });
 }

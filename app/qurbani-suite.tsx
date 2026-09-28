@@ -14,11 +14,13 @@ import {
   LoaderCircle,
   MoreHorizontal,
   PackageCheck,
+  Pencil,
   Plus,
   ReceiptText,
   Scale,
   ShieldAlert,
   Truck,
+  Trash2,
   Users,
 } from "lucide-react";
 
@@ -74,6 +76,7 @@ import type {
 } from "@/lib/qurbani-types";
 
 type FormState = Record<string, string>;
+type QurbaniRecord = QurbaniParticipant | QurbaniAnimal | QurbaniTransaction | QurbaniVendor | QurbaniSchedule | QurbaniTask | QurbaniDistribution;
 type SectionKey =
   | "overview"
   | "participants"
@@ -129,6 +132,21 @@ const dateTimeFormatter = new Intl.DateTimeFormat("bn-BD", {
 const today = () => new Date().toISOString().slice(0, 10);
 const numberOf = (value: number | string | null | undefined) => Number(value ?? 0) || 0;
 
+function defaultCampaignForm(): FormState {
+  return {
+    title: "কোরবানি " + (new Date().getFullYear() + 1),
+    year: String(new Date().getFullYear() + 1),
+    hijriYear: "",
+    status: "planning",
+    sharePrice: "0",
+    targetShares: "7",
+    registrationDeadline: "",
+    slaughterDate: "",
+    location: "",
+    notes: "",
+  };
+}
+
 function defaultRecordForm(kind: QurbaniRecordKind): FormState {
   if (kind === "participant") return { shareCount: "1", amountDue: "", amountPaid: "0", status: "pending", animalId: "none" };
   if (kind === "animal") return { animalType: "cow", liveWeightKg: "0", estimatedMeatKg: "0", purchasePrice: "0", transportCost: "0", feedCost: "0", healthStatus: "pending", status: "shortlisted", purchaseDate: today() };
@@ -159,20 +177,11 @@ export function QurbaniSuite() {
   const [exporting, setExporting] = useState(false);
   const [feedback, setFeedback] = useActionFeedback();
   const [campaignOpen, setCampaignOpen] = useState(false);
+  const [editingCampaign, setEditingCampaign] = useState(false);
   const [recordKind, setRecordKind] = useState<QurbaniRecordKind | null>(null);
+  const [editingRecord, setEditingRecord] = useState<{ id: string; kind: QurbaniRecordKind } | null>(null);
   const [recordForm, setRecordForm] = useState<FormState>({});
-  const [campaignForm, setCampaignForm] = useState<FormState>({
-    title: "কোরবানি " + (new Date().getFullYear() + 1),
-    year: String(new Date().getFullYear() + 1),
-    hijriYear: "",
-    status: "planning",
-    sharePrice: "0",
-    targetShares: "7",
-    registrationDeadline: "",
-    slaughterDate: "",
-    location: "",
-    notes: "",
-  });
+  const [campaignForm, setCampaignForm] = useState<FormState>(defaultCampaignForm);
 
   const loadQurbani = useCallback(async () => {
     setLoading(true);
@@ -316,23 +325,67 @@ export function QurbaniSuite() {
     setFeedback(null);
     try {
       const response = await fetch("/api/qurbani/campaigns", {
-        method: "POST",
+        method: editingCampaign ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(campaignForm),
+        body: JSON.stringify(editingCampaign ? { ...campaignForm, campaignId: campaign?.id } : campaignForm),
       });
       const payload = (await response.json()) as { campaign?: QurbaniCampaign; error?: string };
       if (!response.ok || !payload.campaign) throw new Error(payload.error ?? "Campaign save হয়নি।");
       setCampaignOpen(false);
+      setEditingCampaign(false);
+      setCampaignForm(defaultCampaignForm());
       await loadQurbani();
       setSelectedCampaignId(payload.campaign.id);
-      setFeedback("নতুন কোরবানি campaign তৈরি হয়েছে।");
+      setFeedback(editingCampaign ? "Qurbani campaign update হয়েছে।" : "নতুন কোরবানি campaign তৈরি হয়েছে।");
     } finally {
       setSaving(false);
     }
   }
 
+  function openCreateCampaign() {
+    setEditingCampaign(false);
+    setCampaignForm(defaultCampaignForm());
+    setCampaignOpen(true);
+  }
+
+  function openEditCampaign() {
+    if (!campaign) return;
+    const localDate = (value: string | null) => value ? new Date(value).toISOString().slice(0, 16) : "";
+    setEditingCampaign(true);
+    setCampaignForm({ title: campaign.title, year: String(campaign.year), hijriYear: campaign.hijri_year ?? "", status: campaign.status, sharePrice: String(campaign.share_price), targetShares: String(campaign.target_shares), registrationDeadline: localDate(campaign.registration_deadline), slaughterDate: campaign.slaughter_date ?? "", location: campaign.location ?? "", notes: campaign.notes ?? "" });
+    setCampaignOpen(true);
+  }
+
+  async function deleteCampaign() {
+    if (!campaign) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/qurbani/campaigns", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ campaignId: campaign.id }) });
+      const payload = await response.json() as { error?: string; message?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Campaign delete হয়নি।");
+      await loadQurbani();
+      setFeedback(payload.message ?? "Campaign delete হয়েছে।");
+    } finally { setSaving(false); }
+  }
+
   function openRecord(kind: QurbaniRecordKind) {
+    setEditingRecord(null);
     setRecordForm(defaultRecordForm(kind));
+    setRecordKind(kind);
+  }
+
+  function openEditRecord(kind: QurbaniRecordKind, item: QurbaniRecord) {
+    const localDate = (value: string | null | undefined) => value ? new Date(value).toISOString().slice(0, 16) : "";
+    let form: FormState;
+    if (kind === "participant") { const value = item as QurbaniParticipant; form = { memberName: value.member_name, phone: value.phone ?? "", shareCount: String(value.share_count), animalId: value.animal_id ?? "none", amountDue: String(value.amount_due), amountPaid: String(value.amount_paid), status: value.status, notes: value.notes ?? "" }; }
+    else if (kind === "animal") { const value = item as QurbaniAnimal; form = { tagCode: value.tag_code, animalType: value.animal_type, breed: value.breed ?? "", color: value.color ?? "", liveWeightKg: String(value.live_weight_kg), estimatedMeatKg: String(value.estimated_meat_kg), purchasePrice: String(value.purchase_price), vendorName: value.vendor_name ?? "", purchaseDate: value.purchase_date ?? "", healthStatus: value.health_status, vetNotes: value.vet_notes ?? "", transportCost: String(value.transport_cost), feedCost: String(value.feed_cost), status: value.status, notes: "" }; }
+    else if (kind === "transaction") { const value = item as QurbaniTransaction; form = { transactionType: value.transaction_type, category: value.category, amount: String(value.amount), paymentMethod: value.payment_method, transactionDate: value.transaction_date, reference: value.reference ?? "", participantId: value.participant_id ?? "none", animalId: value.animal_id ?? "none", notes: value.notes ?? "" }; }
+    else if (kind === "vendor") { const value = item as QurbaniVendor; form = { name: value.name, vendorType: value.vendor_type, phone: value.phone ?? "", address: value.address ?? "", agreedAmount: String(value.agreed_amount), paidAmount: String(value.paid_amount), status: value.status, notes: value.notes ?? "" }; }
+    else if (kind === "schedule") { const value = item as QurbaniSchedule; form = { animalId: value.animal_id ?? "none", sequenceNo: String(value.sequence_no), scheduledAt: localDate(value.scheduled_at), location: value.location ?? "", butcherTeam: value.butcher_team ?? "", status: value.status, notes: value.notes ?? "" }; }
+    else if (kind === "task") { const value = item as QurbaniTask; form = { title: value.title, category: value.category, assignedTo: value.assigned_to ?? "", dueAt: localDate(value.due_at), priority: value.priority, status: value.status, notes: value.notes ?? "" }; }
+    else { const value = item as QurbaniDistribution; form = { recipientName: value.recipient_name, recipientType: value.recipient_type, weightKg: String(value.weight_kg), packageCount: String(value.package_count), collectedAt: localDate(value.collected_at), notes: value.notes ?? "" }; }
+    setEditingRecord({ id: item.id, kind });
+    setRecordForm(form);
     setRecordKind(kind);
   }
 
@@ -345,19 +398,32 @@ export function QurbaniSuite() {
         Object.entries(recordForm).map(([key, value]) => [key, value === "none" ? "" : value]),
       );
       const response = await fetch("/api/qurbani/records", {
-        method: "POST",
+        method: editingRecord ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: recordKind, campaignId: campaign.id, data: cleanData }),
+        body: JSON.stringify({ kind: recordKind, campaignId: campaign.id, recordId: editingRecord?.id, data: cleanData }),
       });
       const payload = (await response.json()) as { record?: unknown; error?: string };
       if (!response.ok || !payload.record) throw new Error(payload.error ?? "Record save হয়নি।");
       const label = kindLabels[recordKind];
       setRecordKind(null);
+      setEditingRecord(null);
       await loadQurbani();
-      setFeedback(label + " record যোগ হয়েছে।");
+      setFeedback(label + (editingRecord ? " record update হয়েছে।" : " record যোগ হয়েছে।"));
     } finally {
       setSaving(false);
     }
+  }
+
+  async function deleteRecord(kind: QurbaniRecordKind, id: string) {
+    if (!campaign) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/qurbani/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, campaignId: campaign.id, recordId: id }) });
+      const payload = await response.json() as { error?: string; message?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Record delete হয়নি।");
+      await loadQurbani();
+      setFeedback(payload.message ?? "Record delete হয়েছে।");
+    } finally { setSaving(false); }
   }
 
   async function updateStatus(entity: string, id: string, status: string) {
@@ -607,7 +673,7 @@ export function QurbaniSuite() {
             Complete XLSX
           </Button>
           {canManage && !migrationRequired ? (
-            <Button className="gap-2 rounded-xl" onClick={() => setCampaignOpen(true)}>
+            <Button className="gap-2 rounded-xl" onClick={openCreateCampaign}>
               <Plus className="size-4" /> নতুন Campaign
             </Button>
           ) : null}
@@ -648,7 +714,7 @@ export function QurbaniSuite() {
           text="Year, share price, target, registration deadline ও location দিয়ে শুরু করুন।"
           action={
             canManage && !migrationRequired ? (
-              <Button className="gap-2 rounded-xl" onClick={() => setCampaignOpen(true)}>
+              <Button className="gap-2 rounded-xl" onClick={openCreateCampaign}>
                 <Plus className="size-4" /> Campaign তৈরি করুন
               </Button>
             ) : undefined
@@ -677,12 +743,7 @@ export function QurbaniSuite() {
                     {[campaign.hijri_year, campaign.location, campaign.slaughter_date ? dateFormatter.format(new Date(campaign.slaughter_date + "T00:00:00")) : null].filter(Boolean).join(" · ") || "Campaign details"}
                   </p>
                 </div>
-                {canManage ? (
-                  <CampaignStatusMenu
-                    disabled={saving}
-                    onSelect={(status) => void updateStatus("campaign", campaign.id, status)}
-                  />
-                ) : null}
+                {canManage ? <div className="flex flex-wrap gap-2"><Button variant="outline" className="gap-2 rounded-xl" disabled={saving} onClick={openEditCampaign}><Pencil className="size-4" /> Edit campaign</Button><CampaignStatusMenu disabled={saving} onSelect={(status) => void updateStatus("campaign", campaign.id, status)} /><Button variant="destructive" className="gap-2 rounded-xl" disabled={saving} onClick={() => void deleteCampaign().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Campaign delete হয়নি।"))}><Trash2 className="size-4" /> Delete</Button></div> : null}
               </div>
               <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4 lg:grid-cols-7">
                 {workflow.map((status, index) => {
@@ -758,7 +819,7 @@ export function QurbaniSuite() {
             <TabsContent value="participants">
               <DataSection title="অংশগ্রহণকারী, শেয়ার ও পাওনা" description="Family member-wise allocation, due এবং payment status" canAdd={canManage} onAdd={() => openRecord("participant")} onExport={() => void exportWorkbook({ name: "Participants", rows: participantRows })}>
                 <Table><TableHeader><TableRow><TableHead>অংশগ্রহণকারী</TableHead><TableHead>Animal</TableHead><TableHead>Shares</TableHead><TableHead>Due</TableHead><TableHead>Paid</TableHead><TableHead>Status</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
-                  {campaignParticipants.map((item) => <TableRow key={item.id}><TableCell><p className="font-semibold">{item.member_name}</p><p className="text-xs text-muted-foreground">{item.phone || "Phone private"}</p></TableCell><TableCell>{campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code || "Unassigned"}</TableCell><TableCell>{numberFormatter.format(numberOf(item.share_count))}</TableCell><TableCell>{moneyFormatter.format(numberOf(item.amount_due))}</TableCell><TableCell>{moneyFormatter.format(numberOf(item.amount_paid))}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><StatusMenu disabled={saving} values={["pending", "confirmed", "cancelled"]} onSelect={(status) => void updateStatus("participant", item.id, status)} /></TableCell> : null}</TableRow>)}
+                  {campaignParticipants.map((item) => <TableRow key={item.id}><TableCell><p className="font-semibold">{item.member_name}</p><p className="text-xs text-muted-foreground">{item.phone || "Phone private"}</p></TableCell><TableCell>{campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code || "Unassigned"}</TableCell><TableCell>{numberFormatter.format(numberOf(item.share_count))}</TableCell><TableCell>{moneyFormatter.format(numberOf(item.amount_due))}</TableCell><TableCell>{moneyFormatter.format(numberOf(item.amount_paid))}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><div className="flex"><StatusMenu disabled={saving} values={["pending", "confirmed", "cancelled"]} onSelect={(status) => void updateStatus("participant", item.id, status)} /><RecordActions disabled={saving} onEdit={() => openEditRecord("participant", item)} onDelete={() => void deleteRecord("participant", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell> : null}</TableRow>)}
                   <EmptyRows show={!campaignParticipants.length} columns={canManage ? 7 : 6} />
                 </TableBody></Table>
               </DataSection>
@@ -767,7 +828,7 @@ export function QurbaniSuite() {
             <TabsContent value="animals">
               <DataSection title="পশু ক্রয়, health ও costing" description="Tag, vendor, weight, veterinary check এবং lifecycle" canAdd={canManage} onAdd={() => openRecord("animal")} onExport={() => void exportWorkbook({ name: "Animals", rows: animalRows })}>
                 <Table><TableHeader><TableRow><TableHead>Tag / Type</TableHead><TableHead>Weight</TableHead><TableHead>Price + logistics</TableHead><TableHead>Vendor</TableHead><TableHead>Health</TableHead><TableHead>Status</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
-                  {campaignAnimals.map((item) => <TableRow key={item.id}><TableCell><p className="font-bold">{item.tag_code}</p><p className="text-xs text-muted-foreground">{item.animal_type} · {item.breed || "Breed not set"}</p></TableCell><TableCell>{numberFormatter.format(numberOf(item.live_weight_kg))} kg<p className="text-xs text-muted-foreground">{numberFormatter.format(numberOf(item.estimated_meat_kg))} kg yield</p></TableCell><TableCell>{moneyFormatter.format(numberOf(item.purchase_price))}<p className="text-xs text-muted-foreground">+ {moneyFormatter.format(numberOf(item.transport_cost) + numberOf(item.feed_cost))}</p></TableCell><TableCell>{item.vendor_name || "Not set"}</TableCell><TableCell><StatusBadge value={item.health_status} /></TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><StatusMenu disabled={saving} values={["shortlisted", "purchased", "received", "slaughtered", "cancelled"]} onSelect={(status) => void updateStatus("animal", item.id, status)} /></TableCell> : null}</TableRow>)}
+                  {campaignAnimals.map((item) => <TableRow key={item.id}><TableCell><p className="font-bold">{item.tag_code}</p><p className="text-xs text-muted-foreground">{item.animal_type} · {item.breed || "Breed not set"}</p></TableCell><TableCell>{numberFormatter.format(numberOf(item.live_weight_kg))} kg<p className="text-xs text-muted-foreground">{numberFormatter.format(numberOf(item.estimated_meat_kg))} kg yield</p></TableCell><TableCell>{moneyFormatter.format(numberOf(item.purchase_price))}<p className="text-xs text-muted-foreground">+ {moneyFormatter.format(numberOf(item.transport_cost) + numberOf(item.feed_cost))}</p></TableCell><TableCell>{item.vendor_name || "Not set"}</TableCell><TableCell><StatusBadge value={item.health_status} /></TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><div className="flex"><StatusMenu disabled={saving} values={["shortlisted", "purchased", "received", "slaughtered", "cancelled"]} onSelect={(status) => void updateStatus("animal", item.id, status)} /><RecordActions disabled={saving} onEdit={() => openEditRecord("animal", item)} onDelete={() => void deleteRecord("animal", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell> : null}</TableRow>)}
                   <EmptyRows show={!campaignAnimals.length} columns={canManage ? 7 : 6} />
                 </TableBody></Table>
               </DataSection>
@@ -775,9 +836,9 @@ export function QurbaniSuite() {
 
             <TabsContent value="ledger">
               <DataSection title="Collection, expense ও refund ledger" description="Immutable financial entries with category, method ও reference" canAdd={canManage} onAdd={() => openRecord("transaction")} onExport={() => void exportWorkbook({ name: "Ledger", rows: ledgerRows })}>
-                <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Category</TableHead><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Linked record</TableHead><TableHead>Reference</TableHead></TableRow></TableHeader><TableBody>
-                  {campaignTransactions.map((item) => <TableRow key={item.id}><TableCell>{dateFormatter.format(new Date(item.transaction_date + "T00:00:00"))}</TableCell><TableCell><StatusBadge value={item.transaction_type} /></TableCell><TableCell>{item.category.replaceAll("_", " ")}</TableCell><TableCell className="font-bold">{moneyFormatter.format(numberOf(item.amount))}</TableCell><TableCell>{item.payment_method}</TableCell><TableCell>{campaignParticipants.find((participant) => participant.id === item.participant_id)?.member_name || campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code || "General"}</TableCell><TableCell>{item.reference || "—"}</TableCell></TableRow>)}
-                  <EmptyRows show={!campaignTransactions.length} columns={7} />
+                <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Category</TableHead><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Linked record</TableHead><TableHead>Reference</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
+                  {campaignTransactions.map((item) => <TableRow key={item.id}><TableCell>{dateFormatter.format(new Date(item.transaction_date + "T00:00:00"))}</TableCell><TableCell><StatusBadge value={item.transaction_type} /></TableCell><TableCell>{item.category.replaceAll("_", " ")}</TableCell><TableCell className="font-bold">{moneyFormatter.format(numberOf(item.amount))}</TableCell><TableCell>{item.payment_method}</TableCell><TableCell>{campaignParticipants.find((participant) => participant.id === item.participant_id)?.member_name || campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code || "General"}</TableCell><TableCell>{item.reference || "—"}</TableCell>{canManage ? <TableCell><RecordActions disabled={saving} onEdit={() => openEditRecord("transaction", item)} onDelete={() => void deleteRecord("transaction", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></TableCell> : null}</TableRow>)}
+                  <EmptyRows show={!campaignTransactions.length} columns={canManage ? 8 : 7} />
                 </TableBody></Table>
               </DataSection>
             </TabsContent>
@@ -785,7 +846,7 @@ export function QurbaniSuite() {
             <TabsContent value="vendors">
               <DataSection title="Vendor ও service provider control" description="Animal seller, butcher, transport, feed ও equipment providers" canAdd={canManage} onAdd={() => openRecord("vendor")} onExport={() => void exportWorkbook({ name: "Vendors", rows: vendorRows })}>
                 <Table><TableHeader><TableRow><TableHead>Vendor</TableHead><TableHead>Type</TableHead><TableHead>Contact</TableHead><TableHead>Agreed</TableHead><TableHead>Paid / Due</TableHead><TableHead>Status</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
-                  {campaignVendors.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.name}</TableCell><TableCell>{item.vendor_type.replaceAll("_", " ")}</TableCell><TableCell>{item.phone || "Private"}<p className="max-w-52 truncate text-xs text-muted-foreground">{item.address}</p></TableCell><TableCell>{moneyFormatter.format(numberOf(item.agreed_amount))}</TableCell><TableCell>{moneyFormatter.format(numberOf(item.paid_amount))}<p className="text-xs text-muted-foreground">{moneyFormatter.format(Math.max(0, numberOf(item.agreed_amount) - numberOf(item.paid_amount)))} due</p></TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><StatusMenu disabled={saving} values={["planned", "confirmed", "completed", "cancelled"]} onSelect={(status) => void updateStatus("vendor", item.id, status)} /></TableCell> : null}</TableRow>)}
+                  {campaignVendors.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.name}</TableCell><TableCell>{item.vendor_type.replaceAll("_", " ")}</TableCell><TableCell>{item.phone || "Private"}<p className="max-w-52 truncate text-xs text-muted-foreground">{item.address}</p></TableCell><TableCell>{moneyFormatter.format(numberOf(item.agreed_amount))}</TableCell><TableCell>{moneyFormatter.format(numberOf(item.paid_amount))}<p className="text-xs text-muted-foreground">{moneyFormatter.format(Math.max(0, numberOf(item.agreed_amount) - numberOf(item.paid_amount)))} due</p></TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><div className="flex"><StatusMenu disabled={saving} values={["planned", "confirmed", "completed", "cancelled"]} onSelect={(status) => void updateStatus("vendor", item.id, status)} /><RecordActions disabled={saving} onEdit={() => openEditRecord("vendor", item)} onDelete={() => void deleteRecord("vendor", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell> : null}</TableRow>)}
                   <EmptyRows show={!campaignVendors.length} columns={canManage ? 7 : 6} />
                 </TableBody></Table>
               </DataSection>
@@ -794,7 +855,7 @@ export function QurbaniSuite() {
             <TabsContent value="schedule">
               <DataSection title="কোরবানির day schedule" description="Animal sequence, slot, location এবং butcher team" canAdd={canManage} onAdd={() => openRecord("schedule")} onExport={() => void exportWorkbook({ name: "Schedule", rows: scheduleRows })}>
                 <Table><TableHeader><TableRow><TableHead>Sequence</TableHead><TableHead>Animal</TableHead><TableHead>Time</TableHead><TableHead>Location</TableHead><TableHead>Team</TableHead><TableHead>Status</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
-                  {campaignSchedules.map((item) => <TableRow key={item.id}><TableCell className="font-bold">#{item.sequence_no}</TableCell><TableCell>{campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code || "General slot"}</TableCell><TableCell>{dateTimeFormatter.format(new Date(item.scheduled_at))}</TableCell><TableCell>{item.location || campaign.location || "Not set"}</TableCell><TableCell>{item.butcher_team || "Unassigned"}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><StatusMenu disabled={saving} values={["scheduled", "in_progress", "completed", "delayed"]} onSelect={(status) => void updateStatus("schedule", item.id, status)} /></TableCell> : null}</TableRow>)}
+                  {campaignSchedules.map((item) => <TableRow key={item.id}><TableCell className="font-bold">#{item.sequence_no}</TableCell><TableCell>{campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code || "General slot"}</TableCell><TableCell>{dateTimeFormatter.format(new Date(item.scheduled_at))}</TableCell><TableCell>{item.location || campaign.location || "Not set"}</TableCell><TableCell>{item.butcher_team || "Unassigned"}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><div className="flex"><StatusMenu disabled={saving} values={["scheduled", "in_progress", "completed", "delayed"]} onSelect={(status) => void updateStatus("schedule", item.id, status)} /><RecordActions disabled={saving} onEdit={() => openEditRecord("schedule", item)} onDelete={() => void deleteRecord("schedule", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell> : null}</TableRow>)}
                   <EmptyRows show={!campaignSchedules.length} columns={canManage ? 7 : 6} />
                 </TableBody></Table>
               </DataSection>
@@ -803,7 +864,7 @@ export function QurbaniSuite() {
             <TabsContent value="tasks">
               <DataSection title="Task ও volunteer duty board" description="Procurement, finance, logistics, slaughter, distribution ও cleanup" canAdd={canManage} onAdd={() => openRecord("task")} onExport={() => void exportWorkbook({ name: "Tasks", rows: taskRows })}>
                 <Table><TableHeader><TableRow><TableHead>Task</TableHead><TableHead>Category</TableHead><TableHead>Assigned</TableHead><TableHead>Due</TableHead><TableHead>Priority</TableHead><TableHead>Status</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
-                  {campaignTasks.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.title}</TableCell><TableCell>{item.category}</TableCell><TableCell>{item.assigned_to || "Unassigned"}</TableCell><TableCell>{item.due_at ? dateTimeFormatter.format(new Date(item.due_at)) : "No deadline"}</TableCell><TableCell><StatusBadge value={item.priority} /></TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><StatusMenu disabled={saving} values={["todo", "in_progress", "completed", "cancelled"]} onSelect={(status) => void updateStatus("task", item.id, status)} /></TableCell> : null}</TableRow>)}
+                  {campaignTasks.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.title}</TableCell><TableCell>{item.category}</TableCell><TableCell>{item.assigned_to || "Unassigned"}</TableCell><TableCell>{item.due_at ? dateTimeFormatter.format(new Date(item.due_at)) : "No deadline"}</TableCell><TableCell><StatusBadge value={item.priority} /></TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><div className="flex"><StatusMenu disabled={saving} values={["todo", "in_progress", "completed", "cancelled"]} onSelect={(status) => void updateStatus("task", item.id, status)} /><RecordActions disabled={saving} onEdit={() => openEditRecord("task", item)} onDelete={() => void deleteRecord("task", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell> : null}</TableRow>)}
                   <EmptyRows show={!campaignTasks.length} columns={canManage ? 7 : 6} />
                 </TableBody></Table>
               </DataSection>
@@ -811,9 +872,9 @@ export function QurbaniSuite() {
 
             <TabsContent value="distribution">
               <DataSection title="মাংস ও package distribution" description="Participant, আত্মীয়, দরিদ্র, worker ও family allocation" canAdd={canManage} onAdd={() => openRecord("distribution")} onExport={() => void exportWorkbook({ name: "Distribution", rows: distributionRows })}>
-                <Table><TableHeader><TableRow><TableHead>Recipient</TableHead><TableHead>Type</TableHead><TableHead>Weight</TableHead><TableHead>Packages</TableHead><TableHead>Collected</TableHead><TableHead>Notes</TableHead></TableRow></TableHeader><TableBody>
-                  {campaignDistributions.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.recipient_name}</TableCell><TableCell><StatusBadge value={item.recipient_type} /></TableCell><TableCell>{numberFormatter.format(numberOf(item.weight_kg))} kg</TableCell><TableCell>{numberFormatter.format(item.package_count)}</TableCell><TableCell>{item.collected_at ? dateTimeFormatter.format(new Date(item.collected_at)) : "Pending"}</TableCell><TableCell className="max-w-72 truncate">{item.notes || "—"}</TableCell></TableRow>)}
-                  <EmptyRows show={!campaignDistributions.length} columns={6} />
+                <Table><TableHeader><TableRow><TableHead>Recipient</TableHead><TableHead>Type</TableHead><TableHead>Weight</TableHead><TableHead>Packages</TableHead><TableHead>Collected</TableHead><TableHead>Notes</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
+                  {campaignDistributions.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.recipient_name}</TableCell><TableCell><StatusBadge value={item.recipient_type} /></TableCell><TableCell>{numberFormatter.format(numberOf(item.weight_kg))} kg</TableCell><TableCell>{numberFormatter.format(item.package_count)}</TableCell><TableCell>{item.collected_at ? dateTimeFormatter.format(new Date(item.collected_at)) : "Pending"}</TableCell><TableCell className="max-w-72 truncate">{item.notes || "—"}</TableCell>{canManage ? <TableCell><RecordActions disabled={saving} onEdit={() => openEditRecord("distribution", item)} onDelete={() => void deleteRecord("distribution", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></TableCell> : null}</TableRow>)}
+                  <EmptyRows show={!campaignDistributions.length} columns={canManage ? 7 : 6} />
                 </TableBody></Table>
               </DataSection>
             </TabsContent>
@@ -821,17 +882,17 @@ export function QurbaniSuite() {
         </>
       )}
 
-      <Dialog open={campaignOpen} onOpenChange={setCampaignOpen}>
+      <Dialog open={campaignOpen} onOpenChange={(open) => { setCampaignOpen(open); if (!open) { setEditingCampaign(false); setCampaignForm(defaultCampaignForm()); } }}>
         <DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>নতুন Qurbani campaign</DialogTitle>
-            <DialogDescription>বছরভিত্তিক সম্পূর্ণ operation-এর master setup তৈরি করুন।</DialogDescription>
+            <DialogTitle>{editingCampaign ? "Qurbani campaign edit" : "নতুন Qurbani campaign"}</DialogTitle>
+            <DialogDescription>{editingCampaign ? "Master setup, budget target, dates এবং location update করুন।" : "বছরভিত্তিক সম্পূর্ণ operation-এর master setup তৈরি করুন।"}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2 sm:grid-cols-2">
             <FormField label="Campaign name" id="campaign-title"><Input id="campaign-title" value={campaignForm.title} onChange={(event) => setCampaignForm({ ...campaignForm, title: event.target.value })} /></FormField>
             <FormField label="Year" id="campaign-year"><Input id="campaign-year" type="number" min="2000" max="2200" value={campaignForm.year} onChange={(event) => setCampaignForm({ ...campaignForm, year: event.target.value })} /></FormField>
             <FormField label="Hijri year" id="campaign-hijri"><Input id="campaign-hijri" value={campaignForm.hijriYear} onChange={(event) => setCampaignForm({ ...campaignForm, hijriYear: event.target.value })} /></FormField>
-            <FormField label="Initial status" id="campaign-status"><ValueSelect id="campaign-status" value={campaignForm.status} onChange={(value) => setCampaignForm({ ...campaignForm, status: value })} items={[["planning", "পরিকল্পনা"], ["registration", "Registration open"]]} /></FormField>
+            <FormField label="Status" id="campaign-status"><ValueSelect id="campaign-status" value={campaignForm.status} onChange={(value) => setCampaignForm({ ...campaignForm, status: value })} items={editingCampaign ? workflow.map((value) => [value, campaignStatusLabels[value]] as [string, string]) : [["planning", "পরিকল্পনা"], ["registration", "Registration open"]]} /></FormField>
             <FormField label="Share price" id="campaign-share-price"><Input id="campaign-share-price" type="number" min="0" value={campaignForm.sharePrice} onChange={(event) => setCampaignForm({ ...campaignForm, sharePrice: event.target.value })} /></FormField>
             <FormField label="Target shares" id="campaign-target"><Input id="campaign-target" type="number" min="1" step="0.01" value={campaignForm.targetShares} onChange={(event) => setCampaignForm({ ...campaignForm, targetShares: event.target.value })} /></FormField>
             <FormField label="Registration deadline" id="campaign-deadline"><Input id="campaign-deadline" type="datetime-local" value={campaignForm.registrationDeadline} onChange={(event) => setCampaignForm({ ...campaignForm, registrationDeadline: event.target.value })} /></FormField>
@@ -842,17 +903,17 @@ export function QurbaniSuite() {
           <DialogFooter>
             <Button variant="outline" className="rounded-xl" onClick={() => setCampaignOpen(false)}>বাতিল</Button>
             <Button className="gap-2 rounded-xl" disabled={saving || campaignForm.title.trim().length < 3 || !campaignForm.year || !campaignForm.targetShares} onClick={() => void createCampaign().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Campaign save হয়নি।"))}>
-              {saving ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />} Campaign তৈরি করুন
+              {saving ? <LoaderCircle className="size-4 animate-spin" /> : editingCampaign ? <Pencil className="size-4" /> : <Plus className="size-4" />} {editingCampaign ? "Campaign update" : "Campaign তৈরি করুন"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(recordKind)} onOpenChange={(open) => !open && setRecordKind(null)}>
+      <Dialog open={Boolean(recordKind)} onOpenChange={(open) => { if (!open) { setRecordKind(null); setEditingRecord(null); } }}>
         <DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle>{recordKind ? kindLabels[recordKind] : "নতুন record"} যোগ করুন</DialogTitle>
-            <DialogDescription>{campaign?.title} campaign-এর verified operational record।</DialogDescription>
+            <DialogTitle>{editingRecord ? `${recordKind ? kindLabels[recordKind] : "Record"} edit করুন` : `${recordKind ? kindLabels[recordKind] : "নতুন record"} যোগ করুন`}</DialogTitle>
+            <DialogDescription>{campaign?.title} campaign-এর verified operational record {editingRecord ? "update" : "তৈরি"} করুন।</DialogDescription>
           </DialogHeader>
           {recordKind ? (
             <RecordFields
@@ -866,7 +927,7 @@ export function QurbaniSuite() {
           <DialogFooter>
             <Button variant="outline" className="rounded-xl" onClick={() => setRecordKind(null)}>বাতিল</Button>
             <Button className="gap-2 rounded-xl" disabled={saving} onClick={() => void createRecord().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Record save হয়নি।"))}>
-              {saving ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />} Record save করুন
+              {saving ? <LoaderCircle className="size-4 animate-spin" /> : editingRecord ? <Pencil className="size-4" /> : <Plus className="size-4" />} {editingRecord ? "Record update" : "Record save করুন"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -919,6 +980,10 @@ function StatusBadge({ value }: { value: string }) {
 
 function StatusMenu({ values, onSelect, disabled }: { values: string[]; onSelect: (value: string) => void; disabled: boolean }) {
   return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">Status actions</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{values.map((value) => <DropdownMenuItem key={value} onClick={() => onSelect(value)}>{value.replaceAll("_", " ")}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>;
+}
+
+function RecordActions({ onEdit, onDelete, disabled }: { onEdit: () => void; onDelete: () => void; disabled: boolean }) {
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">Record actions</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={onEdit}><Pencil /> Edit details</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}><Trash2 /> Delete permanently</DropdownMenuItem></DropdownMenuContent></DropdownMenu>;
 }
 
 function CampaignStatusMenu({ onSelect, disabled }: { onSelect: (value: string) => void; disabled: boolean }) {
