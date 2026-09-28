@@ -18,9 +18,10 @@ import {
   UserRoundPlus,
   Users,
   Trash2,
+  Upload,
 } from "lucide-react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -64,6 +65,7 @@ export type FamilyMember = {
   city: string | null;
   country: string | null;
   profile_status: string;
+  profile_photo_file_id?: string | null;
 };
 
 export type FamilyRelationship = {
@@ -125,6 +127,8 @@ export function MemberDirectory() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<FamilyMember | null>(null);
   const [relationshipOpen, setRelationshipOpen] = useState(false);
@@ -240,6 +244,7 @@ export function MemberDirectory() {
 
   function openEditMember(member: FamilyMember) {
     setEditingMember(member);
+    setPhotoFile(null);
     setForm({
       nameBn: member.name_bn,
       nameEn: member.name_en ?? "",
@@ -292,6 +297,25 @@ export function MemberDirectory() {
     const payload = await response.json() as { error?: string };
     if (!response.ok) throw new Error(payload.error ?? "Relationship সরানো যায়নি।");
     setRelationships((current) => current.filter((item) => item.id !== relationshipId));
+  }
+
+  async function uploadProfilePhoto() {
+    if (!editingMember || !photoFile) return;
+    setPhotoUploading(true);
+    try {
+      const body = new FormData();
+      body.append("memberId", editingMember.id);
+      body.append("file", photoFile);
+      const response = await fetch("/api/members/photo", { method: "POST", body });
+      if (response.status === 499) return;
+      const payload = await response.json() as { fileId?: string; error?: string };
+      if (!response.ok || !payload.fileId) throw new Error(payload.error ?? "Profile photo upload হয়নি।");
+      setMembers((current) => current.map((member) => member.id === editingMember.id ? { ...member, profile_photo_file_id: payload.fileId } : member));
+      setEditingMember((current) => current ? { ...current, profile_photo_file_id: payload.fileId } : current);
+      setPhotoFile(null);
+    } finally {
+      setPhotoUploading(false);
+    }
   }
 
   async function exportXlsx() {
@@ -490,7 +514,7 @@ export function MemberDirectory() {
               <TableBody>
                 {visibleMembers.map((member) => (
                   <TableRow key={member.id}>
-                    <TableCell className="pl-5"><div className="flex items-center gap-3"><Avatar className="size-10"><AvatarFallback className="bg-primary/10 text-sm font-bold text-primary">{member.name_bn.slice(0, 2)}</AvatarFallback></Avatar><div><p className="font-semibold">{member.name_bn}</p><p className="text-xs text-muted-foreground">{member.name_en || "—"}</p></div></div></TableCell>
+                    <TableCell className="pl-5"><div className="flex items-center gap-3"><Avatar className="size-10">{member.profile_photo_file_id ? <AvatarImage src={`/api/archive-file/${member.profile_photo_file_id}`} alt={member.name_bn} className="object-cover" /> : null}<AvatarFallback className="bg-primary/10 text-sm font-bold text-primary">{member.name_bn.slice(0, 2)}</AvatarFallback></Avatar><div><p className="font-semibold">{member.name_bn}</p><p className="text-xs text-muted-foreground">{member.name_en || "—"}</p></div></div></TableCell>
                     <TableCell>{member.relationship_text || "—"}</TableCell>
                     <TableCell>{member.blood_group ? <Badge variant="outline">{member.blood_group}</Badge> : "—"}</TableCell>
                     <TableCell>{member.occupation || "—"}</TableCell>
@@ -518,6 +542,7 @@ export function MemberDirectory() {
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditingMember(null); setForm(emptyForm); } }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-3xl">
           <DialogHeader><DialogTitle>{editingMember ? "Member profile edit" : "নতুন member profile"}</DialogTitle><DialogDescription>{editingMember ? "সদস্যের directory information ও profile status update করুন।" : "প্রাথমিক profile ও প্রথম family connection একসাথে যোগ করুন।"}</DialogDescription></DialogHeader>
+          {editingMember ? <div className="flex flex-col gap-4 rounded-2xl border bg-muted/30 p-4 sm:flex-row sm:items-center"><Avatar className="size-20">{editingMember.profile_photo_file_id ? <AvatarImage src={`/api/archive-file/${editingMember.profile_photo_file_id}`} alt={editingMember.name_bn} className="object-cover" /> : null}<AvatarFallback className="bg-primary/10 text-xl font-bold text-primary">{editingMember.name_bn.slice(0, 2)}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><Label htmlFor="member-photo">Profile photo</Label><Input id="member-photo" type="file" accept="image/jpeg,image/png,image/webp" className="mt-2" onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)} /><p className="mt-1 text-xs text-muted-foreground">JPG, PNG বা WebP · সর্বোচ্চ ৫ MB</p></div><Button type="button" variant="outline" className="gap-2 rounded-xl" disabled={!photoFile || photoUploading} onClick={() => void uploadProfilePhoto().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Profile photo upload হয়নি।"))}>{photoUploading ? <LoaderCircle className="size-4 animate-spin" /> : <Upload className="size-4" />} Upload</Button></div> : null}
           <div className="grid gap-4 py-2 sm:grid-cols-2">
             <Field label="নাম (বাংলা)" id="nameBn"><Input id="nameBn" value={form.nameBn} onChange={(event) => setForm({ ...form, nameBn: event.target.value })} /></Field>
             <Field label="Name (English)" id="nameEn"><Input id="nameEn" value={form.nameEn} onChange={(event) => setForm({ ...form, nameEn: event.target.value })} /></Field>

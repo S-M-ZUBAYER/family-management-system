@@ -27,6 +27,7 @@ export type MemberProfileRow = {
   country: string | null;
   profile_status: string;
   created_at: string;
+  profile_photo_file_id?: string | null;
 };
 
 export type FamilyRelationshipRow = {
@@ -107,6 +108,35 @@ export async function GET() {
       else throw error;
     }
 
+    const membersWithPhotos = members.map((member) => ({ ...member, profile_photo_file_id: null as string | null }));
+    try {
+      const photoMemories = await supabaseRest<Array<{ id: string; people_tags: string[]; created_at: string }>>(`archive_memories?${new URLSearchParams({
+        select: "id,people_tags,created_at",
+        family_id: `eq.${membership.family_id}`,
+        place: "eq.__profile_photo__",
+        status: "eq.active",
+        order: "created_at.desc",
+      })}`);
+      if (photoMemories.length) {
+        const photoFiles = await supabaseRest<Array<{ id: string; entity_id: string }>>(`archive_files?${new URLSearchParams({
+          select: "id,entity_id",
+          family_id: `eq.${membership.family_id}`,
+          entity_type: "eq.memory",
+          entity_id: `in.(${photoMemories.map((item) => item.id).join(",")})`,
+        })}`);
+        const fileByMemory = new Map(photoFiles.map((file) => [file.entity_id, file.id]));
+        const photoByMember = new Map<string, string>();
+        photoMemories.forEach((memory) => {
+          const memberTag = memory.people_tags.find((tag) => tag.startsWith("member:"));
+          const fileId = fileByMemory.get(memory.id);
+          if (memberTag && fileId && !photoByMember.has(memberTag.slice(7))) photoByMember.set(memberTag.slice(7), fileId);
+        });
+        membersWithPhotos.forEach((member) => { member.profile_photo_file_id = photoByMember.get(member.id) ?? null; });
+      }
+    } catch (error) {
+      if (!(error instanceof SupabaseRequestError)) throw error;
+    }
+
     const familyQuery = new URLSearchParams({
       select: "id,name_bn,name_en",
       id: `eq.${membership.family_id}`,
@@ -120,7 +150,7 @@ export async function GET() {
 
     return Response.json({
       family,
-      members,
+      members: membersWithPhotos,
       relationships,
       migrationRequired,
       permissions: { canManage: canManageProfiles(membership.role) },
