@@ -17,6 +17,7 @@ type TreePayload = {
   family?: { id: string; name_bn: string; name_en: string };
   members?: FamilyMember[];
   relationships?: FamilyRelationship[];
+  viewerMemberId?: string | null;
   migrationRequired?: boolean;
   code?: string;
   error?: string;
@@ -37,6 +38,7 @@ export function FamilyTreeView() {
   const [selected, setSelected] = useState<FamilyMember | null>(null);
   const [pathStartId, setPathStartId] = useState("");
   const [pathEndId, setPathEndId] = useState("");
+  const [viewerMemberId, setViewerMemberId] = useState("");
   const [exporting, setExporting] = useState(false);
   const [scale, setScale] = useState(0.85);
   const [offset, setOffset] = useState<Point>({ x: 0, y: 0 });
@@ -61,6 +63,8 @@ export function FamilyTreeView() {
         setFamily(payload.family);
         setMembers(payload.members ?? []);
         setRelationships(payload.relationships ?? []);
+        setViewerMemberId(payload.viewerMemberId ?? "");
+        setPathStartId((current) => current || payload.viewerMemberId || "");
         setMigrationRequired(Boolean(payload.migrationRequired));
       })
       .catch((error: unknown) => {
@@ -73,7 +77,8 @@ export function FamilyTreeView() {
   const model = useMemo(() => buildTreeModel(members, relationships), [members, relationships]);
   const path = useMemo(() => findPath(pathStartId, pathEndId, relationships), [pathEndId, pathStartId, relationships]);
   const highlightedNodes = useMemo(() => new Set(path), [path]);
-  const pathLabel = useMemo(() => relationshipLabel(pathStartId, pathEndId, path, relationships), [path, pathEndId, pathStartId, relationships]);
+  const pathLabel = useMemo(() => relationshipLabel(pathStartId, pathEndId, path, relationships, members), [members, path, pathEndId, pathStartId, relationships]);
+  const viewerRelations = useMemo(() => new Map(members.map((member) => { const memberPath = findPath(viewerMemberId, member.id, relationships); return [member.id, relationshipLabel(viewerMemberId, member.id, memberPath, relationships, members)]; })), [members, relationships, viewerMemberId]);
   const queryNeedle = query.trim().toLowerCase();
   const matchedIds = useMemo(() => new Set(members
     .filter((member) => !queryNeedle || [member.name_bn, member.name_en, member.relationship_text, member.occupation]
@@ -156,22 +161,22 @@ export function FamilyTreeView() {
     <Card className="overflow-hidden rounded-3xl border-border/75 py-0 shadow-none">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-4 py-3"><div className="flex items-center gap-2 text-sm text-muted-foreground"><Move className="size-4" /> খালি জায়গা drag করে pan করুন · card click করলে details</div><div className="flex items-center gap-1"><Button size="icon-sm" variant="outline" aria-label="Zoom out" onClick={() => setScale((value) => Math.max(scaleMin, Number((value - 0.1).toFixed(2))))}><Minus /></Button><span className="min-w-14 text-center text-xs font-semibold">{Math.round(scale * 100)}%</span><Button size="icon-sm" variant="outline" aria-label="Zoom in" onClick={() => setScale((value) => Math.min(scaleMax, Number((value + 0.1).toFixed(2))))}><Plus /></Button><Button size="icon-sm" variant="outline" aria-label="Reset tree view" onClick={resetViewport}><LocateFixed /></Button></div></div>
       <div className="relative min-h-[620px] touch-none cursor-grab overflow-hidden bg-[radial-gradient(circle_at_1px_1px,var(--border)_1px,transparent_0)] bg-[size:24px_24px] active:cursor-grabbing" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp}>
-        {loading ? <div className="absolute inset-0 flex items-center justify-center gap-3 text-muted-foreground"><LoaderCircle className="size-5 animate-spin" /> Family tree load হচ্ছে</div> : !members.length ? <div className="absolute inset-0 flex flex-col items-center justify-center text-center"><Users className="size-11 text-muted-foreground/45" /><h2 className="mt-4 text-xl font-bold">Tree শুরু করার মতো সদস্য নেই</h2><p className="mt-1 text-sm text-muted-foreground">Directory থেকে প্রথম member profile যোগ করুন।</p><Button asChild className="mt-5 rounded-xl"><a href="/directory">সদস্য ডিরেক্টরি খুলুন</a></Button></div> : <div className="absolute left-1/2 top-12 origin-top transition-transform duration-150" style={{ transform: `translate(calc(-50% + ${offset.x}px), ${offset.y}px) scale(${scale})` }}><div className="flex min-w-max items-start justify-center gap-14 px-12 pb-24">{model.roots.map((root) => <TreeBranch key={root.id} member={root} childrenByParent={model.childrenByParent} highlightedNodes={highlightedNodes} matchedIds={matchedIds} queryActive={Boolean(queryNeedle)} onSelect={setSelected} visited={new Set()} />)}</div></div>}
+        {loading ? <div className="absolute inset-0 flex items-center justify-center gap-3 text-muted-foreground"><LoaderCircle className="size-5 animate-spin" /> Family tree load হচ্ছে</div> : !members.length ? <div className="absolute inset-0 flex flex-col items-center justify-center text-center"><Users className="size-11 text-muted-foreground/45" /><h2 className="mt-4 text-xl font-bold">Tree শুরু করার মতো সদস্য নেই</h2><p className="mt-1 text-sm text-muted-foreground">Directory থেকে প্রথম member profile যোগ করুন।</p><Button asChild className="mt-5 rounded-xl"><a href="/directory">সদস্য ডিরেক্টরি খুলুন</a></Button></div> : <div className="absolute left-1/2 top-12 origin-top transition-transform duration-150" style={{ transform: `translate(calc(-50% + ${offset.x}px), ${offset.y}px) scale(${scale})` }}><div className="flex min-w-max items-start justify-center gap-14 px-12 pb-24">{model.roots.map((root) => <TreeBranch key={root.id} member={root} childrenByParent={model.childrenByParent} highlightedNodes={highlightedNodes} matchedIds={matchedIds} queryActive={Boolean(queryNeedle)} onSelect={setSelected} visited={new Set()} viewerRelations={viewerRelations} viewerMemberId={viewerMemberId} />)}</div></div>}
       </div>
     </Card>
 
-    <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}><DialogContent className="rounded-3xl sm:max-w-lg"><DialogHeader><DialogTitle>{selected?.name_bn}</DialogTitle><DialogDescription>{selected?.name_en || "Family member profile"}</DialogDescription></DialogHeader>{selected ? <div className="grid grid-cols-[120px_1fr] gap-x-4 gap-y-3 rounded-2xl bg-muted/45 p-5 text-sm"><span className="text-muted-foreground">সম্পর্ক</span><strong>{selected.relationship_text || "—"}</strong><span className="text-muted-foreground">প্রজন্ম</span><strong>{Number((model.levels.get(selected.id) ?? 0) + 1).toLocaleString("bn-BD")}</strong><span className="text-muted-foreground">জন্মতারিখ</span><strong>{selected.date_of_birth || "—"}</strong><span className="text-muted-foreground">রক্তের গ্রুপ</span><strong>{selected.blood_group || "—"}</strong><span className="text-muted-foreground">পেশা</span><strong>{selected.occupation || "—"}</strong><span className="text-muted-foreground">অবস্থান</span><strong>{[selected.city, selected.country].filter(Boolean).join(", ") || "—"}</strong></div> : null}</DialogContent></Dialog>
+    <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}><DialogContent className="rounded-3xl sm:max-w-lg"><DialogHeader><DialogTitle>{selected?.name_bn}</DialogTitle><DialogDescription>{selected?.name_en || "Family member profile"}</DialogDescription></DialogHeader>{selected ? <div className="grid grid-cols-[120px_1fr] gap-x-4 gap-y-3 rounded-2xl bg-muted/45 p-5 text-sm"><span className="text-muted-foreground">আমার সাথে</span><strong>{viewerMemberId ? viewerRelations.get(selected.id) ?? "Connection পাওয়া যায়নি" : "নিজের member profile link করা নেই"}</strong><span className="text-muted-foreground">পরিবারে পরিচয়</span><strong>{selected.relationship_text || "—"}</strong><span className="text-muted-foreground">প্রজন্ম</span><strong>{Number((model.levels.get(selected.id) ?? 0) + 1).toLocaleString("bn-BD")}</strong><span className="text-muted-foreground">জন্মতারিখ</span><strong>{selected.date_of_birth || "—"}</strong><span className="text-muted-foreground">রক্তের গ্রুপ</span><strong>{selected.blood_group || "—"}</strong><span className="text-muted-foreground">পেশা</span><strong>{selected.occupation || "—"}</strong><span className="text-muted-foreground">অবস্থান</span><strong>{[selected.city, selected.country].filter(Boolean).join(", ") || "—"}</strong></div> : null}</DialogContent></Dialog>
   </main>;
 }
 
-function TreeBranch({ member, childrenByParent, highlightedNodes, matchedIds, queryActive, onSelect, visited }: { member: FamilyMember; childrenByParent: Map<string, FamilyMember[]>; highlightedNodes: Set<string>; matchedIds: Set<string>; queryActive: boolean; onSelect: (member: FamilyMember) => void; visited: Set<string> }) {
+function TreeBranch({ member, childrenByParent, highlightedNodes, matchedIds, queryActive, onSelect, visited, viewerRelations, viewerMemberId }: { member: FamilyMember; childrenByParent: Map<string, FamilyMember[]>; highlightedNodes: Set<string>; matchedIds: Set<string>; queryActive: boolean; onSelect: (member: FamilyMember) => void; visited: Set<string>; viewerRelations: Map<string, string>; viewerMemberId: string }) {
   const nextVisited = new Set(visited);
   const repeated = nextVisited.has(member.id);
   nextVisited.add(member.id);
   const children = repeated ? [] : childrenByParent.get(member.id) ?? [];
   const highlighted = highlightedNodes.has(member.id);
   const match = matchedIds.has(member.id);
-  return <div className="flex flex-col items-center"><button type="button" onClick={() => onSelect(member)} className={`w-52 rounded-2xl border bg-card p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${highlighted ? "border-primary bg-primary/8 ring-4 ring-primary/10" : "border-border"} ${queryActive && !match ? "opacity-30 grayscale" : "opacity-100"}`}><div className="flex items-center gap-3"><Avatar className="size-11">{member.profile_photo_file_id ? <AvatarImage src={`/api/archive-file/${member.profile_photo_file_id}`} alt={member.name_bn} className="object-cover" /> : null}<AvatarFallback className="bg-primary/10 font-bold text-primary">{member.name_bn.slice(0, 2)}</AvatarFallback></Avatar><div className="min-w-0"><p className="truncate font-bold">{member.name_bn}</p><p className="truncate text-xs text-muted-foreground">{member.name_en || member.occupation || "Family member"}</p></div></div><div className="mt-3 flex flex-wrap gap-1.5">{member.relationship_text ? <Badge variant="outline" className="max-w-full truncate">{member.relationship_text}</Badge> : null}{member.blood_group ? <Badge variant="secondary">{member.blood_group}</Badge> : null}</div></button>{children.length ? <><div className={`h-7 border-l ${highlighted ? "border-primary" : "border-border"}`} /><div className={`flex items-start gap-6 border-t pt-7 ${highlighted ? "border-primary" : "border-border"}`}>{children.map((child) => <div key={child.id} className="relative before:absolute before:-top-7 before:left-1/2 before:h-7 before:border-l before:border-border"><TreeBranch member={child} childrenByParent={childrenByParent} highlightedNodes={highlightedNodes} matchedIds={matchedIds} queryActive={queryActive} onSelect={onSelect} visited={nextVisited} /></div>)}</div></> : null}</div>;
+  return <div className="flex flex-col items-center"><button type="button" onClick={() => onSelect(member)} className={`w-52 rounded-2xl border bg-card p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${highlighted ? "border-primary bg-primary/8 ring-4 ring-primary/10" : "border-border"} ${queryActive && !match ? "opacity-30 grayscale" : "opacity-100"}`}><div className="flex items-center gap-3"><Avatar className="size-11">{member.profile_photo_file_id ? <AvatarImage src={`/api/archive-file/${member.profile_photo_file_id}`} alt={member.name_bn} className="object-cover" /> : null}<AvatarFallback className="bg-primary/10 font-bold text-primary">{member.name_bn.slice(0, 2)}</AvatarFallback></Avatar><div className="min-w-0"><p className="truncate font-bold">{member.name_bn}</p><p className="truncate text-xs text-muted-foreground">{member.name_en || member.occupation || "Family member"}</p></div></div><div className="mt-3 flex flex-wrap gap-1.5">{viewerMemberId ? <Badge variant={member.id === viewerMemberId ? "secondary" : "outline"} className="max-w-full truncate">{member.id === viewerMemberId ? "আমার profile" : `আমার ${viewerRelations.get(member.id) ?? "আত্মীয়"}`}</Badge> : member.relationship_text ? <Badge variant="outline" className="max-w-full truncate">{member.relationship_text}</Badge> : null}{member.blood_group ? <Badge variant="secondary">{member.blood_group}</Badge> : null}</div></button>{children.length ? <><div className={`h-7 border-l ${highlighted ? "border-primary" : "border-border"}`} /><div className={`flex items-start gap-6 border-t pt-7 ${highlighted ? "border-primary" : "border-border"}`}>{children.map((child) => <div key={child.id} className="relative before:absolute before:-top-7 before:left-1/2 before:h-7 before:border-l before:border-border"><TreeBranch member={child} childrenByParent={childrenByParent} highlightedNodes={highlightedNodes} matchedIds={matchedIds} queryActive={queryActive} onSelect={onSelect} visited={nextVisited} viewerRelations={viewerRelations} viewerMemberId={viewerMemberId} /></div>)}</div></> : null}</div>;
 }
 
 function buildTreeModel(members: FamilyMember[], relationships: FamilyRelationship[]) {
@@ -201,11 +206,34 @@ function findPath(startId: string, endId: string, relationships: FamilyRelations
   return [];
 }
 
-function relationshipLabel(startId: string, endId: string, path: string[], relationships: FamilyRelationship[]) {
+function relationshipLabel(startId: string, endId: string, path: string[], relationships: FamilyRelationship[], members: FamilyMember[]) {
   if (!startId || !endId) return "দুইজন সদস্য নির্বাচন করুন";
   if (!path.length) return "কোনো connected relationship path পাওয়া যায়নি";
   if (path.length === 1) return "একই সদস্য";
-  if (path.length === 2) { const edge = relationships.find((item) => (item.from_member_id === startId && item.to_member_id === endId) || (item.from_member_id === endId && item.to_member_id === startId)); if (edge?.relationship_type === "spouse") return "স্বামী/স্ত্রী সম্পর্ক"; if (edge?.relationship_type === "guardian") return edge.from_member_id === startId ? "অভিভাবক → নির্ভরশীল" : "নির্ভরশীল → অভিভাবক"; if (edge?.relationship_type === "parent") return edge.from_member_id === startId ? "অভিভাবক → সন্তান" : "সন্তান → অভিভাবক"; }
-  if (path.length === 3) { const first = relationships.find((item) => item.relationship_type === "parent" && item.to_member_id === startId && path.includes(item.from_member_id)); const second = relationships.find((item) => item.relationship_type === "parent" && item.to_member_id === endId && path.includes(item.from_member_id)); if (first && second && first.from_member_id === second.from_member_id) return "ভাই/বোন বা sibling relationship"; }
+  const byId = new Map(members.map((member) => [member.id, member]));
+  const target = byId.get(endId);
+  const gendered = (male: string, female: string, neutral: string) => target?.gender === "male" ? male : target?.gender === "female" ? female : neutral;
+  const steps = path.slice(0, -1).map((id, index) => {
+    const next = path[index + 1];
+    const edge = relationships.find((item) => (item.from_member_id === id && item.to_member_id === next) || (item.from_member_id === next && item.to_member_id === id));
+    if (!edge) return "other";
+    if (edge.relationship_type === "spouse") return "spouse";
+    if (edge.relationship_type === "guardian") return edge.from_member_id === id ? "dependent" : "guardian";
+    return edge.from_member_id === id ? "down" : "up";
+  });
+  const pattern = steps.join(",");
+  if (pattern === "spouse") return gendered("স্বামী", "স্ত্রী", "জীবনসঙ্গী");
+  if (pattern === "up") return gendered("বাবা", "মা", "অভিভাবক");
+  if (pattern === "down") return gendered("ছেলে", "মেয়ে", "সন্তান");
+  if (pattern === "up,up") return gendered("দাদা/নানা", "দাদি/নানি", "দাদা-দাদি/নানা-নানি");
+  if (pattern === "down,down") return gendered("নাতি", "নাতনি", "নাতি-নাতনি");
+  if (pattern === "up,down") return gendered("ভাই", "বোন", "সহোদর");
+  if (pattern === "up,up,down") return gendered("চাচা/মামা", "ফুপু/খালা", "চাচা-মামা/ফুপু-খালা");
+  if (pattern === "up,up,down,down") return "কাজিন";
+  if (["up,down,spouse", "spouse,up,down"].includes(pattern)) return gendered("দুলাভাই/ভগ্নিপতি", "ভাবি/ননদ", "in-law");
+  if (pattern === "down,spouse") return gendered("জামাই", "পুত্রবধূ", "সন্তানের জীবনসঙ্গী");
+  if (["spouse,up", "up,spouse"].includes(pattern)) return gendered("শ্বশুর/বাবা", "শাশুড়ি/মা", "শ্বশুর-শাশুড়ি");
+  if (pattern === "guardian") return "অভিভাবক";
+  if (pattern === "dependent") return "নির্ভরশীল";
   return `${(path.length - 1).toLocaleString("bn-BD")} ধাপের পারিবারিক connection`;
 }

@@ -152,6 +152,7 @@ export async function GET() {
       family,
       members: membersWithPhotos,
       relationships,
+      viewerMemberId: members.find((member) => member.auth_user_id === user.userId)?.id ?? null,
       migrationRequired,
       permissions: { canManage: canManageProfiles(membership.role) },
     });
