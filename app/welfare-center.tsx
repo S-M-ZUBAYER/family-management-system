@@ -169,7 +169,7 @@ export function WelfareCenter() {
   }, [approvedIncome, balance, funds, myPledge, paidExpense]);
 
   if (loading) return <main className="grid min-h-[calc(100vh-4rem)] place-items-center"><LoaderCircle className="size-7 animate-spin text-primary" /></main>;
-  if (setupRequired) return <main className="mx-auto max-w-3xl p-6 md:p-10"><Empty icon={<Users />} title="আগে family setup সম্পন্ন করুন" text="Approved family member হওয়ার পর Welfare Fund ব্যবহার করা যাবে।" action={<Button asChild className="rounded-xl"><a href="/setup">Family setup</a></Button>} /></main>;
+  if (setupRequired) return <main className="mx-auto max-w-3xl p-6 md:p-10"><Empty icon={<Users />} title="Family access সক্রিয় নয়" text="Join code দিয়ে আবেদন করুন। Admin approval-এর পর Welfare Fund ব্যবহার করা যাবে।" action={<Button asChild className="rounded-xl"><a href="/setup">Family onboarding</a></Button>} /></main>;
 
   return <main className="mx-auto w-full max-w-[1550px] space-y-5 px-4 py-5 md:px-7 md:py-7">
     <section className="overflow-hidden rounded-3xl bg-[linear-gradient(125deg,#164e63_0%,#166534_55%,#854d0e_100%)] p-5 text-white shadow-xl md:p-7">

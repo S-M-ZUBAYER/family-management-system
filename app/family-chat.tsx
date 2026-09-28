@@ -615,9 +615,9 @@ export function FamilyChat() {
         <Card className="rounded-3xl border-dashed">
           <CardContent className="p-8 text-center">
             <Users className="mx-auto size-10 text-primary" />
-            <h1 className="mt-4 text-2xl font-bold">আগে family setup সম্পন্ন করুন</h1>
-            <p className="mt-2 text-muted-foreground">Approved family member হওয়ার পর private chat ব্যবহার করা যাবে।</p>
-            <Button asChild className="mt-5 rounded-xl"><a href="/setup">Family setup</a></Button>
+            <h1 className="mt-4 text-2xl font-bold">Family access সক্রিয় নয়</h1>
+            <p className="mt-2 text-muted-foreground">Join code দিয়ে আবেদন করুন। Admin approval-এর পর private chat ব্যবহার করা যাবে।</p>
+            <Button asChild className="mt-5 rounded-xl"><a href="/setup">Family onboarding</a></Button>
           </CardContent>
         </Card>
       </main>

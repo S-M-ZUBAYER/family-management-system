@@ -432,7 +432,7 @@ export function EventCenter() {
     return () => lifecycle.abort();
   }, [canManage, createEvent, events, goingCount, rsvps]);
 
-  if (setupRequired) return <main className="mx-auto w-full max-w-[1500px] px-4 py-8 md:px-7"><Card className="rounded-3xl border-amber-500/30 py-0 shadow-none"><CardContent className="flex flex-col items-start gap-5 p-7 md:flex-row md:items-center"><ShieldAlert className="size-10 text-amber-700" /><div className="flex-1"><h1 className="text-2xl font-bold">Family Owner setup বাকি</h1><p className="mt-1 text-muted-foreground">Event Planner ব্যবহার করার আগে প্রথম পরিবার সক্রিয় করুন।</p></div><Button asChild className="rounded-xl"><a href="/setup">Owner setup খুলুন</a></Button></CardContent></Card></main>;
+  if (setupRequired) return <main className="mx-auto w-full max-w-[1500px] px-4 py-8 md:px-7"><Card className="rounded-3xl border-amber-500/30 py-0 shadow-none"><CardContent className="flex flex-col items-start gap-5 p-7 md:flex-row md:items-center"><ShieldAlert className="size-10 text-amber-700" /><div className="flex-1"><h1 className="text-2xl font-bold">Family access সক্রিয় নয়</h1><p className="mt-1 text-muted-foreground">Join code দিয়ে আবেদন করুন। Admin approval-এর পর Event Planner ব্যবহার করা যাবে।</p></div><Button asChild className="rounded-xl"><a href="/setup">Family onboarding খুলুন</a></Button></CardContent></Card></main>;
 
   const selectedRsvps = selected ? eventRsvps(selected.id) : [];
   const selectedComments = selected ? comments.filter((item) => item.event_id === selected.id) : [];

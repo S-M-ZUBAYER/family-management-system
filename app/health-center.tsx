@@ -451,7 +451,7 @@ export function HealthCenter() {
   }, [activeAlerts, activeMedications.length, donors, nextAppointment]);
 
   if (loading) return <main className="grid min-h-[calc(100vh-4rem)] place-items-center"><div className="text-center"><LoaderCircle className="mx-auto size-7 animate-spin text-primary" /><p className="mt-3 text-sm text-muted-foreground">Health workspace প্রস্তুত হচ্ছে…</p></div></main>;
-  if (setupRequired) return <main className="mx-auto max-w-3xl p-6 md:p-10"><StateCard icon={<Users />} title="আগে family setup সম্পন্ন করুন" text="Approved family member হওয়ার পর private health workspace ব্যবহার করা যাবে।" action={<Button asChild className="rounded-xl"><a href="/setup">Family setup</a></Button>} /></main>;
+  if (setupRequired) return <main className="mx-auto max-w-3xl p-6 md:p-10"><StateCard icon={<Users />} title="Family access সক্রিয় নয়" text="Join code দিয়ে আবেদন করুন। Admin approval-এর পর private health workspace ব্যবহার করা যাবে।" action={<Button asChild className="rounded-xl"><a href="/setup">Family onboarding</a></Button>} /></main>;
 
   return (
     <main className="mx-auto w-full max-w-[1550px] space-y-5 px-4 py-5 md:px-7 md:py-7">

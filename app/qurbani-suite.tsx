@@ -563,9 +563,9 @@ export function QurbaniSuite() {
     return (
       <StateCard
         icon={<ShieldAlert />}
-        title="প্রথমে family workspace তৈরি করুন"
-        text="কোরবানি operations family-wise আলাদা রাখতে setup সম্পন্ন করা প্রয়োজন।"
-        action={<Button asChild className="rounded-xl"><a href="/setup">Family setup খুলুন</a></Button>}
+        title="Family access সক্রিয় নয়"
+        text="Join code দিয়ে আবেদন করুন। Admin approval-এর পর কোরবানি operations ব্যবহার করা যাবে।"
+        action={<Button asChild className="rounded-xl"><a href="/setup">Family onboarding খুলুন</a></Button>}
       />
     );
   }
