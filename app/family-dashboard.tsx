@@ -230,7 +230,18 @@ export function FamilyDashboard({
     const saved = window.localStorage.getItem("family-theme") as ThemeId | null;
     return saved && themes.some((item) => item.id === saved) ? saved : "heritage";
   });
-  const [dark, setDark] = useState(() => typeof window !== "undefined" && window.localStorage.getItem("family-mode") === "dark");
+  const [dark, setDark] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const saved = window.localStorage.getItem("family-mode");
+    if (saved === "dark") return true;
+    if (saved === "light") return false;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  });
+  const [modePreference, setModePreference] = useState<"system" | "light" | "dark">(() => {
+    if (typeof window === "undefined") return "system";
+    const saved = window.localStorage.getItem("family-mode");
+    return saved === "dark" || saved === "light" ? saved : "system";
+  });
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(view === "dashboard");
@@ -242,8 +253,17 @@ export function FamilyDashboard({
     document.documentElement.dataset.theme = theme;
     document.documentElement.classList.toggle("dark", dark);
     window.localStorage.setItem("family-theme", theme);
-    window.localStorage.setItem("family-mode", dark ? "dark" : "light");
-  }, [theme, dark]);
+    if (modePreference === "system") window.localStorage.removeItem("family-mode");
+    else window.localStorage.setItem("family-mode", modePreference);
+  }, [theme, dark, modePreference]);
+
+  useEffect(() => {
+    if (modePreference !== "system") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = (event: MediaQueryListEvent) => setDark(event.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [modePreference]);
 
   useEffect(() => {
     if (view !== "dashboard") return;
@@ -428,7 +448,10 @@ export function FamilyDashboard({
               variant="outline"
               size="icon"
               className="rounded-xl bg-card"
-              onClick={() => setDark((value) => !value)}
+              onClick={() => {
+                setDark((value) => !value);
+                setModePreference(dark ? "light" : "dark");
+              }}
             >
               {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </Button>

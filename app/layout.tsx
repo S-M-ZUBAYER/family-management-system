@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ActionModalProvider } from "@/components/action-modal-provider";
+import { PwaRegistration } from "@/components/pwa-registration";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -12,6 +13,12 @@ export const metadata: Metadata = {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
   },
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Family Management System",
+    statusBarStyle: "default",
+  },
 };
 
 export default function RootLayout({
@@ -22,7 +29,10 @@ export default function RootLayout({
   return (
     <html lang="bn" suppressHydrationWarning>
       <body className="antialiased">
-        <ActionModalProvider>{children}</ActionModalProvider>
+        <ActionModalProvider>
+          {children}
+          <PwaRegistration />
+        </ActionModalProvider>
       </body>
     </html>
   );
