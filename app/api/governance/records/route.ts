@@ -35,6 +35,99 @@ export async function POST(request: Request) {
   }
 }
 
+export async function PATCH(request: Request) {
+  try {
+    const user = await getChatGPTUser();
+    if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
+    const membership = await getActiveFamilyMembership(user.userId);
+    if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
+    const canManage = canManageGovernance(membership.role);
+    const body = await request.json() as { kind?: "poll" | "decision"; recordId?: string; data?: Record<string, unknown> };
+    if (!body.kind || !body.recordId || !uuid.test(body.recordId)) return Response.json({ error: "Valid record প্রয়োজন।" }, { status: 400 });
+    const data = body.data ?? {};
+
+    if (body.kind === "poll") {
+      const poll = await getPoll(body.recordId, membership.family_id);
+      if (!poll) return Response.json({ error: "Poll পাওয়া যায়নি।" }, { status: 404 });
+      if (!canManage && poll.created_by_user_id !== user.userId) return Response.json({ error: "এই poll edit করার অনুমতি নেই।" }, { status: 403 });
+      if (!["proposed", "draft"].includes(String(poll.status))) return Response.json({ error: "Voting শুরু হওয়ার পর poll details edit করা যাবে না।" }, { status: 409 });
+      const voteQuery = new URLSearchParams({ select: "id", family_id: `eq.${membership.family_id}`, poll_id: `eq.${body.recordId}`, limit: "1" });
+      if ((await supabaseRest<Array<{ id: string }>>(`poll_votes?${voteQuery}`))[0]) return Response.json({ error: "Vote থাকা poll edit করা যাবে না।" }, { status: 409 });
+      const parsed = parsePoll(data, canManage);
+      if (parsed instanceof Response) return parsed;
+      const filter = new URLSearchParams({ id: `eq.${body.recordId}`, family_id: `eq.${membership.family_id}` });
+      await supabaseRest(`family_polls?${filter}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ ...parsed.poll, updated_at: new Date().toISOString() }) });
+      await supabaseRest(`poll_options?${new URLSearchParams({ family_id: `eq.${membership.family_id}`, poll_id: `eq.${body.recordId}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+      await supabaseRest("poll_options", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(parsed.options.map((label, position) => ({ family_id: membership.family_id, poll_id: body.recordId, label, position }))) });
+      await audit(membership.family_id, user.userId, "governance_poll_updated", "family_polls", body.recordId, { optionCount: parsed.options.length });
+      return Response.json({ success: true });
+    }
+
+    if (!canManage) return Response.json({ error: "Family Admin formal decision edit করবেন।" }, { status: 403 });
+    const decision = await getDecision(body.recordId, membership.family_id);
+    if (!decision) return Response.json({ error: "Decision পাওয়া যায়নি।" }, { status: 404 });
+    const title = text(data.title, 180), summary = text(data.summary, 5000), outcome = text(data.finalOutcome, 5000), pollId = text(data.pollId, 80);
+    if (!title || !summary || !outcome) return Response.json({ error: "Decision title, summary ও final outcome প্রয়োজন।" }, { status: 400 });
+    const linkedPoll = pollId && uuid.test(pollId) ? await getPoll(pollId, membership.family_id) : null;
+    if (pollId && !linkedPoll) return Response.json({ error: "Linked poll পাওয়া যায়নি।" }, { status: 400 });
+    if (linkedPoll && linkedPoll.status !== "closed") return Response.json({ error: "শুধু closed poll decision-এর সাথে link করা যাবে।" }, { status: 409 });
+    const changes = { poll_id: pollId || null, title, summary, final_outcome: outcome, effective_date: text(data.effectiveDate, 10), status: choice(data.status, ["adopted", "rejected", "superseded", "archived"] as const, String(decision.status) as "adopted" | "rejected" | "superseded" | "archived"), updated_at: new Date().toISOString() };
+    await supabaseRest(`family_decisions?${new URLSearchParams({ id: `eq.${body.recordId}`, family_id: `eq.${membership.family_id}` })}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(changes) });
+    await audit(membership.family_id, user.userId, "governance_decision_updated", "family_decisions", body.recordId);
+    return Response.json({ success: true });
+  } catch (error) {
+    return governanceErrorResponse(error, "Unable to update governance record");
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const user = await getChatGPTUser();
+    if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
+    const membership = await getActiveFamilyMembership(user.userId);
+    if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
+    const canManage = canManageGovernance(membership.role);
+    const body = await request.json() as { kind?: "poll" | "decision"; recordId?: string };
+    if (!body.kind || !body.recordId || !uuid.test(body.recordId)) return Response.json({ error: "Valid record প্রয়োজন।" }, { status: 400 });
+
+    if (body.kind === "poll") {
+      const poll = await getPoll(body.recordId, membership.family_id);
+      if (!poll) return Response.json({ error: "Poll পাওয়া যায়নি।" }, { status: 404 });
+      if (!canManage && poll.created_by_user_id !== user.userId) return Response.json({ error: "এই poll delete করার অনুমতি নেই।" }, { status: 403 });
+      if (!["proposed", "draft", "rejected", "archived"].includes(String(poll.status))) return Response.json({ error: "Open বা closed poll delete করা যাবে না; audit history-এর জন্য archive করুন।" }, { status: 409 });
+      const voteQuery = new URLSearchParams({ select: "id", family_id: `eq.${membership.family_id}`, poll_id: `eq.${body.recordId}`, limit: "1" });
+      if ((await supabaseRest<Array<{ id: string }>>(`poll_votes?${voteQuery}`))[0]) return Response.json({ error: "Vote থাকা poll স্থায়ীভাবে delete করা যাবে না।" }, { status: 409 });
+      await supabaseRest(`family_polls?${new URLSearchParams({ id: `eq.${body.recordId}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+      await audit(membership.family_id, user.userId, "governance_poll_deleted", "family_polls", body.recordId, { previousStatus: poll.status });
+      return Response.json({ success: true, message: "Poll permanently delete হয়েছে।" });
+    }
+
+    if (!canManage) return Response.json({ error: "Family Admin decision delete করবেন।" }, { status: 403 });
+    const decision = await getDecision(body.recordId, membership.family_id);
+    if (!decision) return Response.json({ error: "Decision পাওয়া যায়নি।" }, { status: 404 });
+    if (!["rejected", "archived"].includes(String(decision.status))) return Response.json({ error: "Adopted decision আগে archive বা reject করুন।" }, { status: 409 });
+    await supabaseRest(`family_decisions?${new URLSearchParams({ id: `eq.${body.recordId}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await audit(membership.family_id, user.userId, "governance_decision_deleted", "family_decisions", body.recordId, { previousStatus: decision.status });
+    return Response.json({ success: true, message: "Decision permanently delete হয়েছে।" });
+  } catch (error) {
+    return governanceErrorResponse(error, "Unable to delete governance record");
+  }
+}
+
+function parsePoll(data: Record<string, unknown>, canManage: boolean) {
+  const title = text(data.title, 180), description = text(data.description, 5000);
+  if (!title) return Response.json({ error: "Poll title প্রয়োজন।" }, { status: 400 });
+  const votingMode = choice(data.votingMode, ["single", "multiple", "yes_no"] as const, "single");
+  const rawOptions = votingMode === "yes_no" ? ["হ্যাঁ", "না"] : (typeof data.options === "string" ? data.options.split("\n") : []).map((item) => item.trim()).filter(Boolean).slice(0, 12);
+  const options = [...new Set(rawOptions.map((item) => item.slice(0, 180)))];
+  if (options.length < 2) return Response.json({ error: "কমপক্ষে ২টি আলাদা option প্রয়োজন।" }, { status: 400 });
+  const opensAt = text(data.opensAt, 40), closesAt = text(data.closesAt, 40);
+  if (opensAt && Number.isNaN(new Date(opensAt).getTime())) return Response.json({ error: "Opening time সঠিক নয়।" }, { status: 400 });
+  if (closesAt && (Number.isNaN(new Date(closesAt).getTime()) || (opensAt && new Date(closesAt).getTime() <= new Date(opensAt).getTime()))) return Response.json({ error: "Closing time opening-এর পরে হতে হবে।" }, { status: 400 });
+  const maxChoices = votingMode === "multiple" ? Math.min(Math.max(integer(data.maxChoices, 2), 1), options.length) : 1;
+  return { options, poll: { title, description, category: choice(data.category, ["event", "finance", "welfare", "property", "qurbani", "policy", "general"] as const, "general"), decision_type: choice(data.decisionType, ["advisory", "binding", "informal"] as const, "advisory"), voting_mode: votingMode, max_choices: maxChoices, is_anonymous: bool(data.isAnonymous), results_visibility: choice(data.resultsVisibility, ["live", "after_close", "admins"] as const, "after_close"), audience: canManage ? choice(data.audience, ["family", "admins"] as const, "family") : "family", quorum_percent: Math.min(Math.max(integer(data.quorumPercent, 50), 0), 100), opens_at: opensAt, closes_at: closesAt } };
+}
+
 async function createPoll(data: Record<string, unknown>, familyId: string, userId: string, displayName: string, canManage: boolean) {
   const title = text(data.title, 180), description = text(data.description, 5000);
   if (!title) return Response.json({ error: "Poll title প্রয়োজন।" }, { status: 400 });
@@ -179,6 +272,11 @@ async function updateDecision(data: Record<string, unknown>, familyId: string, u
 async function getPoll(id: string, familyId: string) {
   const query = new URLSearchParams({ select: "*", id: `eq.${id}`, family_id: `eq.${familyId}`, limit: "1" });
   return (await supabaseRest<Array<Record<string, unknown>>>(`family_polls?${query}`))[0] ?? null;
+}
+
+async function getDecision(id: string, familyId: string) {
+  const query = new URLSearchParams({ select: "*", id: `eq.${id}`, family_id: `eq.${familyId}`, limit: "1" });
+  return (await supabaseRest<Array<Record<string, unknown>>>(`family_decisions?${query}`))[0] ?? null;
 }
 
 async function audit(familyId: string, userId: string, action: string, entityType: string, entityId: string, metadata: Record<string, unknown> = {}) {

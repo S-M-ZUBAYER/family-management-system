@@ -5,6 +5,8 @@ import { archiveErrorResponse } from "../route";
 
 const actions = ["create_collection", "create_story", "create_asset", "create_capsule", "update_status"] as const;
 type Action = (typeof actions)[number];
+type ArchiveKind = "collection" | "story" | "asset" | "capsule";
+const archiveTables: Record<ArchiveKind, string> = { collection: "archive_collections", story: "archive_stories", asset: "family_assets", capsule: "time_capsules" };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const text = (value: unknown, max: number) => typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 const number = (value: unknown, fallback?: number) => { if (value === "" || value === null || value === undefined) return fallback; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : undefined; };
@@ -36,6 +38,49 @@ export async function POST(request: Request) {
     const [created] = await supabaseRest<Array<Record<string, unknown>>>(table, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(record) });
     await audit(membership.family_id, user.userId, body.action, table, String(created.id)); return Response.json({ record: created }, { status: 201 });
   } catch (error) { return archiveErrorResponse(error, "Unable to save archive record"); }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const user = await getChatGPTUser(); if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
+    const membership = await getActiveFamilyMembership(user.userId); if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
+    const canManage = canManageArchives(membership.role), body = await request.json() as { kind?: ArchiveKind; recordId?: unknown; data?: Record<string, unknown> };
+    const kind = body.kind, recordId = text(body.recordId, 80); if (!kind || !(kind in archiveTables) || !recordId || !uuid.test(recordId)) return Response.json({ error: "Valid archive record প্রয়োজন।" }, { status: 400 });
+    const table = archiveTables[kind], existing = (await supabaseRest<Array<Record<string, unknown>>>(`${table}?${new URLSearchParams({ select: "*", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
+    if (!existing) return Response.json({ error: "Archive record পাওয়া যায়নি।" }, { status: 404 });
+    const ownerId = kind === "story" ? existing.author_user_id : existing.created_by_user_id;
+    if (!canManage && ownerId !== user.userId) return Response.json({ error: "এই record edit করার permission নেই।" }, { status: 403 });
+    if (!canManage && !["story", "capsule"].includes(kind)) return Response.json({ error: "Family Admin action প্রয়োজন।" }, { status: 403 });
+    if (kind === "capsule" && (existing.status !== "locked" || new Date(String(existing.unlock_at)).getTime() <= Date.now())) return Response.json({ error: "Opened/unlocked capsule edit করা যাবে না।" }, { status: 409 });
+    const changes = archiveChanges(kind, body.data ?? {}, canManage); if (changes instanceof Response) return changes; changes.updated_at = new Date().toISOString();
+    const [updated] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}` })}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
+    await audit(membership.family_id, user.userId, `archive_${kind}_updated`, table, recordId); return Response.json({ record: updated });
+  } catch (error) { return archiveErrorResponse(error, "Unable to update archive record"); }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const user = await getChatGPTUser(); if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
+    const membership = await getActiveFamilyMembership(user.userId); if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
+    const canManage = canManageArchives(membership.role), body = await request.json() as { kind?: ArchiveKind; recordId?: unknown };
+    const kind = body.kind, recordId = text(body.recordId, 80); if (!kind || !(kind in archiveTables) || !recordId || !uuid.test(recordId)) return Response.json({ error: "Valid archive record প্রয়োজন।" }, { status: 400 });
+    const table = archiveTables[kind], existing = (await supabaseRest<Array<Record<string, unknown>>>(`${table}?${new URLSearchParams({ select: "*", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
+    if (!existing) return Response.json({ error: "Archive record পাওয়া যায়নি।" }, { status: 404 });
+    const ownerId = kind === "story" ? existing.author_user_id : existing.created_by_user_id;
+    if (!canManage && ownerId !== user.userId) return Response.json({ error: "এই record delete করার permission নেই।" }, { status: 403 });
+    if (kind === "collection") { const memory = (await supabaseRest<Array<{ id: string }>>(`archive_memories?${new URLSearchParams({ select: "id", collection_id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0]; if (memory) return Response.json({ error: "Collection-এ memory আছে। Delete না করে Archive করুন।" }, { status: 409 }); }
+    if (kind === "capsule" && existing.status === "opened") return Response.json({ error: "Opened time capsule audit history-এর জন্য delete করা যাবে না।" }, { status: 409 });
+    await supabaseRest(`${table}?${new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await audit(membership.family_id, user.userId, `archive_${kind}_deleted`, table, recordId); return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।` });
+  } catch (error) { return archiveErrorResponse(error, "Unable to delete archive record"); }
+}
+
+function archiveChanges(kind: ArchiveKind, data: Record<string, unknown>, canManage: boolean): Record<string, unknown> | Response {
+  if (kind === "collection") { if (!canManage) return Response.json({ error: "Family Admin collection edit করবেন।" }, { status: 403 }); const name = text(data.name, 160); if (!name) return Response.json({ error: "Collection name প্রয়োজন।" }, { status: 400 }); return { name, description: text(data.description, 2000), collection_type: choice(data.collectionType, ["album", "heritage", "documents", "property", "time_capsule", "other"] as const, "album"), cover_color: text(data.coverColor, 20) ?? "#153A5B", visibility: choice(data.visibility, ["family", "admins", "private"] as const, "family") }; }
+  if (kind === "story") { const title = text(data.title, 180), content = text(data.content, 20000); if (!title || !content) return Response.json({ error: "Story title ও content প্রয়োজন।" }, { status: 400 }); return { title, content, story_date: text(data.storyDate, 10), storyteller: text(data.storyteller, 180), people_tags: tags(data.peopleTags), place: text(data.place, 220), visibility: choice(data.visibility, ["family", "admins"] as const, "family") }; }
+  if (kind === "asset") { if (!canManage) return Response.json({ error: "Family Admin asset edit করবেন।" }, { status: 403 }); const title = text(data.title, 180), value = number(data.estimatedValue, 0); if (!title || value === undefined || value < 0) return Response.json({ error: "Asset title ও value সঠিকভাবে দিন।" }, { status: 400 }); return { title, asset_type: choice(data.assetType, ["land", "house", "flat", "vehicle", "business", "investment", "jewelry", "other"] as const, "other"), ownership: text(data.ownership, 300), location: text(data.location, 1000), identifier_masked: text(data.identifierMasked, 180), acquisition_date: text(data.acquisitionDate, 10), estimated_value: value, notes: text(data.notes, 3000), visibility: choice(data.visibility, ["family", "admins"] as const, "admins") }; }
+  const title = text(data.title, 180), message = text(data.message, 20000), unlockAt = text(data.unlockAt, 40); if (!title || !message || !unlockAt || new Date(unlockAt).getTime() <= Date.now() + 60000) return Response.json({ error: "Title, message এবং ভবিষ্যতের unlock time প্রয়োজন।" }, { status: 400 });
+  return { title, message, recipient_names: text(data.recipientNames, 1000), unlock_at: unlockAt, visibility: choice(data.visibility, ["family", "admins"] as const, "family") };
 }
 
 async function updateStatus(data: Record<string, unknown>, familyId: string, userId: string, canManage: boolean) {

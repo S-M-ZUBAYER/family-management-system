@@ -13,11 +13,13 @@ import {
   LoaderCircle,
   LockKeyhole,
   MoreHorizontal,
+  Pencil,
   PiggyBank,
   Plus,
   ReceiptText,
   ShieldCheck,
   Target,
+  Trash2,
   WalletCards,
 } from "lucide-react";
 
@@ -70,6 +72,7 @@ import type {
 } from "@/lib/personal-finance-types";
 
 type FormState = Record<string, string>;
+type FinanceEditableRecord = FinanceAccount | FinanceTransaction | FinanceBudget | FinanceDebt | FinanceBill | FinanceGoal;
 type ProgressTarget = {
   entity: "debt" | "goal";
   id: string;
@@ -138,6 +141,7 @@ export function PersonalFinanceCenter() {
   const [setupRequired, setSetupRequired] = useState(false);
   const [feedback, setFeedback] = useActionFeedback();
   const [recordKind, setRecordKind] = useState<FinanceRecordKind | null>(null);
+  const [editingRecord, setEditingRecord] = useState<{ id: string; kind: FinanceRecordKind } | null>(null);
   const [form, setForm] = useState<FormState>({});
   const [progressTarget, setProgressTarget] = useState<ProgressTarget>(null);
 
@@ -242,6 +246,22 @@ export function PersonalFinanceCenter() {
     const defaults = initialForm(kind);
     if (kind === "transaction") defaults.accountId = activeAccounts[0]?.id ?? "";
     setForm(defaults);
+    setEditingRecord(null);
+    setRecordKind(kind);
+  }
+
+  function openEditRecord(kind: FinanceRecordKind, item: FinanceEditableRecord) {
+    const data = item as unknown as Record<string, unknown>;
+    const formByKind: Record<FinanceRecordKind, FormState> = {
+      account: { name: String(data.name ?? ""), accountType: String(data.account_type ?? "cash"), openingBalance: String(data.opening_balance ?? 0) },
+      transaction: { accountId: String(data.account_id ?? ""), direction: String(data.direction ?? "expense"), category: String(data.category ?? "Food"), amount: String(data.amount ?? ""), transactionDate: String(data.transaction_date ?? today()), paymentMethod: String(data.payment_method ?? "cash"), reference: String(data.reference ?? ""), notes: String(data.notes ?? ""), isRecurring: String(Boolean(data.is_recurring)) },
+      budget: { budgetMonth: String(data.budget_month ?? "").slice(0, 7), category: String(data.category ?? "Food"), limitAmount: String(data.limit_amount ?? ""), alertPercent: String(data.alert_percent ?? 80), notes: String(data.notes ?? "") },
+      debt: { debtType: String(data.debt_type ?? "lent"), counterparty: String(data.counterparty ?? ""), principalAmount: String(data.principal_amount ?? ""), settledAmount: String(data.settled_amount ?? 0), dueDate: String(data.due_date ?? ""), notes: String(data.notes ?? "") },
+      bill: { title: String(data.title ?? ""), category: String(data.category ?? "Utilities"), amount: String(data.amount ?? ""), dueDate: String(data.due_date ?? today()), recurrence: String(data.recurrence ?? "monthly"), notes: String(data.notes ?? "") },
+      goal: { title: String(data.title ?? ""), targetAmount: String(data.target_amount ?? ""), currentAmount: String(data.current_amount ?? 0), targetDate: String(data.target_date ?? ""), notes: String(data.notes ?? "") },
+    };
+    setForm(formByKind[kind]);
+    setEditingRecord({ id: item.id, kind });
     setRecordKind(kind);
   }
 
@@ -251,19 +271,32 @@ export function PersonalFinanceCenter() {
     setFeedback(null);
     try {
       const response = await fetch("/api/finance/records", {
-        method: "POST",
+        method: editingRecord ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: recordKind, data: form }),
+        body: JSON.stringify({ kind: recordKind, recordId: editingRecord?.id, data: form }),
       });
       const payload = (await response.json()) as { record?: unknown; error?: string };
       if (!response.ok || !payload.record) throw new Error(payload.error ?? "Record save হয়নি।");
       const label = kindLabels[recordKind];
       setRecordKind(null);
+      setEditingRecord(null);
       await loadFinance();
-      setFeedback(label + " save হয়েছে।");
+      setFeedback(label + (editingRecord ? " update হয়েছে।" : " save হয়েছে।"));
     } finally {
       setSaving(false);
     }
+  }
+
+  async function deleteRecord(kind: FinanceRecordKind, recordId: string) {
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const response = await fetch("/api/finance/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, recordId }) });
+      const payload = (await response.json()) as { message?: string; error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Record delete হয়নি।");
+      await loadFinance();
+      setFeedback(payload.message ?? "Record delete হয়েছে।");
+    } finally { setSaving(false); }
   }
 
   async function updateStatus(entity: "account" | "bill", id: string, status: string) {
@@ -585,16 +618,16 @@ export function PersonalFinanceCenter() {
 
                 <DataSection title="Accounts & wallets" description="Opening balance এবং transaction থেকে live balance" onAdd={() => openRecord("account")} onExport={() => void exportWorkbook({ name: "Accounts", rows: accountRows })}>
                   <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">
-                    {accounts.map((account) => <div key={account.id} className="rounded-2xl border bg-card p-4"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><WalletCards className="size-5" /></span><Badge variant="outline">{account.account_type}</Badge></div><p className="mt-4 font-semibold">{account.name}</p><p className="mt-1 text-2xl font-bold">{money.format(accountBalance(account))}</p><div className="mt-3 flex items-center justify-between"><StatusBadge value={account.status} />{account.status === "active" ? <Button variant="ghost" size="sm" disabled={saving} onClick={() => void updateStatus("account", account.id, "archived").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Update হয়নি।"))}>Archive</Button> : null}</div></div>)}
+                    {accounts.map((account) => <div key={account.id} className="rounded-2xl border bg-card p-4"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><WalletCards className="size-5" /></span><div className="flex items-center"><Badge variant="outline">{account.account_type}</Badge><RecordActions disabled={saving} onEdit={() => openEditRecord("account", account)} onDelete={() => void deleteRecord("account", account.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></div><p className="mt-4 font-semibold">{account.name}</p><p className="mt-1 text-2xl font-bold">{money.format(accountBalance(account))}</p><div className="mt-3 flex items-center justify-between"><StatusBadge value={account.status} />{account.status === "active" ? <Button variant="ghost" size="sm" disabled={saving} onClick={() => void updateStatus("account", account.id, "archived").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Update হয়নি।"))}>Archive</Button> : null}</div></div>)}
                   </div>
                 </DataSection>
               </TabsContent>
 
               <TabsContent value="transactions">
                 <DataSection title="Income & expense ledger" description="Date, account, category, method ও recurring reference" onAdd={() => openRecord("transaction")} onExport={() => void exportWorkbook({ name: "Transactions", rows: transactionRows })}>
-                  <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Category</TableHead><TableHead>Account</TableHead><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Notes</TableHead></TableRow></TableHeader><TableBody>
-                    {transactions.map((item) => <TableRow key={item.id}><TableCell>{date.format(new Date(item.transaction_date + "T00:00:00"))}</TableCell><TableCell><StatusBadge value={item.direction} /></TableCell><TableCell>{item.category}{item.is_recurring ? <Badge variant="outline" className="ml-2">Recurring</Badge> : null}</TableCell><TableCell>{accounts.find((account) => account.id === item.account_id)?.name || "Archived"}</TableCell><TableCell className={item.direction === "income" ? "font-bold text-emerald-600" : "font-bold text-rose-600"}>{item.direction === "income" ? "+" : "-"}{money.format(valueOf(item.amount))}</TableCell><TableCell>{item.payment_method}</TableCell><TableCell className="max-w-64 truncate">{item.notes || item.reference || "—"}</TableCell></TableRow>)}
-                    <EmptyRows show={!transactions.length} columns={7} />
+                  <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Category</TableHead><TableHead>Account</TableHead><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Notes</TableHead><TableHead /></TableRow></TableHeader><TableBody>
+                    {transactions.map((item) => <TableRow key={item.id}><TableCell>{date.format(new Date(item.transaction_date + "T00:00:00"))}</TableCell><TableCell><StatusBadge value={item.direction} /></TableCell><TableCell>{item.category}{item.is_recurring ? <Badge variant="outline" className="ml-2">Recurring</Badge> : null}</TableCell><TableCell>{accounts.find((account) => account.id === item.account_id)?.name || "Archived"}</TableCell><TableCell className={item.direction === "income" ? "font-bold text-emerald-600" : "font-bold text-rose-600"}>{item.direction === "income" ? "+" : "-"}{money.format(valueOf(item.amount))}</TableCell><TableCell>{item.payment_method}</TableCell><TableCell className="max-w-64 truncate">{item.notes || item.reference || "—"}</TableCell><TableCell><RecordActions disabled={saving} onEdit={() => openEditRecord("transaction", item)} onDelete={() => void deleteRecord("transaction", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></TableCell></TableRow>)}
+                    <EmptyRows show={!transactions.length} columns={8} />
                   </TableBody></Table>
                 </DataSection>
               </TabsContent>
@@ -605,7 +638,7 @@ export function PersonalFinanceCenter() {
                     {monthBudgets.map((item) => {
                       const spent = monthTransactions.filter((transaction) => transaction.direction === "expense" && transaction.category === item.category).reduce((sum, transaction) => sum + valueOf(transaction.amount), 0);
                       const percent = Math.min(100, (spent / valueOf(item.limit_amount)) * 100);
-                      return <div key={item.id} className="rounded-2xl border p-4"><div className="flex items-start justify-between"><div><p className="font-semibold">{item.category}</p><p className="text-sm text-muted-foreground">{money.format(spent)} / {money.format(valueOf(item.limit_amount))}</p></div><StatusBadge value={percent >= item.alert_percent ? "alert" : "healthy"} /></div><Progress value={percent} className="mt-4 h-2.5" /><p className="mt-2 text-xs text-muted-foreground">Alert at {item.alert_percent}% · {money.format(Math.max(0, valueOf(item.limit_amount) - spent))} remaining</p></div>;
+                      return <div key={item.id} className="rounded-2xl border p-4"><div className="flex items-start justify-between"><div><p className="font-semibold">{item.category}</p><p className="text-sm text-muted-foreground">{money.format(spent)} / {money.format(valueOf(item.limit_amount))}</p></div><div className="flex items-center"><StatusBadge value={percent >= item.alert_percent ? "alert" : "healthy"} /><RecordActions disabled={saving} onEdit={() => openEditRecord("budget", item)} onDelete={() => void deleteRecord("budget", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></div><Progress value={percent} className="mt-4 h-2.5" /><p className="mt-2 text-xs text-muted-foreground">Alert at {item.alert_percent}% · {money.format(Math.max(0, valueOf(item.limit_amount) - spent))} remaining</p></div>;
                     })}
                     {!monthBudgets.length ? <EmptyCard text="এই মাসের কোনো budget নেই।" /> : null}
                   </div>
@@ -615,7 +648,7 @@ export function PersonalFinanceCenter() {
               <TabsContent value="debts">
                 <DataSection title="দেনা-পাওনা tracker" description="কাকে দিয়েছেন, কার কাছ থেকে নিয়েছেন, due date ও settlement" onAdd={() => openRecord("debt")} onExport={() => void exportWorkbook({ name: "Debts", rows: debtRows })}>
                   <Table><TableHeader><TableRow><TableHead>Person</TableHead><TableHead>Type</TableHead><TableHead>Principal</TableHead><TableHead>Settled</TableHead><TableHead>Outstanding</TableHead><TableHead>Due</TableHead><TableHead>Status</TableHead><TableHead /></TableRow></TableHeader><TableBody>
-                    {debts.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.counterparty}</TableCell><TableCell><StatusBadge value={item.debt_type} /></TableCell><TableCell>{money.format(valueOf(item.principal_amount))}</TableCell><TableCell>{money.format(valueOf(item.settled_amount))}</TableCell><TableCell className="font-bold">{money.format(Math.max(0, valueOf(item.principal_amount) - valueOf(item.settled_amount)))}</TableCell><TableCell>{item.due_date ? date.format(new Date(item.due_date + "T00:00:00")) : "No date"}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell><TableCell><Button variant="ghost" size="sm" onClick={() => setProgressTarget({ entity: "debt", id: item.id, title: item.counterparty, amount: String(item.settled_amount), maximum: valueOf(item.principal_amount) })}>Update</Button></TableCell></TableRow>)}
+                    {debts.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.counterparty}</TableCell><TableCell><StatusBadge value={item.debt_type} /></TableCell><TableCell>{money.format(valueOf(item.principal_amount))}</TableCell><TableCell>{money.format(valueOf(item.settled_amount))}</TableCell><TableCell className="font-bold">{money.format(Math.max(0, valueOf(item.principal_amount) - valueOf(item.settled_amount)))}</TableCell><TableCell>{item.due_date ? date.format(new Date(item.due_date + "T00:00:00")) : "No date"}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell><TableCell><div className="flex"><Button variant="ghost" size="sm" onClick={() => setProgressTarget({ entity: "debt", id: item.id, title: item.counterparty, amount: String(item.settled_amount), maximum: valueOf(item.principal_amount) })}>Progress</Button><RecordActions disabled={saving} onEdit={() => openEditRecord("debt", item)} onDelete={() => void deleteRecord("debt", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell></TableRow>)}
                     <EmptyRows show={!debts.length} columns={8} />
                   </TableBody></Table>
                 </DataSection>
@@ -624,7 +657,7 @@ export function PersonalFinanceCenter() {
               <TabsContent value="bills">
                 <DataSection title="Bills & payment reminders" description="Utility, rent, subscription, tax এবং recurring dues" onAdd={() => openRecord("bill")} onExport={() => void exportWorkbook({ name: "Bills", rows: billRows })}>
                   <Table><TableHeader><TableRow><TableHead>Bill</TableHead><TableHead>Category</TableHead><TableHead>Amount</TableHead><TableHead>Due date</TableHead><TableHead>Recurrence</TableHead><TableHead>Status</TableHead><TableHead /></TableRow></TableHeader><TableBody>
-                    {bills.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.title}</TableCell><TableCell>{item.category}</TableCell><TableCell>{money.format(valueOf(item.amount))}</TableCell><TableCell>{date.format(new Date(item.due_date + "T00:00:00"))}</TableCell><TableCell>{item.recurrence}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell><TableCell><StatusMenu values={["pending", "paid", "skipped"]} disabled={saving} onSelect={(status) => void updateStatus("bill", item.id, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Update হয়নি।"))} /></TableCell></TableRow>)}
+                    {bills.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.title}</TableCell><TableCell>{item.category}</TableCell><TableCell>{money.format(valueOf(item.amount))}</TableCell><TableCell>{date.format(new Date(item.due_date + "T00:00:00"))}</TableCell><TableCell>{item.recurrence}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell><TableCell><div className="flex"><StatusMenu values={["pending", "paid", "skipped"]} disabled={saving} onSelect={(status) => void updateStatus("bill", item.id, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Update হয়নি।"))} /><RecordActions disabled={saving} onEdit={() => openEditRecord("bill", item)} onDelete={() => void deleteRecord("bill", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell></TableRow>)}
                     <EmptyRows show={!bills.length} columns={7} />
                   </TableBody></Table>
                 </DataSection>
@@ -635,7 +668,7 @@ export function PersonalFinanceCenter() {
                   <div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
                     {goals.map((item) => {
                       const progress = Math.min(100, (valueOf(item.current_amount) / valueOf(item.target_amount)) * 100);
-                      return <div key={item.id} className="rounded-2xl border p-5"><div className="flex items-start justify-between gap-3"><span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><Target className="size-5" /></span><StatusBadge value={item.status} /></div><h3 className="mt-4 font-bold">{item.title}</h3><p className="mt-1 text-2xl font-bold">{money.format(valueOf(item.current_amount))}</p><p className="text-sm text-muted-foreground">of {money.format(valueOf(item.target_amount))}</p><Progress value={progress} className="mt-4 h-2.5" /><div className="mt-3 flex items-center justify-between text-xs text-muted-foreground"><span>{Math.round(progress)}%</span><span>{item.target_date ? date.format(new Date(item.target_date + "T00:00:00")) : "No deadline"}</span></div><Button variant="outline" size="sm" className="mt-4 w-full rounded-xl" onClick={() => setProgressTarget({ entity: "goal", id: item.id, title: item.title, amount: String(item.current_amount), maximum: valueOf(item.target_amount) })}>Saved amount update</Button></div>;
+                      return <div key={item.id} className="rounded-2xl border p-5"><div className="flex items-start justify-between gap-3"><span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><Target className="size-5" /></span><div className="flex items-center"><StatusBadge value={item.status} /><RecordActions disabled={saving} onEdit={() => openEditRecord("goal", item)} onDelete={() => void deleteRecord("goal", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></div><h3 className="mt-4 font-bold">{item.title}</h3><p className="mt-1 text-2xl font-bold">{money.format(valueOf(item.current_amount))}</p><p className="text-sm text-muted-foreground">of {money.format(valueOf(item.target_amount))}</p><Progress value={progress} className="mt-4 h-2.5" /><div className="mt-3 flex items-center justify-between text-xs text-muted-foreground"><span>{Math.round(progress)}%</span><span>{item.target_date ? date.format(new Date(item.target_date + "T00:00:00")) : "No deadline"}</span></div><Button variant="outline" size="sm" className="mt-4 w-full rounded-xl" onClick={() => setProgressTarget({ entity: "goal", id: item.id, title: item.title, amount: String(item.current_amount), maximum: valueOf(item.target_amount) })}>Saved amount update</Button></div>;
                     })}
                     {!goals.length ? <EmptyCard text="এখনও কোনো savings goal নেই।" /> : null}
                   </div>
@@ -646,11 +679,11 @@ export function PersonalFinanceCenter() {
         </>
       )}
 
-      <Dialog open={Boolean(recordKind)} onOpenChange={(open) => !open && setRecordKind(null)}>
+      <Dialog open={Boolean(recordKind)} onOpenChange={(open) => { if (!open) { setRecordKind(null); setEditingRecord(null); } }}>
         <DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-3xl">
-          <DialogHeader><DialogTitle>{recordKind ? kindLabels[recordKind] : "Finance record"} যোগ করুন</DialogTitle><DialogDescription>এই তথ্য শুধু আপনার private finance workspace-এ থাকবে।</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{recordKind ? kindLabels[recordKind] : "Finance record"} {editingRecord ? "edit করুন" : "যোগ করুন"}</DialogTitle><DialogDescription>এই তথ্য শুধু আপনার private finance workspace-এ থাকবে।</DialogDescription></DialogHeader>
           {recordKind ? <FinanceForm kind={recordKind} form={form} setForm={setForm} accounts={activeAccounts} /> : null}
-          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setRecordKind(null)}>বাতিল</Button><Button className="gap-2 rounded-xl" disabled={saving} onClick={() => void saveRecord().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Save হয়নি।"))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />} Save করুন</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => { setRecordKind(null); setEditingRecord(null); }}>বাতিল</Button><Button className="gap-2 rounded-xl" disabled={saving} onClick={() => void saveRecord().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Save হয়নি।"))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingRecord ? <Pencil className="size-4" /> : <Plus className="size-4" />} {editingRecord ? "Update করুন" : "Save করুন"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -715,6 +748,10 @@ function StatusBadge({ value }: { value: string }) {
 
 function StatusMenu({ values, onSelect, disabled }: { values: string[]; onSelect: (value: string) => void; disabled: boolean }) {
   return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">Status actions</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{values.map((value) => <DropdownMenuItem key={value} onClick={() => onSelect(value)}>{value}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>;
+}
+
+function RecordActions({ onEdit, onDelete, disabled }: { onEdit: () => void; onDelete: () => void; disabled: boolean }) {
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">Record actions</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={onEdit}><Pencil /> Edit details</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}><Trash2 /> Delete permanently</DropdownMenuItem></DropdownMenuContent></DropdownMenu>;
 }
 
 function FormField({ label, id, children }: { label: string; id: string; children: ReactNode }) {

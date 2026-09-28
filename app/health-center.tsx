@@ -20,10 +20,12 @@ import {
   MapPin,
   MoreHorizontal,
   Navigation,
+  Pencil,
   Pill,
   Plus,
   ShieldCheck,
   Siren,
+  Trash2,
   Upload,
   Users,
   X,
@@ -82,6 +84,7 @@ import { cn } from "@/lib/utils";
 
 type RecordKind = "medication" | "appointment" | "measurement";
 type FormState = Record<string, string>;
+type EditableHealthRecord = HealthMedication | HealthAppointment | HealthMeasurement;
 type LocationState = { latitude: number; longitude: number; accuracy: number } | null;
 
 const date = new Intl.DateTimeFormat("bn-BD", { dateStyle: "medium" });
@@ -92,6 +95,11 @@ const nowLocal = () => {
   const value = new Date();
   value.setMinutes(value.getMinutes() - value.getTimezoneOffset());
   return value.toISOString().slice(0, 16);
+};
+const toLocalInput = (value: string) => {
+  const date = new Date(value);
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 16);
 };
 
 const typeLabels: Record<HealthMeasurement["measurement_type"], string> = {
@@ -155,6 +163,7 @@ export function HealthCenter() {
   const [profileForm, setProfileForm] = useState<FormState>({});
   const [donorAvailable, setDonorAvailable] = useState(false);
   const [recordKind, setRecordKind] = useState<RecordKind | null>(null);
+  const [editingRecord, setEditingRecord] = useState<{ id: string; kind: RecordKind } | null>(null);
   const [recordForm, setRecordForm] = useState<FormState>({});
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadForm, setUploadForm] = useState<FormState>({ category: "prescription", documentDate: today() });
@@ -290,16 +299,66 @@ export function HealthCenter() {
     if (!recordKind) return;
     setSaving(true);
     try {
-      const action = recordKind === "medication" ? "create_medication" : recordKind === "appointment" ? "create_appointment" : "create_measurement";
       const data: Record<string, unknown> = { ...recordForm };
       if (recordKind === "medication") data.reminderTimes = recordForm.reminderTimes?.split(",").map((value) => value.trim()).filter(Boolean) ?? [];
-      await postAction(action, data);
+      if (editingRecord) {
+        const response = await fetch("/api/health/records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: recordKind, recordId: editingRecord.id, data }) });
+        const payload = await response.json() as { record?: unknown; error?: string };
+        if (!response.ok || !payload.record) throw new Error(payload.error ?? "Health record update হয়নি।");
+      } else {
+        const action = recordKind === "medication" ? "create_medication" : recordKind === "appointment" ? "create_appointment" : "create_measurement";
+        await postAction(action, data);
+      }
       setRecordKind(null);
+      setEditingRecord(null);
       await loadHealth();
-      setFeedback("Health record save হয়েছে।");
+      setFeedback(editingRecord ? "Health record update হয়েছে।" : "Health record save হয়েছে।");
     } finally {
       setSaving(false);
     }
+  }
+
+  function openRecord(kind: RecordKind) {
+    setEditingRecord(null);
+    setRecordForm(initialForm(kind));
+    setRecordKind(kind);
+  }
+
+  function openEditRecord(kind: RecordKind, item: EditableHealthRecord) {
+    if (kind === "medication") {
+      const value = item as HealthMedication;
+      setRecordForm({ medicineName: value.medicine_name, dosage: value.dosage, frequency: value.frequency, reminderTimes: value.reminder_times.join(", "), startDate: value.start_date, endDate: value.end_date ?? "", instructions: value.instructions ?? "", prescribingDoctor: value.prescribing_doctor ?? "" });
+    } else if (kind === "appointment") {
+      const value = item as HealthAppointment;
+      setRecordForm({ title: value.title, doctorName: value.doctor_name ?? "", facility: value.facility ?? "", scheduledAt: toLocalInput(value.scheduled_at), reminderMinutes: String(value.reminder_minutes), notes: value.notes ?? "" });
+    } else {
+      const value = item as HealthMeasurement;
+      setRecordForm({ measurementType: value.measurement_type, valuePrimary: String(value.value_primary), valueSecondary: value.value_secondary === null ? "" : String(value.value_secondary), unit: value.unit, measuredAt: toLocalInput(value.measured_at), notes: value.notes ?? "" });
+    }
+    setEditingRecord({ id: item.id, kind });
+    setRecordKind(kind);
+  }
+
+  async function deleteRecord(kind: RecordKind, recordId: string) {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/health/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, recordId }) });
+      const payload = await response.json() as { message?: string; error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Health record delete হয়নি।");
+      await loadHealth();
+      setFeedback(payload.message ?? "Health record delete হয়েছে।");
+    } finally { setSaving(false); }
+  }
+
+  async function deleteDocument(id: string) {
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/health-document/${id}`, { method: "DELETE" });
+      const payload = await response.json() as { message?: string; error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Document delete হয়নি।");
+      await loadHealth();
+      setFeedback(payload.message ?? "Document delete হয়েছে।");
+    } finally { setSaving(false); }
   }
 
   async function updateStatus(entity: "medication" | "appointment", id: string, status: string) {
@@ -497,7 +556,7 @@ export function HealthCenter() {
             </CardContent>
           </Card>
           <Card className="rounded-3xl shadow-none">
-            <CardHeader className="flex-row items-center justify-between"><div><CardTitle>আজকের care plan</CardTitle><p className="mt-1 text-sm text-muted-foreground">Active medicines ও upcoming schedule</p></div><Button size="sm" className="rounded-xl" onClick={() => { setRecordKind("medication"); setRecordForm(initialForm("medication")); }}><Plus className="size-4" /> Medicine</Button></CardHeader>
+            <CardHeader className="flex-row items-center justify-between"><div><CardTitle>আজকের care plan</CardTitle><p className="mt-1 text-sm text-muted-foreground">Active medicines ও upcoming schedule</p></div><Button size="sm" className="rounded-xl" onClick={() => openRecord("medication")}><Plus className="size-4" /> Medicine</Button></CardHeader>
             <CardContent className="space-y-3">
               {activeMedications.slice(0, 4).map((item) => <div key={item.id} className="flex items-center gap-3 rounded-2xl border p-3"><span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><Pill className="size-4" /></span><div className="min-w-0 flex-1"><p className="truncate font-semibold">{item.medicine_name} · {item.dosage}</p><p className="text-xs text-muted-foreground">{item.frequency} · {item.reminder_times.join(", ") || "No browser time"}</p></div><Badge variant="secondary">Active</Badge></div>)}
               {nextAppointment ? <div className="flex items-center gap-3 rounded-2xl border border-cyan-200 bg-cyan-50 p-3 text-cyan-950 dark:border-cyan-900 dark:bg-cyan-950/30 dark:text-cyan-100"><CalendarClock className="size-5" /><div><p className="font-semibold">{nextAppointment.title}</p><p className="text-xs opacity-75">{dateTime.format(new Date(nextAppointment.scheduled_at))} · {nextAppointment.facility || "Location not set"}</p></div></div> : null}
@@ -505,7 +564,7 @@ export function HealthCenter() {
             </CardContent>
           </Card>
           <Card className="rounded-3xl shadow-none xl:col-span-2">
-            <CardHeader className="flex-row items-center justify-between"><div><CardTitle>Recent measurements</CardTitle><p className="mt-1 text-sm text-muted-foreground">Personal tracking only—clinical diagnosis নয়</p></div><Button variant="outline" size="sm" className="rounded-xl" onClick={() => { setRecordKind("measurement"); setRecordForm(initialForm("measurement")); }}><Plus className="size-4" /> Add log</Button></CardHeader>
+            <CardHeader className="flex-row items-center justify-between"><div><CardTitle>Recent measurements</CardTitle><p className="mt-1 text-sm text-muted-foreground">Personal tracking only—clinical diagnosis নয়</p></div><Button variant="outline" size="sm" className="rounded-xl" onClick={() => openRecord("measurement")}><Plus className="size-4" /> Add log</Button></CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {recentMeasurements.map((item) => <div key={item.id} className="rounded-2xl border p-4"><div className="flex items-center justify-between"><span className="text-sm font-semibold">{typeLabels[item.measurement_type]}</span><Activity className="size-4 text-primary" /></div><p className="mt-3 text-2xl font-bold">{item.value_primary}{item.value_secondary !== null ? ` / ${item.value_secondary}` : ""} <small className="text-xs font-normal text-muted-foreground">{item.unit}</small></p><p className="mt-1 text-xs text-muted-foreground">{dateTime.format(new Date(item.measured_at))}</p></div>)}
               {!recentMeasurements.length ? <div className="sm:col-span-2 xl:col-span-3"><Empty icon={<Activity />} title="কোনো health log নেই" text="Blood pressure, sugar, pulse, temperature, weight বা oxygen লিখে রাখতে পারেন।" /></div> : null}
@@ -514,30 +573,30 @@ export function HealthCenter() {
         </TabsContent>
 
         <TabsContent value="care" className="space-y-4">
-          <DataSection title="Medicine schedule" description="Dosage, frequency, reminder times ও status" onAdd={() => { setRecordKind("medication"); setRecordForm(initialForm("medication")); }}>
+          <DataSection title="Medicine schedule" description="Dosage, frequency, reminder times ও status" onAdd={() => openRecord("medication")}>
             <Table><TableHeader><TableRow><TableHead>Medicine</TableHead><TableHead>Dosage</TableHead><TableHead>Schedule</TableHead><TableHead>Dates</TableHead><TableHead>Status</TableHead><TableHead /></TableRow></TableHeader><TableBody>
-              {medications.map((item) => <TableRow key={item.id}><TableCell><b>{item.medicine_name}</b><p className="text-xs text-muted-foreground">{item.instructions || item.prescribing_doctor || ""}</p></TableCell><TableCell>{item.dosage}</TableCell><TableCell>{item.frequency}<p className="text-xs text-muted-foreground">{item.reminder_times.join(", ") || "No time"}</p></TableCell><TableCell>{item.start_date}{item.end_date ? ` → ${item.end_date}` : ""}</TableCell><TableCell><Status value={item.status} /></TableCell><TableCell><StatusMenu disabled={saving} values={["active", "paused", "completed"]} onSelect={(status) => void updateStatus("medication", item.id, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Update হয়নি।"))} /></TableCell></TableRow>)}
+              {medications.map((item) => <TableRow key={item.id}><TableCell><b>{item.medicine_name}</b><p className="text-xs text-muted-foreground">{item.instructions || item.prescribing_doctor || ""}</p></TableCell><TableCell>{item.dosage}</TableCell><TableCell>{item.frequency}<p className="text-xs text-muted-foreground">{item.reminder_times.join(", ") || "No time"}</p></TableCell><TableCell>{item.start_date}{item.end_date ? ` → ${item.end_date}` : ""}</TableCell><TableCell><Status value={item.status} /></TableCell><TableCell><div className="flex"><StatusMenu disabled={saving} values={["active", "paused", "completed"]} onSelect={(status) => void updateStatus("medication", item.id, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Update হয়নি।"))} /><RecordActions disabled={saving} onEdit={() => openEditRecord("medication", item)} onDelete={() => void deleteRecord("medication", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell></TableRow>)}
               {!medications.length ? <EmptyRows columns={6} /> : null}
             </TableBody></Table>
           </DataSection>
-          <DataSection title="Appointments" description="Doctor, facility, date, reminder ও visit status" onAdd={() => { setRecordKind("appointment"); setRecordForm(initialForm("appointment")); }}>
+          <DataSection title="Appointments" description="Doctor, facility, date, reminder ও visit status" onAdd={() => openRecord("appointment")}>
             <Table><TableHeader><TableRow><TableHead>Appointment</TableHead><TableHead>Doctor</TableHead><TableHead>Schedule</TableHead><TableHead>Facility</TableHead><TableHead>Status</TableHead><TableHead /></TableRow></TableHeader><TableBody>
-              {appointments.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.title}</TableCell><TableCell>{item.doctor_name || "—"}</TableCell><TableCell>{dateTime.format(new Date(item.scheduled_at))}</TableCell><TableCell>{item.facility || "—"}</TableCell><TableCell><Status value={item.status} /></TableCell><TableCell><StatusMenu disabled={saving} values={["scheduled", "completed", "cancelled"]} onSelect={(status) => void updateStatus("appointment", item.id, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Update হয়নি।"))} /></TableCell></TableRow>)}
+              {appointments.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.title}</TableCell><TableCell>{item.doctor_name || "—"}</TableCell><TableCell>{dateTime.format(new Date(item.scheduled_at))}</TableCell><TableCell>{item.facility || "—"}</TableCell><TableCell><Status value={item.status} /></TableCell><TableCell><div className="flex"><StatusMenu disabled={saving} values={["scheduled", "completed", "cancelled"]} onSelect={(status) => void updateStatus("appointment", item.id, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Update হয়নি।"))} /><RecordActions disabled={saving} onEdit={() => openEditRecord("appointment", item)} onDelete={() => void deleteRecord("appointment", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell></TableRow>)}
               {!appointments.length ? <EmptyRows columns={6} /> : null}
             </TableBody></Table>
           </DataSection>
         </TabsContent>
 
         <TabsContent value="records" className="space-y-4">
-          <DataSection title="Health measurements" description="Private chronological log" onAdd={() => { setRecordKind("measurement"); setRecordForm(initialForm("measurement")); }}>
-            <Table><TableHeader><TableRow><TableHead>Time</TableHead><TableHead>Type</TableHead><TableHead>Reading</TableHead><TableHead>Notes</TableHead></TableRow></TableHeader><TableBody>
-              {measurements.map((item) => <TableRow key={item.id}><TableCell>{dateTime.format(new Date(item.measured_at))}</TableCell><TableCell>{typeLabels[item.measurement_type]}</TableCell><TableCell className="font-bold">{item.value_primary}{item.value_secondary !== null ? ` / ${item.value_secondary}` : ""} {item.unit}</TableCell><TableCell>{item.notes || "—"}</TableCell></TableRow>)}
-              {!measurements.length ? <EmptyRows columns={4} /> : null}
+          <DataSection title="Health measurements" description="Private chronological log" onAdd={() => openRecord("measurement")}>
+            <Table><TableHeader><TableRow><TableHead>Time</TableHead><TableHead>Type</TableHead><TableHead>Reading</TableHead><TableHead>Notes</TableHead><TableHead /></TableRow></TableHeader><TableBody>
+              {measurements.map((item) => <TableRow key={item.id}><TableCell>{dateTime.format(new Date(item.measured_at))}</TableCell><TableCell>{typeLabels[item.measurement_type]}</TableCell><TableCell className="font-bold">{item.value_primary}{item.value_secondary !== null ? ` / ${item.value_secondary}` : ""} {item.unit}</TableCell><TableCell>{item.notes || "—"}</TableCell><TableCell><RecordActions disabled={saving} onEdit={() => openEditRecord("measurement", item)} onDelete={() => void deleteRecord("measurement", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></TableCell></TableRow>)}
+              {!measurements.length ? <EmptyRows columns={5} /> : null}
             </TableBody></Table>
           </DataSection>
           <DataSection title="Private medical vault" description="Prescription, report, imaging, vaccine ও insurance documents" onAdd={() => setUploadOpen(true)} addLabel="Upload">
             <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-3">
-              {documents.map((item) => <a key={item.id} href={`/api/health-document/${item.id}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-2xl border p-4 transition hover:border-primary/30 hover:bg-muted/40"><span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary"><FileText className="size-5" /></span><span className="min-w-0 flex-1"><b className="block truncate">{item.title}</b><small className="block truncate text-muted-foreground">{item.category.replaceAll("_", " ")} · {fileSize(item.file_size)}</small></span><Download className="size-4 text-muted-foreground" /></a>)}
+              {documents.map((item) => <div key={item.id} className="flex items-center gap-2 rounded-2xl border p-3 transition hover:border-primary/30 hover:bg-muted/40"><a href={`/api/health-document/${item.id}`} target="_blank" rel="noreferrer" className="flex min-w-0 flex-1 items-center gap-3"><span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary"><FileText className="size-5" /></span><span className="min-w-0 flex-1"><b className="block truncate">{item.title}</b><small className="block truncate text-muted-foreground">{item.category.replaceAll("_", " ")} · {fileSize(item.file_size)}</small></span><Download className="size-4 text-muted-foreground" /></a><Button size="icon-sm" variant="ghost" className="text-destructive" disabled={saving} onClick={() => void deleteDocument(item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))}><Trash2 /><span className="sr-only">Delete document</span></Button></div>)}
               {!documents.length ? <div className="sm:col-span-2 xl:col-span-3"><Empty icon={<FileHeart />} title="Medical vault খালি" text="নিজের prescription বা report private storage-এ upload করুন।" /></div> : null}
             </div>
           </DataSection>
@@ -553,7 +612,7 @@ export function HealthCenter() {
 
       <Dialog open={profileOpen} onOpenChange={setProfileOpen}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-3xl"><DialogHeader><DialogTitle>Private health profile</DialogTitle><DialogDescription>Default private। Share setting আপনি নিজে নিয়ন্ত্রণ করবেন।</DialogDescription></DialogHeader><ProfileForm form={profileForm} setForm={setProfileForm} donorAvailable={donorAvailable} setDonorAvailable={setDonorAvailable} /><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setProfileOpen(false)}>বাতিল</Button><Button className="rounded-xl" disabled={saving} onClick={() => void saveProfile().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Save হয়নি।"))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />} Save</Button></DialogFooter></DialogContent></Dialog>
 
-      <Dialog open={Boolean(recordKind)} onOpenChange={(open) => !open && setRecordKind(null)}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-2xl"><DialogHeader><DialogTitle>{recordKind === "medication" ? "Medicine" : recordKind === "appointment" ? "Appointment" : "Health measurement"} যোগ করুন</DialogTitle><DialogDescription>এই তথ্য আপনার private health workspace-এ থাকবে।</DialogDescription></DialogHeader>{recordKind ? <RecordForm kind={recordKind} form={recordForm} setForm={setRecordForm} /> : null}<DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setRecordKind(null)}>বাতিল</Button><Button className="rounded-xl" disabled={saving} onClick={() => void saveRecord().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Save হয়নি।"))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />} Save</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={Boolean(recordKind)} onOpenChange={(open) => { if (!open) { setRecordKind(null); setEditingRecord(null); } }}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-2xl"><DialogHeader><DialogTitle>{recordKind === "medication" ? "Medicine" : recordKind === "appointment" ? "Appointment" : "Health measurement"} {editingRecord ? "edit করুন" : "যোগ করুন"}</DialogTitle><DialogDescription>এই তথ্য আপনার private health workspace-এ থাকবে।</DialogDescription></DialogHeader>{recordKind ? <RecordForm kind={recordKind} form={recordForm} setForm={setRecordForm} /> : null}<DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => { setRecordKind(null); setEditingRecord(null); }}>বাতিল</Button><Button className="rounded-xl" disabled={saving} onClick={() => void saveRecord().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Save হয়নি।"))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingRecord ? <Pencil className="size-4" /> : <Plus className="size-4" />} {editingRecord ? "Update" : "Save"}</Button></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}><DialogContent className="rounded-3xl sm:max-w-xl"><DialogHeader><DialogTitle>Medical document upload</DialogTitle><DialogDescription>শুধু আপনি এই private file দেখতে পারবেন। সর্বোচ্চ ১২ MB।</DialogDescription></DialogHeader><div className="space-y-4"><Field label="Title" id="health-doc-title"><Input id="health-doc-title" value={uploadForm.title ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, title: event.target.value })} /></Field><div className="grid gap-4 sm:grid-cols-2"><Field label="Category" id="health-doc-category"><Select value={uploadForm.category} onValueChange={(value) => setUploadForm({ ...uploadForm, category: value })}><SelectTrigger id="health-doc-category"><SelectValue /></SelectTrigger><SelectContent>{[["prescription", "Prescription"], ["lab_report", "Lab report"], ["imaging", "Imaging"], ["vaccine", "Vaccine"], ["insurance", "Insurance"], ["other", "Other"]].map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field><Field label="Document date" id="health-doc-date"><Input id="health-doc-date" type="date" value={uploadForm.documentDate ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, documentDate: event.target.value })} /></Field></div><Field label="File" id="health-doc-file"><Input ref={fileInputRef} id="health-doc-file" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.doc,.docx" onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} /></Field><Field label="Notes" id="health-doc-notes"><Textarea id="health-doc-notes" value={uploadForm.notes ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, notes: event.target.value })} /></Field></div><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setUploadOpen(false)}>বাতিল</Button><Button className="rounded-xl" disabled={saving || !uploadFile} onClick={() => void uploadDocument().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Upload হয়নি।"))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Upload className="size-4" />} Upload</Button></DialogFooter></DialogContent></Dialog>
 
@@ -573,6 +632,7 @@ function DataSection({ title, description, onAdd, addLabel = "Add", children }: 
 function Field({ label, id, children }: { label: string; id: string; children: ReactNode }) { return <div className="space-y-2"><Label htmlFor={id}>{label}</Label>{children}</div>; }
 function Status({ value }: { value: string }) { const style = ["active", "scheduled", "completed", "resolved"].includes(value) ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300" : ["paused", "acknowledged"].includes(value) ? "bg-amber-500/12 text-amber-700 dark:text-amber-300" : ["cancelled"].includes(value) ? "bg-rose-500/12 text-rose-700 dark:text-rose-300" : "bg-muted text-muted-foreground"; return <Badge variant="secondary" className={style}>{value.replaceAll("_", " ")}</Badge>; }
 function StatusMenu({ values, onSelect, disabled }: { values: string[]; onSelect: (value: string) => void; disabled: boolean }) { return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" disabled={disabled}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{values.map((value) => <DropdownMenuItem key={value} onClick={() => onSelect(value)}>{value.replaceAll("_", " ")}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>; }
+function RecordActions({ onEdit, onDelete, disabled }: { onEdit: () => void; onDelete: () => void; disabled: boolean }) { return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">Record actions</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={onEdit}><Pencil /> Edit details</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}><Trash2 /> Delete permanently</DropdownMenuItem></DropdownMenuContent></DropdownMenu>; }
 
 function SosBanner({ alert, onRespond, onClose, canClose }: { alert: HealthSosAlert; onRespond: () => void; onClose: (status: "resolved" | "cancelled") => void; canClose: boolean }) { return <div className="flex flex-col gap-3 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-rose-950 dark:border-rose-900 dark:bg-rose-950/35 dark:text-rose-100 sm:flex-row sm:items-center"><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-rose-600 text-white"><Siren className="size-5" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><b>{sosLabels[alert.alert_type]}</b><Status value={alert.status} /><span className="text-xs opacity-70">{dateTime.format(new Date(alert.created_at))}</span></div><p className="mt-1 text-sm">{alert.reporter_name}: {alert.message}</p></div><div className="flex gap-2"><Button size="sm" className="rounded-xl" onClick={onRespond}>Respond</Button>{canClose ? <DropdownMenu><DropdownMenuTrigger asChild><Button size="icon-sm" variant="outline"><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => onClose("resolved")}>Mark resolved</DropdownMenuItem><DropdownMenuItem onClick={() => onClose("cancelled")}>Cancel alert</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}</div></div>; }
 

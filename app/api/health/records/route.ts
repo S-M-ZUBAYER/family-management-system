@@ -12,6 +12,13 @@ import type {
 import { healthErrorResponse } from "../route";
 import { supabaseRest } from "@/lib/supabase-rest";
 
+type EditableHealthKind = "medication" | "appointment" | "measurement";
+const editableTables: Record<EditableHealthKind, string> = {
+  medication: "health_medications",
+  appointment: "health_appointments",
+  measurement: "health_measurements",
+};
+
 const textValue = (value: unknown, max: number) =>
   typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 
@@ -324,4 +331,70 @@ export async function POST(request: Request) {
   } catch (error) {
     return healthErrorResponse(error, "Unable to update health workspace");
   }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const user = await getChatGPTUser();
+    if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
+    const membership = await getActiveFamilyMembership(user.userId);
+    if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
+    const body = await request.json() as { kind?: EditableHealthKind; recordId?: unknown; data?: Record<string, unknown> };
+    const kind = body.kind, recordId = uuidValue(body.recordId);
+    if (!kind || !(kind in editableTables) || !recordId) return Response.json({ error: "Valid health record প্রয়োজন।" }, { status: 400 });
+    const table = editableTables[kind];
+    const lookup = new URLSearchParams({ select: "id", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}`, limit: "1" });
+    if (!(await supabaseRest<Array<{ id: string }>>(`${table}?${lookup}`))[0]) return Response.json({ error: "নিজের health record পাওয়া যায়নি।" }, { status: 404 });
+    const changes = healthRecordChanges(kind, body.data ?? {});
+    if (changes instanceof Response) return changes;
+    if (kind !== "measurement") changes.updated_at = new Date().toISOString();
+    const filter = new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}` });
+    const [record] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${filter}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
+    await audit(membership.family_id, user.userId, `health_${kind}_updated`, table, recordId);
+    return Response.json({ record });
+  } catch (error) {
+    return healthErrorResponse(error, "Unable to update health record");
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const user = await getChatGPTUser();
+    if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
+    const membership = await getActiveFamilyMembership(user.userId);
+    if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
+    const body = await request.json() as { kind?: EditableHealthKind; recordId?: unknown };
+    const kind = body.kind, recordId = uuidValue(body.recordId);
+    if (!kind || !(kind in editableTables) || !recordId) return Response.json({ error: "Valid health record প্রয়োজন।" }, { status: 400 });
+    const table = editableTables[kind];
+    const filter = new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}` });
+    const existing = (await supabaseRest<Array<{ id: string }>>(`${table}?${new URLSearchParams({ select: "id", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}`, limit: "1" })}`))[0];
+    if (!existing) return Response.json({ error: "নিজের health record পাওয়া যায়নি।" }, { status: 404 });
+    await supabaseRest(`${table}?${filter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await audit(membership.family_id, user.userId, `health_${kind}_deleted`, table, recordId);
+    return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।` });
+  } catch (error) {
+    return healthErrorResponse(error, "Unable to delete health record");
+  }
+}
+
+function healthRecordChanges(kind: EditableHealthKind, data: Record<string, unknown>): Record<string, unknown> | Response {
+  if (kind === "medication") {
+    const medicineName = textValue(data.medicineName, 180), dosage = textValue(data.dosage, 120), frequency = textValue(data.frequency, 120);
+    const reminderTimes = Array.isArray(data.reminderTimes) ? data.reminderTimes.filter((value): value is string => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value)).slice(0, 12) : [];
+    if (!medicineName || !dosage || !frequency) return Response.json({ error: "Medicine, dosage ও frequency প্রয়োজন।" }, { status: 400 });
+    return { medicine_name: medicineName, dosage, frequency, reminder_times: reminderTimes, start_date: textValue(data.startDate, 10) ?? new Date().toISOString().slice(0, 10), end_date: textValue(data.endDate, 10), instructions: textValue(data.instructions, 2000), prescribing_doctor: textValue(data.prescribingDoctor, 180) };
+  }
+  if (kind === "appointment") {
+    const title = textValue(data.title, 180), scheduledAt = timestampValue(data.scheduledAt), reminderMinutes = numberValue(data.reminderMinutes) ?? 60;
+    if (!title || !scheduledAt || scheduledAt === undefined || reminderMinutes === undefined || reminderMinutes < 0 || reminderMinutes > 10080) return Response.json({ error: "Appointment title, date ও reminder সঠিকভাবে দিন।" }, { status: 400 });
+    return { title, doctor_name: textValue(data.doctorName, 180), facility: textValue(data.facility, 220), scheduled_at: scheduledAt, reminder_minutes: Math.round(reminderMinutes), notes: textValue(data.notes, 2000) };
+  }
+  const measurementType = textValue(data.measurementType, 30), primary = numberValue(data.valuePrimary), secondary = numberValue(data.valueSecondary), unit = textValue(data.unit, 30), measuredAt = timestampValue(data.measuredAt) ?? new Date().toISOString();
+  if (!measurementType || !["blood_pressure", "blood_sugar", "pulse", "temperature", "weight", "oxygen"].includes(measurementType) || primary === null || primary === undefined || secondary === undefined || !unit || measuredAt === undefined) return Response.json({ error: "Measurement type, value, unit ও time সঠিকভাবে দিন।" }, { status: 400 });
+  return { measurement_type: measurementType, value_primary: primary, value_secondary: measurementType === "blood_pressure" ? secondary : null, unit, measured_at: measuredAt, notes: textValue(data.notes, 1000) };
+}
+
+async function audit(familyId: string, userId: string, action: string, entityType: string, entityId: string) {
+  await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: familyId, actor_user_id: userId, action, entity_type: entityType, entity_id: entityId, metadata: { module: "health", private: true } }) });
 }

@@ -5,6 +5,8 @@ import { welfareErrorResponse } from "../route";
 
 const actions = ["create_fund", "create_contribution", "create_expense", "create_request", "create_pledge", "update_status"] as const;
 type Action = (typeof actions)[number];
+type WelfareKind = "fund" | "contribution" | "expense" | "request" | "pledge";
+const welfareTables: Record<WelfareKind, string> = { fund: "welfare_funds", contribution: "welfare_contributions", expense: "welfare_expenses", request: "welfare_requests", pledge: "welfare_pledges" };
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const text = (value: unknown, max: number) => typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 const amount = (value: unknown, fallback?: number) => {
@@ -162,6 +164,66 @@ export async function POST(request: Request) {
   } catch (error) {
     return welfareErrorResponse(error, "Unable to save Welfare Fund record");
   }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const user = await getChatGPTUser(); if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
+    const membership = await getActiveFamilyMembership(user.userId); if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
+    const canManage = canManageWelfare(membership.role), body = await request.json() as { kind?: WelfareKind; recordId?: unknown; data?: Record<string, unknown> };
+    const kind = body.kind, recordId = text(body.recordId, 80); if (!kind || !(kind in welfareTables) || !recordId || !uuidPattern.test(recordId)) return Response.json({ error: "Valid Welfare record প্রয়োজন।" }, { status: 400 });
+    const table = welfareTables[kind], query = new URLSearchParams({ select: "*", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, limit: "1" });
+    const existing = (await supabaseRest<Array<Record<string, unknown>>>(`${table}?${query}`))[0]; if (!existing) return Response.json({ error: "Record পাওয়া যায়নি।" }, { status: 404 });
+    const owner = kind === "contribution" ? existing.submitted_by_user_id === user.userId : kind === "request" ? existing.requester_user_id === user.userId : kind === "pledge" ? existing.auth_user_id === user.userId : false;
+    if (!canManage && !owner) return Response.json({ error: "এই record edit করার অনুমতি নেই।" }, { status: 403 });
+    if (!canManage && ((kind === "contribution" && existing.status !== "pending") || (kind === "request" && !["submitted", "under_review"].includes(String(existing.status))))) return Response.json({ error: "Review/approval-এর পর এই financial record edit করা যাবে না।" }, { status: 409 });
+    const changes = await welfareChanges(kind, body.data ?? {}, membership.family_id, canManage, user.displayName); if (changes instanceof Response) return changes;
+    changes.updated_at = new Date().toISOString();
+    const filter = new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}` });
+    const [updated] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${filter}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
+    await audit(membership.family_id, user.userId, `welfare_${kind}_updated`, table, recordId); return Response.json({ record: updated });
+  } catch (error) { return welfareErrorResponse(error, "Unable to update Welfare Fund record"); }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const user = await getChatGPTUser(); if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
+    const membership = await getActiveFamilyMembership(user.userId); if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
+    const canManage = canManageWelfare(membership.role), body = await request.json() as { kind?: WelfareKind; recordId?: unknown };
+    const kind = body.kind, recordId = text(body.recordId, 80); if (!kind || !(kind in welfareTables) || !recordId || !uuidPattern.test(recordId)) return Response.json({ error: "Valid Welfare record প্রয়োজন।" }, { status: 400 });
+    const table = welfareTables[kind], query = new URLSearchParams({ select: "*", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, limit: "1" });
+    const existing = (await supabaseRest<Array<Record<string, unknown>>>(`${table}?${query}`))[0]; if (!existing) return Response.json({ error: "Record পাওয়া যায়নি।" }, { status: 404 });
+    const owner = kind === "contribution" ? existing.submitted_by_user_id === user.userId : kind === "request" ? existing.requester_user_id === user.userId : kind === "pledge" ? existing.auth_user_id === user.userId : false;
+    if (!canManage && !owner) return Response.json({ error: "এই record delete করার অনুমতি নেই।" }, { status: 403 });
+    if (kind === "fund") return Response.json({ error: "Financial history রক্ষার জন্য fund delete নয়—Close করুন।" }, { status: 409 });
+    if ((kind === "contribution" && existing.status === "approved") || (kind === "expense" && existing.status === "paid") || (kind === "request" && existing.status === "disbursed")) return Response.json({ error: "Approved/paid ledger record delete করা যাবে না; audit history বজায় থাকবে।" }, { status: 409 });
+    await supabaseRest(`${table}?${new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await audit(membership.family_id, user.userId, `welfare_${kind}_deleted`, table, recordId); return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।` });
+  } catch (error) { return welfareErrorResponse(error, "Unable to delete Welfare Fund record"); }
+}
+
+async function welfareChanges(kind: WelfareKind, data: Record<string, unknown>, familyId: string, canManage: boolean, displayName: string): Promise<Record<string, unknown> | Response> {
+  if (kind === "fund") {
+    if (!canManage) return Response.json({ error: "শুধু Family Admin fund edit করবেন।" }, { status: 403 });
+    const name = text(data.name, 160), target = amount(data.targetAmount, 0), opening = amount(data.openingBalance, 0); if (!name || target === undefined || target < 0 || opening === undefined || opening < 0) return Response.json({ error: "Fund name ও amount সঠিকভাবে দিন।" }, { status: 400 });
+    return { name, description: text(data.description, 2000), category: choice(data.category, ["general", "emergency", "medical", "education", "charity"] as const, "general"), target_amount: target, opening_balance: opening, visibility: choice(data.visibility, ["family", "admins"] as const, "family") };
+  }
+  const fundId = text(data.fundId, 80); if (fundId && (!uuidPattern.test(fundId) || !(await fundExists(familyId, fundId)))) return Response.json({ error: "Valid fund নির্বাচন করুন।" }, { status: 400 });
+  if (kind === "contribution") {
+    const contributionAmount = amount(data.amount); if (!fundId || contributionAmount === undefined || contributionAmount <= 0) return Response.json({ error: "Fund ও positive contribution amount প্রয়োজন।" }, { status: 400 });
+    return { fund_id: fundId, contributor_name: canManage ? text(data.contributorName, 160) ?? displayName : displayName, amount: contributionAmount, contribution_date: date(data.contributionDate), payment_method: choice(data.paymentMethod, ["cash", "bank", "mobile", "card", "other"] as const, "cash"), reference: text(data.reference, 180), notes: text(data.notes, 2000) };
+  }
+  if (kind === "expense") {
+    if (!canManage) return Response.json({ error: "শুধু Fund manager expense edit করবেন।" }, { status: 403 });
+    const title = text(data.title, 180), expenseAmount = amount(data.amount); if (!fundId || !title || expenseAmount === undefined || expenseAmount <= 0) return Response.json({ error: "Fund, expense title ও positive amount প্রয়োজন।" }, { status: 400 });
+    return { fund_id: fundId, title, beneficiary_name: text(data.beneficiaryName, 180), category: choice(data.category, ["medical", "education", "emergency", "charity", "operations", "other"] as const, "other"), amount: expenseAmount, expense_date: date(data.expenseDate), payment_method: choice(data.paymentMethod, ["cash", "bank", "mobile", "card", "other"] as const, "cash"), reference: text(data.reference, 180), notes: text(data.notes, 2000) };
+  }
+  if (kind === "request") {
+    const title = text(data.title, 180), description = text(data.description, 5000), requestedAmount = amount(data.requestedAmount); if (!title || !description || requestedAmount === undefined || requestedAmount <= 0) return Response.json({ error: "শিরোনাম, প্রয়োজনের বিবরণ ও positive amount দিন।" }, { status: 400 });
+    return { fund_id: fundId, request_type: choice(data.requestType, ["medical", "education", "emergency", "livelihood", "charity", "other"] as const, "other"), title, description, requested_amount: requestedAmount, urgency: choice(data.urgency, ["normal", "high", "critical"] as const, "normal"), visibility: choice(data.visibility, ["admins", "family"] as const, "admins") };
+  }
+  const pledgeAmount = amount(data.amount); if (!fundId || pledgeAmount === undefined || pledgeAmount <= 0) return Response.json({ error: "Fund ও positive pledge amount প্রয়োজন।" }, { status: 400 });
+  return { fund_id: fundId, frequency: choice(data.frequency, ["monthly", "quarterly", "yearly", "one_time"] as const, "monthly"), amount: pledgeAmount, start_date: date(data.startDate), next_due_date: text(data.nextDueDate, 10), notes: text(data.notes, 2000) };
 }
 
 async function updateStatus(data: Record<string, unknown>, familyId: string, userId: string, userName: string, canManage: boolean) {

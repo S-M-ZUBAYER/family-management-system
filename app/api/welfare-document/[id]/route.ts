@@ -30,3 +30,23 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     return new Response("Document unavailable.", { status: 500 });
   }
 }
+
+export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    const user = await getChatGPTUser(); if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
+    const membership = await getActiveFamilyMembership(user.userId); if (!membership) return Response.json({ error: "Family membership required." }, { status: 403 });
+    const bucket = (env as RuntimeEnv).BUCKET; if (!bucket) return Response.json({ error: "Private storage unavailable." }, { status: 503 });
+    const { id } = await context.params;
+    const document = (await supabaseRest<Array<{ storage_key: string; uploaded_by_user_id: string }>>(`welfare_documents?${new URLSearchParams({ select: "storage_key,uploaded_by_user_id", id: `eq.${id}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
+    if (!document) return Response.json({ error: "Document পাওয়া যায়নি।" }, { status: 404 });
+    if (!canManageWelfare(membership.role) && document.uploaded_by_user_id !== user.userId) return Response.json({ error: "Document delete করার permission নেই।" }, { status: 403 });
+    await bucket.delete(document.storage_key);
+    await supabaseRest(`welfare_documents?${new URLSearchParams({ id: `eq.${id}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: "welfare_document_deleted", entity_type: "welfare_documents", entity_id: id, metadata: { module: "welfare" } }) });
+    return Response.json({ message: "Welfare document স্থায়ীভাবে delete হয়েছে।" });
+  } catch (error) {
+    if (error instanceof BackendNotConfiguredError) return Response.json({ error: "Backend unavailable." }, { status: 503 });
+    if (error instanceof SupabaseRequestError) console.error("Unable to delete Welfare document", error.status, error.message); else console.error("Unable to delete Welfare document", error);
+    return Response.json({ error: "Document delete হয়নি।" }, { status: 500 });
+  }
+}
