@@ -62,6 +62,7 @@ import {
 import { DashboardNoticeTicker } from "./notice-ticker";
 import { useActionFeedback } from "@/components/action-modal-provider";
 import type { DashboardPayload } from "@/lib/dashboard-types";
+import type { WorkspacePayload } from "@/lib/workspace-types";
 
 const MemberApprovals = lazy(() => import("./member-approvals").then((module) => ({ default: module.MemberApprovals })));
 const MemberDirectory = lazy(() => import("./member-directory").then((module) => ({ default: module.MemberDirectory })));
@@ -150,14 +151,18 @@ function initials(name: string) {
 function ThemeSelector({
   value,
   onChange,
+  canManage,
+  saving,
 }: {
   value: ThemeId;
   onChange: (theme: ThemeId) => void;
+  canManage: boolean;
+  saving: boolean;
 }) {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2 rounded-xl bg-card">
+        <Button variant="outline" size="sm" className="gap-2 rounded-xl bg-card" disabled={!canManage || saving} title={canManage ? "Family theme পরিবর্তন করুন" : "শুধু Owner বা Family Admin theme পরিবর্তন করতে পারবেন"}>
           <Palette className="size-4" />
           <span className="hidden sm:inline">থিম</span>
         </Button>
@@ -177,6 +182,7 @@ function ThemeSelector({
                 type="button"
                 key={theme.id}
                 onClick={() => onChange(theme.id)}
+                disabled={!canManage || saving}
                 className={`rounded-2xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                   selected
                     ? "border-primary bg-primary/5 shadow-[0_8px_30px_rgb(15_23_42/8%)]"
@@ -226,7 +232,9 @@ export function FamilyDashboard({
   });
   const [dark, setDark] = useState(() => typeof window !== "undefined" && window.localStorage.getItem("family-mode") === "dark");
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
+  const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(view === "dashboard");
+  const [themeSaving, setThemeSaving] = useState(false);
   const [dashboardNow] = useState(() => Date.now());
   const [, setFeedback] = useActionFeedback();
 
@@ -249,6 +257,7 @@ export function FamilyDashboard({
       .then((payload) => {
         if (!active) return;
         setDashboard(payload);
+        setWorkspace({ family: payload.family, viewer: payload.viewer, permissions: { canManageTheme: ["owner", "family_admin"].includes(payload.viewer.role) } });
         setTheme(payload.family.theme);
       })
       .catch((error: unknown) => {
@@ -259,6 +268,48 @@ export function FamilyDashboard({
       });
     return () => { active = false; };
   }, [setFeedback, view]);
+
+  useEffect(() => {
+    if (view === "dashboard") return;
+    let active = true;
+    void fetch("/api/workspace", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as WorkspacePayload & { error?: string };
+        if (!response.ok) throw new Error(payload.error ?? "Family workspace পাওয়া যায়নি।");
+        return payload;
+      })
+      .then((payload) => {
+        if (!active) return;
+        setWorkspace(payload);
+        setTheme(payload.family.theme);
+      })
+      .catch((error: unknown) => {
+        if (active) setFeedback(error instanceof Error ? error.message : "Family workspace পাওয়া যায়নি।");
+      });
+    return () => { active = false; };
+  }, [setFeedback, view]);
+
+  async function changeFamilyTheme(nextTheme: ThemeId) {
+    if (!workspace?.permissions.canManageTheme || nextTheme === theme) return;
+    setThemeSaving(true);
+    try {
+      const response = await fetch("/api/workspace", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ theme: nextTheme }),
+      });
+      const payload = await response.json() as { family?: WorkspacePayload["family"]; message?: string; error?: string };
+      if (!response.ok || !payload.family) throw new Error(payload.error ?? "Theme update হয়নি।");
+      setTheme(payload.family.theme);
+      setWorkspace((current) => current ? { ...current, family: payload.family! } : current);
+      setDashboard((current) => current ? { ...current, family: payload.family! } : current);
+      setFeedback(payload.message ?? "Family theme সবার জন্য update হয়েছে।");
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Theme update হয়নি।");
+    } finally {
+      setThemeSaving(false);
+    }
+  }
 
   async function exportDashboard() {
     if (!dashboard) return;
@@ -283,9 +334,10 @@ export function FamilyDashboard({
     }
   }
 
-  const viewerName = dashboard?.viewer.name ?? "পরিবারের সদস্য";
+  const viewerName = workspace?.viewer.name ?? dashboard?.viewer.name ?? "পরিবারের সদস্য";
   const viewerFirstName = viewerName.split(/\s+/)[0] || viewerName;
-  const viewerRole = dashboard?.viewer.role.replaceAll("_", " ") ?? "Member";
+  const viewerRole = (workspace?.viewer.role ?? dashboard?.viewer.role)?.replaceAll("_", " ") ?? "Member";
+  const familyName = workspace?.family.name_bn ?? dashboard?.family.name_bn ?? "Family workspace";
   const qurbaniProgress = dashboard?.qurbani?.targetShares
     ? Math.min(100, (dashboard.qurbani.registeredShares / dashboard.qurbani.targetShares) * 100)
     : 0;
@@ -303,7 +355,7 @@ export function FamilyDashboard({
             </div>
             <div className="min-w-0 group-data-[collapsible=icon]:hidden">
               <p className="truncate text-sm font-bold tracking-tight">Family Management</p>
-              <p className="truncate text-xs text-sidebar-foreground/60">{dashboard?.family.name_bn ?? "Family workspace"}</p>
+              <p className="truncate text-xs text-sidebar-foreground/60">{familyName}</p>
             </div>
           </div>
         </SidebarHeader>
@@ -370,7 +422,7 @@ export function FamilyDashboard({
             />
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <ThemeSelector value={theme} onChange={setTheme} />
+            <ThemeSelector value={theme} onChange={(nextTheme) => void changeFamilyTheme(nextTheme)} canManage={workspace?.permissions.canManageTheme ?? false} saving={themeSaving} />
             <Button
               aria-label={dark ? "Use light mode" : "Use dark mode"}
               variant="outline"
@@ -551,7 +603,7 @@ export function FamilyDashboard({
                   </span>
                   <div>
                      <p className="text-sm font-semibold">Family-scoped access সক্রিয়</p>
-                     <p className="text-xs text-muted-foreground">{dashboard?.family.name_bn ?? "Family"} workspace অনুযায়ী API data filter করা হচ্ছে</p>
+                     <p className="text-xs text-muted-foreground">{familyName} workspace অনুযায়ী API data filter করা হচ্ছে</p>
                   </div>
                 </div>
                 <div className="rounded-2xl border p-4">

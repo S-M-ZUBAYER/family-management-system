@@ -120,6 +120,7 @@ function endpointLabel(pathname: string) {
   if (pathname.includes("household")) return "household record";
   if (pathname.includes("archives")) return "archive record";
   if (pathname.includes("governance")) return "governance record";
+  if (pathname.includes("workspace")) return "family theme";
   if (pathname.includes("chat")) return "chat action";
   if (pathname.includes("setup/family")) return "family workspace";
   return "record";

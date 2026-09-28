@@ -1,11 +1,12 @@
 import type { FamilyRole } from "@/lib/family-access";
+import type { FamilyTheme } from "@/lib/workspace-types";
 
 export type DashboardPayload = {
   family: {
     id: string;
     name_bn: string;
     name_en: string;
-    theme: "heritage" | "emerald" | "indigo" | "terracotta";
+    theme: FamilyTheme;
   };
   viewer: {
     name: string;
