@@ -1,6 +1,8 @@
 "use client";
 
 import { lazy, Suspense, useEffect, useState } from "react";
+import Link from "next/link";
+import type { LucideIcon } from "lucide-react";
 import {
   Archive,
   Bell,
@@ -134,6 +136,10 @@ const moneyBn = new Intl.NumberFormat("bn-BD", { style: "currency", currency: "B
 const dateBn = new Intl.DateTimeFormat("bn-BD", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 const eventDateBn = new Intl.DateTimeFormat("bn-BD", { day: "2-digit", month: "short" });
 const relativeBn = new Intl.RelativeTimeFormat("bn-BD", { numeric: "auto" });
+const numberEn = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+const moneyEn = new Intl.NumberFormat("en-US", { style: "currency", currency: "BDT", maximumFractionDigits: 0 });
+const dateEn = new Intl.DateTimeFormat("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+const eventDateEn = new Intl.DateTimeFormat("en-US", { day: "2-digit", month: "short" });
 
 function relativeTime(value: string, reference: number) {
   const difference = new Date(value).getTime() - reference;
@@ -220,6 +226,10 @@ function ThemeSelector({
   );
 }
 
+function NotificationLink({ href, icon: Icon, title, detail, active }: { href: string; icon: LucideIcon; title: string; detail: string; active: boolean }) {
+  return <Link href={href} className="flex items-center gap-3 rounded-2xl border p-4 transition hover:border-primary/40 hover:bg-muted/45"><span className={`grid size-10 shrink-0 place-items-center rounded-xl ${active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}><Icon className="size-5" /></span><span className="min-w-0 flex-1"><span className="block font-semibold">{title}</span><span className="mt-0.5 block text-sm text-muted-foreground">{detail}</span></span>{active ? <span className="size-2 shrink-0 rounded-full bg-destructive" /> : null}</Link>;
+}
+
 export function FamilyDashboard({
   view = "dashboard",
 }: {
@@ -246,6 +256,11 @@ export function FamilyDashboard({
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(view === "dashboard");
   const [themeSaving, setThemeSaving] = useState(false);
+  const [locale, setLocale] = useState<"bn" | "en">(() => {
+    if (typeof window === "undefined") return "bn";
+    return window.localStorage.getItem("family-locale") === "en" ? "en" : "bn";
+  });
+  const [searchQuery, setSearchQuery] = useState("");
   const [dashboardNow] = useState(() => Date.now());
   const [, setFeedback] = useActionFeedback();
 
@@ -258,6 +273,11 @@ export function FamilyDashboard({
   }, [theme, dark, modePreference]);
 
   useEffect(() => {
+    document.documentElement.lang = locale;
+    window.localStorage.setItem("family-locale", locale);
+  }, [locale]);
+
+  useEffect(() => {
     if (modePreference !== "system") return;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const update = (event: MediaQueryListEvent) => setDark(event.matches);
@@ -266,7 +286,6 @@ export function FamilyDashboard({
   }, [modePreference]);
 
   useEffect(() => {
-    if (view !== "dashboard") return;
     let active = true;
     void fetch("/api/dashboard", { cache: "no-store" })
       .then(async (response) => {
@@ -285,26 +304,6 @@ export function FamilyDashboard({
       })
       .finally(() => {
         if (active) setDashboardLoading(false);
-      });
-    return () => { active = false; };
-  }, [setFeedback, view]);
-
-  useEffect(() => {
-    if (view === "dashboard") return;
-    let active = true;
-    void fetch("/api/workspace", { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json() as WorkspacePayload & { error?: string };
-        if (!response.ok) throw new Error(payload.error ?? "Family workspace পাওয়া যায়নি।");
-        return payload;
-      })
-      .then((payload) => {
-        if (!active) return;
-        setWorkspace(payload);
-        setTheme(payload.family.theme);
-      })
-      .catch((error: unknown) => {
-        if (active) setFeedback(error instanceof Error ? error.message : "Family workspace পাওয়া যায়নি।");
       });
     return () => { active = false; };
   }, [setFeedback, view]);
@@ -357,7 +356,13 @@ export function FamilyDashboard({
   const viewerName = workspace?.viewer.name ?? dashboard?.viewer.name ?? "পরিবারের সদস্য";
   const viewerFirstName = viewerName.split(/\s+/)[0] || viewerName;
   const viewerRole = (workspace?.viewer.role ?? dashboard?.viewer.role)?.replaceAll("_", " ") ?? "Member";
-  const familyName = workspace?.family.name_bn ?? dashboard?.family.name_bn ?? "Family workspace";
+  const familyName = locale === "bn" ? workspace?.family.name_bn ?? dashboard?.family.name_bn ?? "Family workspace" : workspace?.family.name_en ?? dashboard?.family.name_en ?? "Family workspace";
+  const searchResults = searchQuery.trim() ? mainNavigation.filter((item) => `${item.label} ${item.english}`.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, 6) : [];
+  const notificationCount = (dashboard?.stats.pendingApprovals ?? 0) + (dashboard?.stats.unreadChannels ?? 0);
+  const numberFormatter = locale === "bn" ? numberBn : numberEn;
+  const moneyFormatter = locale === "bn" ? moneyBn : moneyEn;
+  const dateFormatter = locale === "bn" ? dateBn : dateEn;
+  const eventDateFormatter = locale === "bn" ? eventDateBn : eventDateEn;
   const qurbaniProgress = dashboard?.qurbani?.targetShares
     ? Math.min(100, (dashboard.qurbani.registeredShares / dashboard.qurbani.targetShares) * 100)
     : 0;
@@ -381,7 +386,7 @@ export function FamilyDashboard({
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
-            <SidebarGroupLabel>পরিবার পরিচালনা</SidebarGroupLabel>
+            <SidebarGroupLabel>{locale === "bn" ? "পরিবার পরিচালনা" : "Family management"}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {mainNavigation.map((item) => (
@@ -389,12 +394,12 @@ export function FamilyDashboard({
                     <SidebarMenuButton
                       asChild
                       isActive={item.id === view}
-                      tooltip={`${item.label} · ${item.english}`}
+                      tooltip={locale === "bn" ? item.label : item.english}
                       className="h-11 rounded-xl"
                     >
                       <a href={item.href}>
                         <item.icon />
-                        <span>{item.label}</span>
+                        <span>{locale === "bn" ? item.label : item.english}</span>
                       </a>
                     </SidebarMenuButton>
                     {item.id === "directory" && dashboard ? <SidebarMenuBadge>{numberBn.format(dashboard.stats.totalMembers)}</SidebarMenuBadge>
@@ -412,7 +417,7 @@ export function FamilyDashboard({
               <SidebarMenuButton asChild className="h-11 rounded-xl" tooltip="Settings">
                 <a href="/setup">
                   <Settings />
-                  <span>সেটিংস</span>
+                  <span>{locale === "bn" ? "সেটিংস" : "Settings"}</span>
                 </a>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -437,9 +442,13 @@ export function FamilyDashboard({
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <input
               aria-label="Search family management system"
-              placeholder="সদস্য, ইভেন্ট বা নোটিশ খুঁজুন"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter" && searchResults[0]) window.location.assign(searchResults[0].href); }}
+              placeholder={locale === "bn" ? "সেকশন খুঁজুন" : "Search sections"}
               className="h-10 w-full rounded-xl border bg-muted/45 pl-10 pr-4 text-sm outline-none transition focus:border-primary/50 focus:bg-card focus:ring-2 focus:ring-primary/10"
             />
+            {searchResults.length ? <div className="absolute left-0 right-0 top-12 z-50 overflow-hidden rounded-2xl border bg-popover p-2 shadow-xl">{searchResults.map((item) => <Link key={item.id} href={item.href} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-muted" onClick={() => setSearchQuery("")}><item.icon className="size-4 text-primary" /><span>{locale === "bn" ? item.label : item.english}</span></Link>)}</div> : null}
           </div>
           <div className="ml-auto flex items-center gap-2">
             <ThemeSelector value={theme} onChange={(nextTheme) => void changeFamilyTheme(nextTheme)} canManage={workspace?.permissions.canManageTheme ?? false} saving={themeSaving} />
@@ -455,15 +464,11 @@ export function FamilyDashboard({
             >
               {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </Button>
-            <Button variant="outline" size="icon" className="rounded-xl bg-card">
+            <Button variant="outline" size="sm" className="gap-2 rounded-xl bg-card" onClick={() => setLocale((current) => current === "bn" ? "en" : "bn")} aria-label={locale === "bn" ? "Switch to English" : "বাংলায় পরিবর্তন করুন"}>
               <Languages className="size-4" />
-              <span className="sr-only">Change language</span>
+              <span className="hidden sm:inline">{locale === "bn" ? "EN" : "বাংলা"}</span>
             </Button>
-            <Button variant="outline" size="icon" className="relative rounded-xl bg-card">
-              <Bell className="size-4" />
-              <span className="absolute right-2 top-2 size-2 rounded-full bg-destructive ring-2 ring-card" />
-              <span className="sr-only">Notifications</span>
-            </Button>
+            <Dialog><DialogTrigger asChild><Button variant="outline" size="icon" className="relative rounded-xl bg-card"><Bell className="size-4" />{notificationCount ? <span className="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground ring-2 ring-card">{notificationCount > 99 ? "99+" : notificationCount}</span> : null}<span className="sr-only">Notifications</span></Button></DialogTrigger><DialogContent className="rounded-3xl sm:max-w-md"><DialogHeader><DialogTitle>{locale === "bn" ? "আপনার notifications" : "Your notifications"}</DialogTitle><DialogDescription>{locale === "bn" ? "Live family activity থেকে গুরুত্বপূর্ণ actionগুলো।" : "Important actions from live family activity."}</DialogDescription></DialogHeader><div className="space-y-2"><NotificationLink href="/members" icon={UserCheck} title={locale === "bn" ? "সদস্য অনুমোদন" : "Member approvals"} detail={locale === "bn" ? `${numberBn.format(dashboard?.stats.pendingApprovals ?? 0)}টি আবেদন অপেক্ষমাণ` : `${dashboard?.stats.pendingApprovals ?? 0} requests waiting`} active={Boolean(dashboard?.stats.pendingApprovals)} /><NotificationLink href="/chat" icon={MessageCircle} title={locale === "bn" ? "অপঠিত chat" : "Unread chat"} detail={locale === "bn" ? `${numberBn.format(dashboard?.stats.unreadMessages ?? 0)}টি message · ${numberBn.format(dashboard?.stats.unreadChannels ?? 0)}টি channel` : `${dashboard?.stats.unreadMessages ?? 0} messages · ${dashboard?.stats.unreadChannels ?? 0} channels`} active={Boolean(dashboard?.stats.unreadMessages)} /><NotificationLink href="/events" icon={CalendarDays} title={locale === "bn" ? "আসন্ন আয়োজন" : "Upcoming events"} detail={locale === "bn" ? `পরবর্তী ৭ দিনে ${numberBn.format(dashboard?.stats.eventsNextSevenDays ?? 0)}টি` : `${dashboard?.stats.eventsNextSevenDays ?? 0} in the next 7 days`} active={Boolean(dashboard?.stats.eventsNextSevenDays)} />{!notificationCount && !(dashboard?.stats.eventsNextSevenDays) ? <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">{locale === "bn" ? "নতুন কোনো action প্রয়োজন নেই।" : "No new action is required."}</div> : null}</div></DialogContent></Dialog>
           </div>
         </header>
 
@@ -473,18 +478,18 @@ export function FamilyDashboard({
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
                 <span className="size-2 rounded-full bg-emerald-500" />
-                {dateBn.format(new Date(dashboardNow))}
+                {dateFormatter.format(new Date(dashboardNow))}
               </div>
               <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
-                আসসালামু আলাইকুম, {viewerFirstName}
+                 {locale === "bn" ? "আসসালামু আলাইকুম" : "Welcome"}, {viewerFirstName}
               </h1>
               <p className="mt-1 text-muted-foreground">
-                পরিবারের আজকের গুরুত্বপূর্ণ আপডেটগুলো এক নজরে দেখুন।
+                 {locale === "bn" ? "পরিবারের আজকের গুরুত্বপূর্ণ আপডেটগুলো এক নজরে দেখুন।" : "Review today's important family updates at a glance."}
               </p>
             </div>
             <Button className="gap-2 self-start rounded-xl md:self-auto" disabled={!dashboard || dashboardLoading} onClick={() => void exportDashboard()}>
               <Download className="size-4" />
-              রিপোর্ট এক্সপোর্ট
+               {locale === "bn" ? "রিপোর্ট এক্সপোর্ট" : "Export report"}
             </Button>
           </section>
 
@@ -492,10 +497,10 @@ export function FamilyDashboard({
 
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {[
-              { title: "মোট সদস্য", value: dashboardLoading ? "…" : numberBn.format(dashboard?.stats.totalMembers ?? 0), detail: `${numberBn.format(dashboard?.stats.generations ?? 0)}টি প্রজন্ম`, icon: Users },
-              { title: "অনুমোদনের অপেক্ষায়", value: dashboardLoading ? "…" : numberBn.format(dashboard?.stats.pendingApprovals ?? 0), detail: `আজ ${numberBn.format(dashboard?.stats.pendingToday ?? 0)}টি নতুন`, icon: UserCheck },
-              { title: "আসন্ন ইভেন্ট", value: dashboardLoading ? "…" : numberBn.format(dashboard?.stats.upcomingEvents ?? 0), detail: `পরবর্তী ৭ দিনে ${numberBn.format(dashboard?.stats.eventsNextSevenDays ?? 0)}টি`, icon: CalendarDays },
-              { title: "অপঠিত বার্তা", value: dashboardLoading ? "…" : numberBn.format(dashboard?.stats.unreadMessages ?? 0), detail: `${numberBn.format(dashboard?.stats.unreadChannels ?? 0)}টি চ্যানেলে`, icon: MessageCircle },
+              { title: locale === "bn" ? "মোট সদস্য" : "Total members", value: dashboardLoading ? "…" : numberFormatter.format(dashboard?.stats.totalMembers ?? 0), detail: locale === "bn" ? `${numberFormatter.format(dashboard?.stats.generations ?? 0)}টি প্রজন্ম` : `${numberFormatter.format(dashboard?.stats.generations ?? 0)} generations`, icon: Users },
+              { title: locale === "bn" ? "অনুমোদনের অপেক্ষায়" : "Pending approvals", value: dashboardLoading ? "…" : numberFormatter.format(dashboard?.stats.pendingApprovals ?? 0), detail: locale === "bn" ? `আজ ${numberFormatter.format(dashboard?.stats.pendingToday ?? 0)}টি নতুন` : `${numberFormatter.format(dashboard?.stats.pendingToday ?? 0)} new today`, icon: UserCheck },
+              { title: locale === "bn" ? "আসন্ন ইভেন্ট" : "Upcoming events", value: dashboardLoading ? "…" : numberFormatter.format(dashboard?.stats.upcomingEvents ?? 0), detail: locale === "bn" ? `পরবর্তী ৭ দিনে ${numberFormatter.format(dashboard?.stats.eventsNextSevenDays ?? 0)}টি` : `${numberFormatter.format(dashboard?.stats.eventsNextSevenDays ?? 0)} in the next 7 days`, icon: CalendarDays },
+              { title: locale === "bn" ? "অপঠিত বার্তা" : "Unread messages", value: dashboardLoading ? "…" : numberFormatter.format(dashboard?.stats.unreadMessages ?? 0), detail: locale === "bn" ? `${numberFormatter.format(dashboard?.stats.unreadChannels ?? 0)}টি চ্যানেলে` : `Across ${numberFormatter.format(dashboard?.stats.unreadChannels ?? 0)} channels`, icon: MessageCircle },
             ].map((stat) => (
               <Card key={stat.title} className="rounded-2xl border-border/75 py-0 shadow-none">
                 <CardContent className="flex items-start justify-between p-5">
@@ -516,8 +521,8 @@ export function FamilyDashboard({
             <Card className="gap-0 overflow-hidden rounded-3xl border-border/75 py-0 shadow-none">
               <CardHeader className="flex-row items-center justify-between border-b bg-muted/20 p-5 md:p-6">
                 <div>
-                  <CardTitle className="text-xl">{dashboard?.qurbani ? `${dashboard.qurbani.title} ${numberBn.format(dashboard.qurbani.year)}` : "কোরবানি পরিকল্পনা"}</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">রেজিস্ট্রেশন ও প্রস্তুতির সারসংক্ষেপ</p>
+                    <CardTitle className="text-xl">{dashboard?.qurbani ? `${dashboard.qurbani.title} ${numberFormatter.format(dashboard.qurbani.year)}` : locale === "bn" ? "কোরবানি পরিকল্পনা" : "Qurbani plan"}</CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">{locale === "bn" ? "রেজিস্ট্রেশন ও প্রস্তুতির সারসংক্ষেপ" : "Registration and preparation summary"}</p>
                 </div>
                 <Badge variant="secondary" className="rounded-full bg-amber-500/12 px-3 text-amber-700 dark:text-amber-300">
                   {dashboard?.qurbani?.status.replaceAll("_", " ") ?? "Campaign নেই"}
@@ -526,9 +531,9 @@ export function FamilyDashboard({
               <CardContent className="space-y-6 p-5 md:p-6">
                 <div className="grid gap-3 sm:grid-cols-3">
                   {[
-                    ["নিবন্ধিত শেয়ার", dashboard?.qurbani ? `${numberBn.format(dashboard.qurbani.registeredShares)} / ${numberBn.format(dashboard.qurbani.targetShares)}` : "০ / ০"],
-                    ["সংগৃহীত অর্থ", moneyBn.format(dashboard?.qurbani?.collected ?? 0)],
-                    ["বকেয়া", moneyBn.format(dashboard?.qurbani?.due ?? 0)],
+                    [locale === "bn" ? "নিবন্ধিত শেয়ার" : "Registered shares", dashboard?.qurbani ? `${numberFormatter.format(dashboard.qurbani.registeredShares)} / ${numberFormatter.format(dashboard.qurbani.targetShares)}` : "0 / 0"],
+                    [locale === "bn" ? "সংগৃহীত অর্থ" : "Collected", moneyFormatter.format(dashboard?.qurbani?.collected ?? 0)],
+                    [locale === "bn" ? "বকেয়া" : "Due", moneyFormatter.format(dashboard?.qurbani?.due ?? 0)],
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-2xl border bg-card p-4">
                       <p className="text-xs text-muted-foreground">{label}</p>
@@ -538,8 +543,8 @@ export function FamilyDashboard({
                 </div>
                 <div>
                   <div className="mb-2 flex items-center justify-between text-sm">
-                    <span className="font-medium">শেয়ার পূরণের অগ্রগতি</span>
-                    <span className="font-semibold text-primary">{numberBn.format(Math.round(qurbaniProgress))}%</span>
+                    <span className="font-medium">{locale === "bn" ? "শেয়ার পূরণের অগ্রগতি" : "Share completion"}</span>
+                    <span className="font-semibold text-primary">{numberFormatter.format(Math.round(qurbaniProgress))}%</span>
                   </div>
                   <Progress value={qurbaniProgress} className="h-2.5" />
                 </div>
@@ -600,8 +605,8 @@ export function FamilyDashboard({
               <CardContent className="px-5 pb-6 md:px-6">
                 <div className="flex flex-col gap-5 rounded-2xl bg-primary px-5 py-6 text-primary-foreground sm:flex-row sm:items-center">
                   <div className="grid size-16 shrink-0 place-items-center rounded-2xl bg-white/12 text-center">
-                    <span className="text-center text-xs font-semibold uppercase tracking-widest">{dashboard?.nextEvent ? eventDateBn.format(new Date(dashboard.nextEvent.startAt)).split(" ")[1] : "—"}</span>
-                    <span className="-mt-2 text-2xl font-bold">{dashboard?.nextEvent ? eventDateBn.format(new Date(dashboard.nextEvent.startAt)).split(" ")[0] : "—"}</span>
+                    <span className="text-center text-xs font-semibold uppercase tracking-widest">{dashboard?.nextEvent ? eventDateFormatter.format(new Date(dashboard.nextEvent.startAt)).split(" ")[1] : "—"}</span>
+                    <span className="-mt-2 text-2xl font-bold">{dashboard?.nextEvent ? eventDateFormatter.format(new Date(dashboard.nextEvent.startAt)).split(" ")[0] : "—"}</span>
                   </div>
                   <div className="min-w-0 flex-1">
                      <p className="text-lg font-bold">{dashboard?.nextEvent?.title ?? "কোনো upcoming event নেই"}</p>
