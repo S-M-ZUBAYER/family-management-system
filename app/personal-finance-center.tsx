@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   ArrowDownRight,
   ArrowUpRight,
-  CalendarClock,
   CircleDollarSign,
   Download,
   FileSpreadsheet,
@@ -84,7 +83,6 @@ const money = new Intl.NumberFormat("bn-BD", {
   currency: "BDT",
   maximumFractionDigits: 0,
 });
-const number = new Intl.NumberFormat("bn-BD", { maximumFractionDigits: 1 });
 const date = new Intl.DateTimeFormat("bn-BD", { dateStyle: "medium" });
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -169,10 +167,10 @@ export function PersonalFinanceCenter() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setFeedback]);
 
   useEffect(() => {
-    void loadFinance();
+    queueMicrotask(() => void loadFinance());
   }, [loadFinance]);
 
   const activeAccounts = useMemo(

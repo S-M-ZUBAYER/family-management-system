@@ -6,10 +6,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   ArrowDownRight,
   ArrowUpRight,
-  BadgeDollarSign,
-  BanknoteArrowDown,
   CheckCircle2,
-  CircleDollarSign,
   Clock3,
   Download,
   FileCheck2,
@@ -22,7 +19,6 @@ import {
   Plus,
   ReceiptText,
   ShieldCheck,
-  Target,
   Upload,
   Users,
   WalletCards,
@@ -61,7 +57,6 @@ function initialForm(kind: CreateKind, fundId = ""): FormState {
 
 export function WelfareCenter() {
   const [family, setFamily] = useState<WelfarePayload["family"]>();
-  const [viewer, setViewer] = useState<WelfarePayload["viewer"]>();
   const [funds, setFunds] = useState<WelfareFund[]>([]);
   const [contributions, setContributions] = useState<WelfareContribution[]>([]);
   const [expenses, setExpenses] = useState<WelfareExpense[]>([]);
@@ -87,13 +82,13 @@ export function WelfareCenter() {
       const payload = await response.json() as WelfarePayload;
       if (payload.code === "FAMILY_SETUP_REQUIRED") { setSetupRequired(true); return; }
       if (!response.ok) throw new Error(payload.error ?? "Welfare Fund data load হয়নি।");
-      setFamily(payload.family); setViewer(payload.viewer); setFunds(payload.funds ?? []); setContributions(payload.contributions ?? []); setExpenses(payload.expenses ?? []); setRequests(payload.requests ?? []); setPledges(payload.pledges ?? []); setDocuments(payload.documents ?? []);
+      setFamily(payload.family); setFunds(payload.funds ?? []); setContributions(payload.contributions ?? []); setExpenses(payload.expenses ?? []); setRequests(payload.requests ?? []); setPledges(payload.pledges ?? []); setDocuments(payload.documents ?? []);
       setCanManage(Boolean(payload.permissions?.canManage)); setMigrationRequired(Boolean(payload.migrationRequired)); setSetupRequired(false);
     } catch (error) { setFeedback(error instanceof Error ? error.message : "Welfare Fund load হয়নি।"); }
     finally { setLoading(false); }
-  }, []);
+  }, [setFeedback]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { queueMicrotask(() => void load()); }, [load]);
 
   const approvedIncome = useMemo(() => contributions.filter((item) => item.status === "approved").reduce((sum, item) => sum + num(item.amount), 0), [contributions]);
   const paidExpense = useMemo(() => expenses.filter((item) => item.status === "paid").reduce((sum, item) => sum + num(item.amount), 0), [expenses]);

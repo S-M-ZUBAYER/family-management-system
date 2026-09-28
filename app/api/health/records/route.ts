@@ -274,7 +274,14 @@ export async function POST(request: Request) {
           }),
         });
       }
-      const { responder_user_id: _id, ...safeRecord } = record;
+      const safeRecord = {
+        id: record.id,
+        alert_id: record.alert_id,
+        responder_name: record.responder_name,
+        response_type: record.response_type,
+        note: record.note,
+        created_at: record.created_at,
+      };
       return Response.json({ record: { ...safeRecord, is_mine: true } }, { status: 201 });
     }
 

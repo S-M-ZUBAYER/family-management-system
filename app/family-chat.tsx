@@ -1,4 +1,6 @@
 "use client";
+/* Chat attachments are access-controlled API resources rather than public optimizer assets. */
+/* eslint-disable @next/next/no-img-element */
 
 import { useActionFeedback } from "@/components/action-modal-provider";
 
@@ -186,7 +188,6 @@ export function FamilyChat() {
   const [live, setLive] = useState(false);
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [setupRequired, setSetupRequired] = useState(false);
-  const [canManage, setCanManage] = useState(false);
   const [feedback, setFeedback] = useActionFeedback();
   const [query, setQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<"all" | "group" | "direct">("all");
@@ -247,7 +248,6 @@ export function FamilyChat() {
       setMembers(payload.members ?? []);
       setChannels(nextChannels);
       setMigrationRequired(Boolean(payload.migrationRequired));
-      setCanManage(Boolean(payload.permissions?.canManage));
       setSetupRequired(false);
       setSelectedId((current) => {
         const candidate = preferredChannelId ?? current;
@@ -259,7 +259,7 @@ export function FamilyChat() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setFeedback]);
 
   const markRead = useCallback(async (channelId: string, lastMessageId: string) => {
     try {
@@ -309,27 +309,33 @@ export function FamilyChat() {
     } finally {
       if (!silent) setMessagesLoading(false);
     }
-  }, [applyFeed]);
+  }, [applyFeed, setFeedback]);
 
   useEffect(() => {
-    if (typeof Notification === "undefined") setNotificationPermission("unsupported");
-    else setNotificationPermission(Notification.permission);
-    void loadMetadata();
+    queueMicrotask(() => {
+      if (typeof Notification === "undefined") setNotificationPermission("unsupported");
+      else setNotificationPermission(Notification.permission);
+      void loadMetadata();
+    });
   }, [loadMetadata]);
 
   useEffect(() => {
     if (!selectedId || migrationRequired) {
+      queueMicrotask(() => {
+        setMessages([]);
+        setReactions([]);
+        setAttachments([]);
+      });
+      return;
+    }
+    queueMicrotask(() => {
       setMessages([]);
       setReactions([]);
       setAttachments([]);
-      return;
-    }
-    setMessages([]);
-    setReactions([]);
-    setAttachments([]);
-    setReplyingTo(null);
-    setPendingFile(null);
-    void loadMessages(selectedId);
+      setReplyingTo(null);
+      setPendingFile(null);
+      void loadMessages(selectedId);
+    });
     const timer = window.setInterval(() => void loadMessages(selectedId, true), 15000);
     return () => window.clearInterval(timer);
   }, [loadMessages, migrationRequired, selectedId]);

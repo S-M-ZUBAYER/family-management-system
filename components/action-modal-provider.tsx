@@ -167,10 +167,13 @@ function feedbackResult(message: string): ResultState {
   const normalized = message.toLowerCase();
   const failed = ["হয়নি", "যায়নি", "পাওয়া যায়নি", "error", "failed", "invalid", "required", "denied", "unable", "cannot"]
     .some((word) => normalized.includes(word));
+  const informational = ["সম্পন্ন করুন", "অনুমোদনের অপেক্ষায়", "approval-এর অপেক্ষায়", "যোগ দিন"]
+    .some((word) => normalized.includes(word));
   const successful = ["হয়েছে", "সংরক্ষিত", "যোগ হয়েছে", "তৈরি হয়েছে", "সম্পন্ন", "success"]
     .some((word) => normalized.includes(word));
 
   if (failed) return { kind: "error", title: "Action সম্পন্ন হয়নি", message };
+  if (informational) return { kind: "info", title: "পরবর্তী ধাপ প্রয়োজন", message };
   if (successful) return { kind: "success", title: "সফল হয়েছে", message };
   return { kind: "info", title: "গুরুত্বপূর্ণ তথ্য", message };
 }

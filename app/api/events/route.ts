@@ -181,7 +181,13 @@ export async function GET() {
       ...item,
       is_current_user: auth_user_id === user.userId,
     }));
-    const safeComments = comments.map(({ auth_user_id: _authUserId, ...item }) => item);
+    const safeComments = comments.map((comment) => ({
+      id: comment.id,
+      event_id: comment.event_id,
+      author_name: comment.author_name,
+      body: comment.body,
+      created_at: comment.created_at,
+    }));
 
     return Response.json({
       family,

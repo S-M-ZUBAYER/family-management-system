@@ -3,7 +3,6 @@
 import { useActionFeedback } from "@/components/action-modal-provider";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import Link from "next/link";
 import {
   Database,
   Download,
@@ -433,11 +432,11 @@ export function MemberDirectory() {
               <ShieldAlert className="size-6" />
             </span>
             <div className="flex-1">
-              <h1 className="text-2xl font-bold">প্রথম Family Owner setup বাকি</h1>
-              <p className="mt-1 text-muted-foreground">পরিবারের directory ব্যবহার করার আগে একবার owner account সক্রিয় করুন।</p>
+              <h1 className="text-2xl font-bold">Family access সক্রিয় নয়</h1>
+              <p className="mt-1 text-muted-foreground">Join code দিয়ে আবেদন করুন। Family Owner বা Admin অনুমোদন করার পর directory ব্যবহার করতে পারবেন।</p>
             </div>
             <Button asChild className="rounded-xl">
-              <Link href="/setup">Owner setup খুলুন</Link>
+              <a href="/setup">Family onboarding খুলুন</a>
             </Button>
           </CardContent>
         </Card>

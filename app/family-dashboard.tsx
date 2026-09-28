@@ -1,7 +1,6 @@
 "use client";
 
 import { lazy, Suspense, useEffect, useState } from "react";
-import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import {
   Archive,
@@ -227,7 +226,7 @@ function ThemeSelector({
 }
 
 function NotificationLink({ href, icon: Icon, title, detail, active }: { href: string; icon: LucideIcon; title: string; detail: string; active: boolean }) {
-  return <Link href={href} className="flex items-center gap-3 rounded-2xl border p-4 transition hover:border-primary/40 hover:bg-muted/45"><span className={`grid size-10 shrink-0 place-items-center rounded-xl ${active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}><Icon className="size-5" /></span><span className="min-w-0 flex-1"><span className="block font-semibold">{title}</span><span className="mt-0.5 block text-sm text-muted-foreground">{detail}</span></span>{active ? <span className="size-2 shrink-0 rounded-full bg-destructive" /> : null}</Link>;
+  return <a href={href} className="flex items-center gap-3 rounded-2xl border p-4 transition hover:border-primary/40 hover:bg-muted/45"><span className={`grid size-10 shrink-0 place-items-center rounded-xl ${active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}><Icon className="size-5" /></span><span className="min-w-0 flex-1"><span className="block font-semibold">{title}</span><span className="mt-0.5 block text-sm text-muted-foreground">{detail}</span></span>{active ? <span className="size-2 shrink-0 rounded-full bg-destructive" /> : null}</a>;
 }
 
 export function FamilyDashboard({
@@ -235,47 +234,52 @@ export function FamilyDashboard({
 }: {
   view?: "dashboard" | "directory" | "tree" | "members" | "notices" | "events" | "qurbani" | "finance" | "chat" | "health" | "welfare" | "household" | "archives" | "governance";
 }) {
-  const [theme, setTheme] = useState<ThemeId>(() => {
-    if (typeof window === "undefined") return "heritage";
-    const saved = window.localStorage.getItem("family-theme") as ThemeId | null;
-    return saved && themes.some((item) => item.id === saved) ? saved : "heritage";
-  });
-  const [dark, setDark] = useState(() => {
-    if (typeof window === "undefined") return false;
-    const saved = window.localStorage.getItem("family-mode");
-    if (saved === "dark") return true;
-    if (saved === "light") return false;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
-  });
-  const [modePreference, setModePreference] = useState<"system" | "light" | "dark">(() => {
-    if (typeof window === "undefined") return "system";
-    const saved = window.localStorage.getItem("family-mode");
-    return saved === "dark" || saved === "light" ? saved : "system";
-  });
+  const [theme, setTheme] = useState<ThemeId>("heritage");
+  const [dark, setDark] = useState(false);
+  const [modePreference, setModePreference] = useState<"system" | "light" | "dark">("system");
+  const [preferencesReady, setPreferencesReady] = useState(false);
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(view === "dashboard");
   const [themeSaving, setThemeSaving] = useState(false);
-  const [locale, setLocale] = useState<"bn" | "en">(() => {
-    if (typeof window === "undefined") return "bn";
-    return window.localStorage.getItem("family-locale") === "en" ? "en" : "bn";
-  });
+  const [locale, setLocale] = useState<"bn" | "en">("bn");
   const [searchQuery, setSearchQuery] = useState("");
-  const [dashboardNow] = useState(() => Date.now());
+  const [dashboardNow, setDashboardNow] = useState<number | null>(null);
+  const [setupRequired, setSetupRequired] = useState(false);
   const [, setFeedback] = useActionFeedback();
 
   useEffect(() => {
+    const savedTheme = window.localStorage.getItem("family-theme") as ThemeId | null;
+    const savedMode = window.localStorage.getItem("family-mode");
+    const savedLocale = window.localStorage.getItem("family-locale");
+    queueMicrotask(() => {
+      if (savedTheme && themes.some((item) => item.id === savedTheme)) setTheme(savedTheme);
+      if (savedMode === "dark" || savedMode === "light") {
+        setModePreference(savedMode);
+        setDark(savedMode === "dark");
+      } else {
+        setDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
+      }
+      if (savedLocale === "en") setLocale("en");
+      setDashboardNow(Date.now());
+      setPreferencesReady(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!preferencesReady) return;
     document.documentElement.dataset.theme = theme;
     document.documentElement.classList.toggle("dark", dark);
     window.localStorage.setItem("family-theme", theme);
     if (modePreference === "system") window.localStorage.removeItem("family-mode");
     else window.localStorage.setItem("family-mode", modePreference);
-  }, [theme, dark, modePreference]);
+  }, [theme, dark, modePreference, preferencesReady]);
 
   useEffect(() => {
+    if (!preferencesReady) return;
     document.documentElement.lang = locale;
     window.localStorage.setItem("family-locale", locale);
-  }, [locale]);
+  }, [locale, preferencesReady]);
 
   useEffect(() => {
     if (modePreference !== "system") return;
@@ -287,24 +291,26 @@ export function FamilyDashboard({
 
   useEffect(() => {
     let active = true;
-    void fetch("/api/dashboard", { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json() as DashboardPayload & { error?: string };
+    void (async () => {
+      try {
+        const response = await fetch("/api/dashboard", { cache: "no-store" });
+        const payload = await response.json() as DashboardPayload & { code?: string; error?: string };
+        if (response.status === 409 && payload.code === "FAMILY_SETUP_REQUIRED") {
+          if (active) setSetupRequired(true);
+          return;
+        }
         if (!response.ok) throw new Error(payload.error ?? "Dashboard data পাওয়া যায়নি।");
-        return payload;
-      })
-      .then((payload) => {
         if (!active) return;
+        setSetupRequired(false);
         setDashboard(payload);
         setWorkspace({ family: payload.family, viewer: payload.viewer, permissions: { canManageTheme: ["owner", "family_admin"].includes(payload.viewer.role) } });
         setTheme(payload.family.theme);
-      })
-      .catch((error: unknown) => {
+      } catch (error) {
         if (active) setFeedback(error instanceof Error ? error.message : "Dashboard data পাওয়া যায়নি।");
-      })
-      .finally(() => {
+      } finally {
         if (active) setDashboardLoading(false);
-      });
+      }
+    })();
     return () => { active = false; };
   }, [setFeedback, view]);
 
@@ -366,7 +372,7 @@ export function FamilyDashboard({
   const qurbaniProgress = dashboard?.qurbani?.targetShares
     ? Math.min(100, (dashboard.qurbani.registeredShares / dashboard.qurbani.targetShares) * 100)
     : 0;
-  const nextEventDays = dashboard?.nextEvent
+  const nextEventDays = dashboard?.nextEvent && dashboardNow
     ? Math.max(0, Math.ceil((new Date(dashboard.nextEvent.startAt).getTime() - dashboardNow) / 86400000))
     : 0;
 
@@ -448,7 +454,7 @@ export function FamilyDashboard({
               placeholder={locale === "bn" ? "সেকশন খুঁজুন" : "Search sections"}
               className="h-10 w-full rounded-xl border bg-muted/45 pl-10 pr-4 text-sm outline-none transition focus:border-primary/50 focus:bg-card focus:ring-2 focus:ring-primary/10"
             />
-            {searchResults.length ? <div className="absolute left-0 right-0 top-12 z-50 overflow-hidden rounded-2xl border bg-popover p-2 shadow-xl">{searchResults.map((item) => <Link key={item.id} href={item.href} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-muted" onClick={() => setSearchQuery("")}><item.icon className="size-4 text-primary" /><span>{locale === "bn" ? item.label : item.english}</span></Link>)}</div> : null}
+            {searchResults.length ? <div className="absolute left-0 right-0 top-12 z-50 overflow-hidden rounded-2xl border bg-popover p-2 shadow-xl">{searchResults.map((item) => <a key={item.id} href={item.href} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-muted" onClick={() => setSearchQuery("")}><item.icon className="size-4 text-primary" /><span>{locale === "bn" ? item.label : item.english}</span></a>)}</div> : null}
           </div>
           <div className="ml-auto flex items-center gap-2">
             <ThemeSelector value={theme} onChange={(nextTheme) => void changeFamilyTheme(nextTheme)} canManage={workspace?.permissions.canManageTheme ?? false} saving={themeSaving} />
@@ -473,12 +479,12 @@ export function FamilyDashboard({
         </header>
 
         <Suspense fallback={<main className="grid min-h-[calc(100vh-4rem)] place-items-center text-sm text-muted-foreground">Module loading…</main>}>
-        {view === "directory" ? <MemberDirectory /> : view === "tree" ? <FamilyTreeView /> : view === "members" ? <MemberApprovals /> : view === "notices" ? <NoticeCenter /> : view === "events" ? <EventCenter /> : view === "qurbani" ? <QurbaniSuite /> : view === "finance" ? <PersonalFinanceCenter /> : view === "chat" ? <FamilyChat /> : view === "health" ? <HealthCenter /> : view === "welfare" ? <WelfareCenter /> : view === "household" ? <HouseholdCenter /> : view === "archives" ? <ArchiveCenter /> : view === "governance" ? <GovernanceCenter /> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
+        {view === "directory" ? <MemberDirectory /> : view === "tree" ? <FamilyTreeView /> : view === "members" ? <MemberApprovals /> : view === "notices" ? <NoticeCenter /> : view === "events" ? <EventCenter /> : view === "qurbani" ? <QurbaniSuite /> : view === "finance" ? <PersonalFinanceCenter /> : view === "chat" ? <FamilyChat /> : view === "health" ? <HealthCenter /> : view === "welfare" ? <WelfareCenter /> : view === "household" ? <HouseholdCenter /> : view === "archives" ? <ArchiveCenter /> : view === "governance" ? <GovernanceCenter /> : setupRequired ? <main className="grid min-h-[calc(100vh-4rem)] place-items-center px-4 py-10"><Card className="w-full max-w-xl rounded-3xl"><CardContent className="flex flex-col items-center p-8 text-center md:p-10"><span className="grid size-16 place-items-center rounded-2xl bg-primary/10 text-primary"><UserCheck className="size-8" /></span><h1 className="mt-6 text-2xl font-bold">Family access সক্রিয় নয়</h1><p className="mt-3 max-w-md leading-7 text-muted-foreground">Join code দিয়ে আবেদন করুন। Family Owner বা Admin অনুমোদন করার পর dashboard এবং সব protected module ব্যবহার করতে পারবেন।</p><Button asChild className="mt-7 rounded-xl"><a href="/setup">Family onboarding খুলুন</a></Button></CardContent></Card></main> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
           <section className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
                 <span className="size-2 rounded-full bg-emerald-500" />
-                {dateFormatter.format(new Date(dashboardNow))}
+                 {dashboardNow ? dateFormatter.format(new Date(dashboardNow)) : "—"}
               </div>
               <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
                  {locale === "bn" ? "আসসালামু আলাইকুম" : "Welcome"}, {viewerFirstName}
@@ -585,7 +591,7 @@ export function FamilyDashboard({
                       <p className="truncate text-sm font-semibold">{person.name}</p>
                        <p className="truncate text-xs text-muted-foreground">{person.relationship}</p>
                     </div>
-                     <span className="text-[11px] text-muted-foreground">{relativeTime(person.createdAt, dashboardNow)}</span>
+                     <span className="text-[11px] text-muted-foreground">{dashboardNow ? relativeTime(person.createdAt, dashboardNow) : "—"}</span>
                   </button>
                  ))}
                  {!dashboardLoading && !dashboard?.approvals.length ? <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">কোনো pending member request নেই।</div> : null}

@@ -15,7 +15,6 @@ import {
   FileHeart,
   FileText,
   HeartHandshake,
-  HeartPulse,
   LoaderCircle,
   LockKeyhole,
   MapPin,
@@ -25,8 +24,6 @@ import {
   Plus,
   ShieldCheck,
   Siren,
-  Stethoscope,
-  Thermometer,
   Upload,
   Users,
   X,
@@ -59,7 +56,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -140,7 +136,6 @@ function initialForm(kind: RecordKind): FormState {
 
 export function HealthCenter() {
   const [family, setFamily] = useState<HealthPayload["family"]>();
-  const [viewer, setViewer] = useState<HealthPayload["viewer"]>();
   const [profile, setProfile] = useState<HealthProfile | null>(null);
   const [medications, setMedications] = useState<HealthMedication[]>([]);
   const [appointments, setAppointments] = useState<HealthAppointment[]>([]);
@@ -164,6 +159,7 @@ export function HealthCenter() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadForm, setUploadForm] = useState<FormState>({ category: "prescription", documentDate: today() });
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [now] = useState(Date.now);
   const [sosOpen, setSosOpen] = useState(false);
   const [sosForm, setSosForm] = useState<FormState>({ alertType: "medical" });
   const [location, setLocation] = useState<LocationState>(null);
@@ -185,7 +181,6 @@ export function HealthCenter() {
       }
       if (!response.ok) throw new Error(payload.error ?? "Health workspace পাওয়া যায়নি।");
       setFamily(payload.family);
-      setViewer(payload.viewer);
       setProfile(payload.profile ?? null);
       setMedications(payload.medications ?? []);
       setAppointments(payload.appointments ?? []);
@@ -202,18 +197,20 @@ export function HealthCenter() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setFeedback]);
 
   useEffect(() => {
-    setNotificationPermission(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
-    void loadHealth();
+    queueMicrotask(() => {
+      setNotificationPermission(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+      void loadHealth();
+    });
     const timer = window.setInterval(() => void loadHealth(), 30000);
     return () => window.clearInterval(timer);
   }, [loadHealth]);
 
   const activeAlerts = useMemo(() => alerts.filter((alert) => ["active", "acknowledged"].includes(alert.status)), [alerts]);
   const activeMedications = useMemo(() => medications.filter((item) => item.status === "active"), [medications]);
-  const upcomingAppointments = useMemo(() => appointments.filter((item) => item.status === "scheduled" && new Date(item.scheduled_at).getTime() >= Date.now()), [appointments]);
+  const upcomingAppointments = useMemo(() => appointments.filter((item) => item.status === "scheduled" && new Date(item.scheduled_at).getTime() >= now), [appointments, now]);
   const donors = useMemo(() => directory.filter((item) => item.donor_available), [directory]);
   const recentMeasurements = useMemo(() => measurements.slice(0, 6), [measurements]);
   const nextAppointment = upcomingAppointments[0];

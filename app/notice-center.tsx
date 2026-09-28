@@ -167,20 +167,20 @@ export function NoticeCenter() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setFeedback]);
 
   useEffect(() => {
-    void loadNotices();
+    queueMicrotask(() => void loadNotices());
   }, [loadNotices]);
 
+  const [now] = useState(Date.now);
   const activeNotices = useMemo(() => {
-    const now = Date.now();
     return notices.filter((notice) => {
       const starts = notice.publish_at ? new Date(notice.publish_at).getTime() <= now : true;
       const valid = notice.expires_at ? new Date(notice.expires_at).getTime() > now : true;
       return notice.status === "published" && starts && valid;
     });
-  }, [notices]);
+  }, [notices, now]);
 
   const visibleNotices = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -197,7 +197,7 @@ export function NoticeCenter() {
     });
   }, [activeNotices, notices, query, statusFilter]);
 
-  async function createNotice(input: NoticeForm) {
+  const createNotice = useCallback(async (input: NoticeForm) => {
     setSaving(true);
     setFeedback(null);
     try {
@@ -216,7 +216,7 @@ export function NoticeCenter() {
     } finally {
       setSaving(false);
     }
-  }
+  }, [setFeedback]);
 
   async function updateNotice(id: string, action: "publish" | "draft" | "archive" | "pin" | "unpin") {
     setUpdatingId(id);
@@ -322,7 +322,7 @@ export function NoticeCenter() {
       }, { signal: lifecycle.signal })).catch(() => undefined);
     }
     return () => lifecycle.abort();
-  }, [canManage, notices]);
+  }, [canManage, createNotice, notices]);
 
   if (setupRequired) {
     return (

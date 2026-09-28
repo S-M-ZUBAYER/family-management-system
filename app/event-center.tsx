@@ -1,4 +1,6 @@
 "use client";
+/* Event media uses authenticated API URLs and must not be fetched by the image optimizer. */
+/* eslint-disable @next/next/no-img-element */
 
 import { useActionFeedback } from "@/components/action-modal-provider";
 
@@ -237,22 +239,24 @@ export function EventCenter() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setFeedback]);
 
   useEffect(() => {
-    void loadEvents();
+    queueMicrotask(() => void loadEvents());
   }, [loadEvents]);
 
   useEffect(() => {
     if (!selectedId) return;
     const mine = rsvps.find((item) => item.event_id === selectedId && item.is_current_user);
-    setGuestCount(String(mine?.guest_count ?? 0));
-    setRsvpNote(mine?.note ?? "");
+    queueMicrotask(() => {
+      setGuestCount(String(mine?.guest_count ?? 0));
+      setRsvpNote(mine?.note ?? "");
+    });
   }, [rsvps, selectedId]);
 
+  const [now] = useState(Date.now);
   const visibleEvents = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const now = Date.now();
     return events.filter((event) => {
       const matchesText = !needle || [event.title_bn, event.title_en, event.venue, event.city, typeLabels[event.event_type]]
         .filter(Boolean).join(" ").toLowerCase().includes(needle);
@@ -262,12 +266,12 @@ export function EventCenter() {
         || event.event_type === filter;
       return matchesText && matchesFilter;
     });
-  }, [events, filter, query]);
+  }, [events, filter, now, query]);
 
   const eventRsvps = (id: string) => rsvps.filter((item) => item.event_id === id);
-  const goingCount = (id: string) => eventRsvps(id).filter((item) => item.response === "going").reduce((total, item) => total + 1 + item.guest_count, 0);
+  const goingCount = useCallback((id: string) => rsvps.filter((item) => item.event_id === id && item.response === "going").reduce((total, item) => total + 1 + item.guest_count, 0), [rsvps]);
 
-  async function createEvent(input: EventForm) {
+  const createEvent = useCallback(async (input: EventForm) => {
     setSaving(true);
     setFeedback(null);
     try {
@@ -286,7 +290,7 @@ export function EventCenter() {
     } finally {
       setSaving(false);
     }
-  }
+  }, [setFeedback]);
 
   async function updateEvent(action: "publish" | "close" | "complete" | "cancel" | "draft") {
     if (!selected) return;
@@ -426,7 +430,7 @@ export function EventCenter() {
       execute: async (input: unknown) => createEvent({ ...emptyForm, ...(input as Partial<EventForm>) }),
     }, { signal: lifecycle.signal })).catch(() => undefined);
     return () => lifecycle.abort();
-  }, [canManage, events, rsvps]);
+  }, [canManage, createEvent, events, goingCount, rsvps]);
 
   if (setupRequired) return <main className="mx-auto w-full max-w-[1500px] px-4 py-8 md:px-7"><Card className="rounded-3xl border-amber-500/30 py-0 shadow-none"><CardContent className="flex flex-col items-start gap-5 p-7 md:flex-row md:items-center"><ShieldAlert className="size-10 text-amber-700" /><div className="flex-1"><h1 className="text-2xl font-bold">Family Owner setup বাকি</h1><p className="mt-1 text-muted-foreground">Event Planner ব্যবহার করার আগে প্রথম পরিবার সক্রিয় করুন।</p></div><Button asChild className="rounded-xl"><a href="/setup">Owner setup খুলুন</a></Button></CardContent></Card></main>;
 

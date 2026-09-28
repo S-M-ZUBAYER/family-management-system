@@ -13,14 +13,14 @@ export type NoticeTickerItem = {
 };
 
 export function NoticeTicker({ notices }: { notices: NoticeTickerItem[] }) {
+  const [now] = useState(Date.now);
   const activeNotices = useMemo(() => {
-    const now = Date.now();
     return notices.filter((notice) => {
       const publishTime = notice.publish_at ? new Date(notice.publish_at).getTime() : 0;
       const expiryTime = notice.expires_at ? new Date(notice.expires_at).getTime() : null;
       return notice.status === "published" && publishTime <= now && (!expiryTime || expiryTime > now);
     });
-  }, [notices]);
+  }, [notices, now]);
 
   if (!activeNotices.length) return null;
   const repeated = [...activeNotices, ...activeNotices];

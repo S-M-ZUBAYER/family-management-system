@@ -1,9 +1,11 @@
 "use client";
+/* Protected media is served by authenticated API routes, so Next image optimization is intentionally bypassed. */
+/* eslint-disable @next/next/no-img-element */
 
 import { useActionFeedback } from "@/components/action-modal-provider";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Archive, BookOpenText, Building2, CalendarClock, Camera, CheckCircle2, Download, FileArchive, FileLock2, FileText, FolderHeart, Hourglass, Image as ImageIcon, Landmark, LoaderCircle, LockKeyhole, MoreHorizontal, PackageOpen, Plus, ScrollText, ShieldCheck, Timer, Upload, Users, X } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Archive, BookOpenText, Building2, Camera, CheckCircle2, Download, FileArchive, FileLock2, FileText, FolderHeart, Hourglass, Image as ImageIcon, Landmark, LoaderCircle, LockKeyhole, MoreHorizontal, PackageOpen, Plus, ScrollText, ShieldCheck, Timer, Upload, Users, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,6 +59,7 @@ export function ArchiveCenter() {
   const [uploadMode, setUploadMode] = useState<"memory" | "vault" | null>(null);
   const [uploadForm, setUploadForm] = useState<Form>({ visibility: "family", category: "other", memoryDate: today() });
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [now] = useState(Date.now);
 
   const load = useCallback(async () => {
     try {
@@ -66,12 +69,12 @@ export function ArchiveCenter() {
       setFamily(payload.family); setCollections(payload.collections ?? []); setMemories(payload.memories ?? []); setStories(payload.stories ?? []); setDocuments(payload.documents ?? []); setAssets(payload.assets ?? []); setCapsules(payload.capsules ?? []); setFiles(payload.files ?? []); setCanManage(Boolean(payload.permissions?.canManage)); setMigrationRequired(Boolean(payload.migrationRequired)); setSetupRequired(false);
     } catch (error) { setFeedback(error instanceof Error ? error.message : "Family archive load হয়নি।"); }
     finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+  }, [setFeedback]);
+  useEffect(() => { queueMicrotask(() => void load()); }, [load]);
 
   const activeCollections = collections.filter((item) => item.status === "active");
   const publishedStories = stories.filter((item) => item.status === "published");
-  const expiringDocuments = documents.filter((item) => item.expiry_date && new Date(item.expiry_date).getTime() > Date.now() && new Date(item.expiry_date).getTime() < Date.now() + 90 * 86400000);
+  const expiringDocuments = documents.filter((item) => item.expiry_date && new Date(item.expiry_date).getTime() > now && new Date(item.expiry_date).getTime() < now + 90 * 86400000);
   const assetValue = assets.filter((item) => item.status === "active").reduce((sum, item) => sum + n(item.estimated_value), 0);
   const lockedCapsules = capsules.filter((item) => !item.is_unlocked);
   const fileFor = (entityType: "memory" | "vault_document", id: string) => files.find((item) => item.entity_type === entityType && item.entity_id === id);

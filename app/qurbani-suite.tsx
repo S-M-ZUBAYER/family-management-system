@@ -114,16 +114,6 @@ const kindLabels: Record<QurbaniRecordKind, string> = {
   distribution: "মাংস বণ্টন",
 };
 
-const tabToKind: Partial<Record<SectionKey, QurbaniRecordKind>> = {
-  participants: "participant",
-  animals: "animal",
-  ledger: "transaction",
-  vendors: "vendor",
-  schedule: "schedule",
-  tasks: "task",
-  distribution: "distribution",
-};
-
 const moneyFormatter = new Intl.NumberFormat("bn-BD", {
   style: "currency",
   currency: "BDT",
@@ -217,10 +207,10 @@ export function QurbaniSuite() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setFeedback]);
 
   useEffect(() => {
-    void loadQurbani();
+    queueMicrotask(() => void loadQurbani());
   }, [loadQurbani]);
 
   const campaign = useMemo(

@@ -3,7 +3,7 @@
 import { useActionFeedback } from "@/components/action-modal-provider";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { BadgeCheck, CalendarClock, CheckCircle2, CircleDollarSign, ClipboardCheck, Download, FileText, Home, HousePlus, ListChecks, LoaderCircle, MoreHorizontal, Phone, Plus, ReceiptText, Settings2, ShieldCheck, ShoppingBasket, Star, Upload, Users, Wrench, X, Zap } from "lucide-react";
+import { BadgeCheck, CheckCircle2, ClipboardCheck, Download, FileText, HousePlus, ListChecks, LoaderCircle, MoreHorizontal, Phone, Plus, ReceiptText, Settings2, ShieldCheck, ShoppingBasket, Star, Upload, Users, Wrench, X, Zap } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -70,8 +70,8 @@ export function HouseholdCenter() {
       setFamily(payload.family); setHouseholds(payload.households ?? []); setLists(payload.shoppingLists ?? []); setItems(payload.shoppingItems ?? []); setBills(payload.bills ?? []); setTasks(payload.tasks ?? []); setContacts(payload.contacts ?? []); setMaintenance(payload.maintenance ?? []); setDocuments(payload.documents ?? []); setCanManage(Boolean(payload.permissions?.canManage)); setMigrationRequired(Boolean(payload.migrationRequired)); setSetupRequired(false);
     } catch (error) { setFeedback(error instanceof Error ? error.message : "Household workspace load হয়নি।"); }
     finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+  }, [setFeedback]);
+  useEffect(() => { queueMicrotask(() => void load()); }, [load]);
 
   const visibleHouseholds = households.filter((item) => item.status === "active");
   const listIds = useMemo(() => new Set(lists.filter((item) => selectedHousehold === "all" || item.household_id === selectedHousehold).map((item) => item.id)), [lists, selectedHousehold]);

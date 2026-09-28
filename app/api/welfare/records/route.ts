@@ -54,7 +54,6 @@ export async function POST(request: Request) {
     const now = new Date().toISOString();
     let table = "";
     let record: Record<string, unknown> = {};
-    let result: Record<string, unknown> | undefined;
 
     if (body.action === "create_fund") {
       if (!canManage) return Response.json({ error: "শুধু Family Admin fund তৈরি করতে পারবেন।" }, { status: 403 });
@@ -157,7 +156,7 @@ export async function POST(request: Request) {
       return updateStatus(data, membership.family_id, user.userId, user.displayName, canManage);
     }
 
-    [result] = await supabaseRest<Array<Record<string, unknown>>>(table, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(record) });
+    const [result] = await supabaseRest<Array<Record<string, unknown>>>(table, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(record) });
     await audit(membership.family_id, user.userId, `${body.action}`, table, String(result.id));
     return Response.json({ record: result }, { status: 201 });
   } catch (error) {

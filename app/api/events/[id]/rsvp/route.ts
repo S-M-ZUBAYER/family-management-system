@@ -47,7 +47,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         updated_at: new Date().toISOString(),
       }),
     });
-    const { auth_user_id: _authUserId, ...safeRsvp } = rsvp;
+    const safeRsvp = {
+      id: rsvp.id,
+      event_id: rsvp.event_id,
+      respondent_name: rsvp.respondent_name,
+      response: rsvp.response,
+      guest_count: rsvp.guest_count,
+      note: rsvp.note,
+      updated_at: rsvp.updated_at,
+    };
     return Response.json({ rsvp: { ...safeRsvp, is_current_user: true } });
   } catch (error) {
     if (error instanceof BackendNotConfiguredError) return Response.json({ error: "Backend configured নয়।" }, { status: 503 });

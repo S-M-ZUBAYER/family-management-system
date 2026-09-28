@@ -66,8 +66,8 @@ export function GovernanceCenter() {
       setFamily(payload.family); setPolls(payload.polls ?? []); setComments(payload.comments ?? []); setDecisions(payload.decisions ?? []); setCanManage(Boolean(payload.permissions?.canManage)); setMigrationRequired(Boolean(payload.migrationRequired)); setSetupRequired(false);
     } catch (error) { setFeedback(error instanceof Error ? error.message : "Family governance load হয়নি।"); }
     finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+  }, [setFeedback]);
+  useEffect(() => { queueMicrotask(() => void load()); }, [load]);
 
   const activePolls = useMemo(() => polls.filter((poll) => poll.status === "open"), [polls]);
   const proposals = useMemo(() => polls.filter((poll) => ["proposed", "draft"].includes(poll.status)), [polls]);
