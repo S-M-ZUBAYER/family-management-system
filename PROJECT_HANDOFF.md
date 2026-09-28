@@ -4,15 +4,25 @@ Last updated: 2026-09-28 (Asia/Dhaka)
 
 This file is the authoritative handoff for continuing the project from another Codex account. Read it completely before changing or deploying anything.
 
+## Immediate continuation status
+
+- Local Magazine and Family Tree relationship updates are implemented and committed.
+- `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` were run again successfully after the latest continuation request.
+- A direct Supabase REST check returned `PGRST205` for `public.family_magazine_articles`, confirming that the Magazine migration has **not** yet been applied to the connected Supabase project.
+- The user must sign in to Supabase in their browser, or manually run `supabase/migrations/20260928_family_magazine.sql` in Supabase SQL Editor.
+- Do not deploy the Magazine code until the migration is confirmed.
+- The stable production site remains version 30 at `https://family-management-system.hitht.chatgpt.site`.
+- The next account must run `git status --short` and `git log -1 --oneline` first; the working tree should be clean at handoff.
+
 ## Copy-paste prompt for the next Codex account
 
 ```text
 Continue the Family Management System project from:
 C:\Personal project\family-management-system
 
-First read PROJECT_HANDOFF.md completely, then inspect git status, recent commits, package.json, .env.example, .openai/hosting.json, supabase/schema.sql, and all migrations. Do not expose or print .env.local or any Supabase secret. Preserve existing work and keep the deployed site owner-private unless I explicitly ask to change sharing.
+First read C:\Personal project\family-management-system\PROJECT_HANDOFF.md completely. Then run git status --short and git log -1 --oneline, and inspect package.json, .env.example, .openai/hosting.json, supabase/schema.sql, and all migrations. Do not expose, print, copy, or commit .env.local or any Supabase secret. Preserve existing work and keep the deployed site owner-private/custom unless I explicitly ask to change sharing.
 
-The stable live site is currently version 30. The latest local commit contains a verified Family Magazine module and improved family-tree relationship labels, but that batch must not be deployed until I confirm that supabase/migrations/20260928_family_magazine.sql has been run in the Supabase SQL Editor. After confirmation, run lint, security audit, and production build; deploy as the next private version; then smoke-test the Magazine and Family Tree.
+The stable live site is currently version 30 at https://family-management-system.hitht.chatgpt.site. The latest local commit contains a verified Family Magazine module and improved family-tree relationship labels. A Supabase REST check confirmed that public.family_magazine_articles does not exist yet, so do not deploy until I confirm that supabase/migrations/20260928_family_magazine.sql has been run in Supabase SQL Editor. If I am signed in to Supabase and explicitly ask you to finish, you may use the signed-in dashboard to run that exact migration. After confirmation, run npm.cmd run lint, npm.cmd run security:audit, and npm.cmd run build; deploy to the existing Sites project appgprj_6ab4e57009088191814056c14e820221 while preserving owner-private/custom access; then smoke-test /magazine and /family-tree.
 
 Continue the remaining roadmap one module at a time. Every mutating action must show a confirmation modal first and a success/error/info modal afterward, with a close X/button. Every major management section must support XLSX export. Every API and database operation must preserve family_id tenant isolation. New membership must remain pending until that family's owner/family_admin approves it. Personal-finance data must remain private to its user. Keep audit logging and safe-delete/finalized-record restrictions.
 ```
