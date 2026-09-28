@@ -3,17 +3,21 @@
 import { useActionFeedback } from "@/components/action-modal-provider";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
 import {
   Database,
   Download,
   GitFork,
   LoaderCircle,
   MapPin,
+  Link2,
+  Pencil,
   Plus,
   Search,
   ShieldAlert,
   UserRoundPlus,
   Users,
+  Trash2,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -92,6 +96,8 @@ type MemberForm = {
   email: string;
   phone: string;
   parentId: string;
+  relationshipType: "parent" | "spouse" | "guardian";
+  profileStatus: string;
 };
 
 const emptyForm: MemberForm = {
@@ -107,6 +113,8 @@ const emptyForm: MemberForm = {
   email: "",
   phone: "",
   parentId: "none",
+  relationshipType: "parent",
+  profileStatus: "active",
 };
 
 export function MemberDirectory() {
@@ -118,6 +126,9 @@ export function MemberDirectory() {
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<FamilyMember | null>(null);
+  const [relationshipOpen, setRelationshipOpen] = useState(false);
+  const [relationshipForm, setRelationshipForm] = useState<{ fromMemberId: string; toMemberId: string; relationshipType: "parent" | "spouse" | "guardian" }>({ fromMemberId: "none", toMemberId: "none", relationshipType: "parent" });
   const [setupRequired, setSetupRequired] = useState(false);
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [canManage, setCanManage] = useState(false);
@@ -146,10 +157,10 @@ export function MemberDirectory() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setFeedback]);
 
   useEffect(() => {
-    void loadMembers();
+    void Promise.resolve().then(() => loadMembers());
   }, [loadMembers]);
 
   const visibleMembers = useMemo(() => {
@@ -170,8 +181,9 @@ export function MemberDirectory() {
         .includes(needle),
     );
   }, [members, query]);
+  const memberById = useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
 
-  async function createMember(input: MemberForm) {
+  const createMember = useCallback(async (input: MemberForm) => {
     setSaving(true);
     setFeedback(null);
     try {
@@ -197,6 +209,89 @@ export function MemberDirectory() {
     } finally {
       setSaving(false);
     }
+  }, [loadMembers, setFeedback]);
+
+  async function updateMember(input: MemberForm) {
+    if (!editingMember) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/members", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update_profile", memberId: editingMember.id, data: input }),
+      });
+      if (response.status === 499) return;
+      const payload = await response.json() as { member?: FamilyMember; error?: string };
+      if (!response.ok || !payload.member) throw new Error(payload.error ?? "Member profile update হয়নি।");
+      setMembers((current) => current.map((item) => item.id === payload.member?.id ? payload.member : item));
+      setDialogOpen(false);
+      setEditingMember(null);
+      setForm(emptyForm);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openCreateMember() {
+    setEditingMember(null);
+    setForm(emptyForm);
+    setDialogOpen(true);
+  }
+
+  function openEditMember(member: FamilyMember) {
+    setEditingMember(member);
+    setForm({
+      nameBn: member.name_bn,
+      nameEn: member.name_en ?? "",
+      relationship: member.relationship_text ?? "",
+      gender: member.gender ?? "",
+      dateOfBirth: member.date_of_birth ?? "",
+      bloodGroup: member.blood_group ?? "",
+      occupation: member.occupation ?? "",
+      city: member.city ?? "",
+      country: member.country ?? "",
+      email: member.email ?? "",
+      phone: member.phone ?? "",
+      parentId: "none",
+      relationshipType: "parent",
+      profileStatus: member.profile_status,
+    });
+    setDialogOpen(true);
+  }
+
+  async function createRelationship() {
+    if (relationshipForm.fromMemberId === "none" || relationshipForm.toMemberId === "none") {
+      setFeedback("দুইজন সদস্য নির্বাচন করুন।");
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await fetch("/api/members", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create_relationship", ...relationshipForm }),
+      });
+      if (response.status === 499) return;
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Relationship save হয়নি।");
+      setRelationshipOpen(false);
+      setRelationshipForm({ fromMemberId: "none", toMemberId: "none", relationshipType: "parent" });
+      await loadMembers();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteRelationship(relationshipId: string) {
+    const response = await fetch("/api/members", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete_relationship", relationshipId }),
+    });
+    if (response.status === 499) return;
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) throw new Error(payload.error ?? "Relationship সরানো যায়নি।");
+    setRelationships((current) => current.filter((item) => item.id !== relationshipId));
   }
 
   async function exportXlsx() {
@@ -303,7 +398,7 @@ export function MemberDirectory() {
       ).catch(() => undefined);
     }
     return () => lifecycle.abort();
-  }, [canManage, family?.name_en, members]);
+  }, [canManage, createMember, family?.name_en, members]);
 
   if (setupRequired) {
     return (
@@ -318,7 +413,7 @@ export function MemberDirectory() {
               <p className="mt-1 text-muted-foreground">পরিবারের directory ব্যবহার করার আগে একবার owner account সক্রিয় করুন।</p>
             </div>
             <Button asChild className="rounded-xl">
-              <a href="/setup">Owner setup খুলুন</a>
+              <Link href="/setup">Owner setup খুলুন</Link>
             </Button>
           </CardContent>
         </Card>
@@ -347,9 +442,7 @@ export function MemberDirectory() {
             XLSX Export
           </Button>
           {canManage ? (
-            <Button className="gap-2 rounded-xl" onClick={() => setDialogOpen(true)}>
-              <UserRoundPlus className="size-4" /> সদস্য যোগ করুন
-            </Button>
+            <><Button variant="outline" className="gap-2 rounded-xl" disabled={members.length < 2} onClick={() => setRelationshipOpen(true)}><Link2 className="size-4" /> সম্পর্ক যোগ করুন</Button><Button className="gap-2 rounded-xl" onClick={openCreateMember}><UserRoundPlus className="size-4" /> সদস্য যোগ করুন</Button></>
           ) : null}
         </div>
       </section>
@@ -393,7 +486,7 @@ export function MemberDirectory() {
         ) : visibleMembers.length ? (
           <div className="overflow-x-auto">
             <Table>
-              <TableHeader><TableRow className="bg-muted/35"><TableHead className="pl-5">সদস্য</TableHead><TableHead>সম্পর্ক</TableHead><TableHead>রক্ত</TableHead><TableHead>পেশা</TableHead><TableHead>অবস্থান</TableHead><TableHead className="pr-5">যোগাযোগ</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow className="bg-muted/35"><TableHead className="pl-5">সদস্য</TableHead><TableHead>সম্পর্ক</TableHead><TableHead>রক্ত</TableHead><TableHead>পেশা</TableHead><TableHead>অবস্থান</TableHead><TableHead>যোগাযোগ</TableHead>{canManage ? <TableHead className="pr-5 text-right">Action</TableHead> : null}</TableRow></TableHeader>
               <TableBody>
                 {visibleMembers.map((member) => (
                   <TableRow key={member.id}>
@@ -402,20 +495,29 @@ export function MemberDirectory() {
                     <TableCell>{member.blood_group ? <Badge variant="outline">{member.blood_group}</Badge> : "—"}</TableCell>
                     <TableCell>{member.occupation || "—"}</TableCell>
                     <TableCell>{[member.city, member.country].filter(Boolean).join(", ") || "—"}</TableCell>
-                    <TableCell className="pr-5"><p>{member.phone || "—"}</p><p className="text-xs text-muted-foreground">{member.email || ""}</p></TableCell>
+                    <TableCell><p>{member.phone || "—"}</p><p className="text-xs text-muted-foreground">{member.email || ""}</p></TableCell>
+                    {canManage ? <TableCell className="pr-5 text-right"><Button variant="ghost" size="sm" className="gap-2 rounded-xl" onClick={() => openEditMember(member)}><Pencil className="size-4" /> Edit</Button></TableCell> : null}
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
         ) : (
-          <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center"><Users className="size-10 text-muted-foreground/50" /><h2 className="mt-4 text-lg font-bold">এখনও কোনো member profile নেই</h2><p className="mt-1 text-sm text-muted-foreground">প্রথম সদস্য যোগ করলে directory ও family tree তৈরি শুরু হবে।</p>{canManage ? <Button className="mt-5 gap-2 rounded-xl" onClick={() => setDialogOpen(true)}><Plus className="size-4" /> প্রথম সদস্য যোগ করুন</Button> : null}</div>
+          <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center"><Users className="size-10 text-muted-foreground/50" /><h2 className="mt-4 text-lg font-bold">এখনও কোনো member profile নেই</h2><p className="mt-1 text-sm text-muted-foreground">প্রথম সদস্য যোগ করলে directory ও family tree তৈরি শুরু হবে।</p>{canManage ? <Button className="mt-5 gap-2 rounded-xl" onClick={openCreateMember}><Plus className="size-4" /> প্রথম সদস্য যোগ করুন</Button> : null}</div>
         )}
       </Card>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Card className="gap-0 overflow-hidden rounded-3xl border-border/75 py-0 shadow-none">
+        <div className="flex items-center justify-between gap-3 border-b p-5"><div><h2 className="font-bold">Family relationships</h2><p className="mt-1 text-sm text-muted-foreground">Parent, spouse এবং guardian connections Family Tree-তে ব্যবহার হয়।</p></div>{canManage ? <Button variant="outline" className="gap-2 rounded-xl" disabled={members.length < 2} onClick={() => setRelationshipOpen(true)}><Link2 className="size-4" /> নতুন connection</Button> : null}</div>
+        <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-3">
+          {relationships.map((item) => <div key={item.id} className="flex items-center gap-3 rounded-2xl border p-4"><div className="min-w-0 flex-1"><p className="truncate font-semibold">{memberById.get(item.from_member_id)?.name_bn ?? "Unknown"}</p><p className="my-1 text-xs font-bold uppercase tracking-wide text-primary">{item.relationship_type} →</p><p className="truncate font-semibold">{memberById.get(item.to_member_id)?.name_bn ?? "Unknown"}</p></div>{canManage ? <Button size="icon-sm" variant="ghost" className="text-destructive hover:text-destructive" aria-label="Remove relationship" onClick={() => void deleteRelationship(item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Relationship সরানো যায়নি।"))}><Trash2 /></Button> : null}</div>)}
+          {!relationships.length ? <div className="col-span-full rounded-2xl border border-dashed p-7 text-center text-sm text-muted-foreground">এখনও কোনো relationship connection নেই।</div> : null}
+        </div>
+      </Card>
+
+      <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditingMember(null); setForm(emptyForm); } }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-3xl">
-          <DialogHeader><DialogTitle>নতুন member profile</DialogTitle><DialogDescription>প্রাথমিক তথ্য দিন। পরে profile থেকে আরও তথ্য ও ছবি যোগ করা যাবে।</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{editingMember ? "Member profile edit" : "নতুন member profile"}</DialogTitle><DialogDescription>{editingMember ? "সদস্যের directory information ও profile status update করুন।" : "প্রাথমিক profile ও প্রথম family connection একসাথে যোগ করুন।"}</DialogDescription></DialogHeader>
           <div className="grid gap-4 py-2 sm:grid-cols-2">
             <Field label="নাম (বাংলা)" id="nameBn"><Input id="nameBn" value={form.nameBn} onChange={(event) => setForm({ ...form, nameBn: event.target.value })} /></Field>
             <Field label="Name (English)" id="nameEn"><Input id="nameEn" value={form.nameEn} onChange={(event) => setForm({ ...form, nameEn: event.target.value })} /></Field>
@@ -424,13 +526,26 @@ export function MemberDirectory() {
             <Field label="জন্মতারিখ" id="dateOfBirth"><Input id="dateOfBirth" type="date" value={form.dateOfBirth} onChange={(event) => setForm({ ...form, dateOfBirth: event.target.value })} /></Field>
             <Field label="রক্তের গ্রুপ" id="bloodGroup"><Input id="bloodGroup" placeholder="যেমন: B+" value={form.bloodGroup} onChange={(event) => setForm({ ...form, bloodGroup: event.target.value })} /></Field>
             <Field label="পেশা" id="occupation"><Input id="occupation" value={form.occupation} onChange={(event) => setForm({ ...form, occupation: event.target.value })} /></Field>
-            <Field label="Parent / অভিভাবক" id="parentId"><Select value={form.parentId} onValueChange={(value) => setForm({ ...form, parentId: value })}><SelectTrigger id="parentId" className="h-10 w-full rounded-xl"><SelectValue placeholder="নির্বাচন করুন" /></SelectTrigger><SelectContent><SelectItem value="none">এখন যোগ নয়</SelectItem>{members.map((member) => <SelectItem key={member.id} value={member.id}>{member.name_bn}</SelectItem>)}</SelectContent></Select></Field>
+            {!editingMember ? <><Field label="Connection type" id="relationshipType"><Select value={form.relationshipType} onValueChange={(value) => setForm({ ...form, relationshipType: value as MemberForm["relationshipType"] })}><SelectTrigger id="relationshipType" className="h-10 w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="parent">Parent → নতুন সদস্য</SelectItem><SelectItem value="spouse">Spouse ↔ নতুন সদস্য</SelectItem><SelectItem value="guardian">Guardian → নতুন সদস্য</SelectItem></SelectContent></Select></Field><Field label="Related member" id="parentId"><Select value={form.parentId} onValueChange={(value) => setForm({ ...form, parentId: value })}><SelectTrigger id="parentId" className="h-10 w-full rounded-xl"><SelectValue placeholder="নির্বাচন করুন" /></SelectTrigger><SelectContent><SelectItem value="none">এখন যোগ নয়</SelectItem>{members.map((member) => <SelectItem key={member.id} value={member.id}>{member.name_bn}</SelectItem>)}</SelectContent></Select></Field></> : null}
             <Field label="শহর" id="city"><Input id="city" value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} /></Field>
             <Field label="দেশ" id="country"><Input id="country" value={form.country} onChange={(event) => setForm({ ...form, country: event.target.value })} /></Field>
             <Field label="ফোন" id="phone"><Input id="phone" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></Field>
             <Field label="ইমেইল" id="email"><Input id="email" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></Field>
+            {editingMember ? <Field label="Profile status" id="profileStatus"><Select value={form.profileStatus} onValueChange={(value) => setForm({ ...form, profileStatus: value })}><SelectTrigger id="profileStatus" className="h-10 w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem><SelectItem value="deceased">Deceased</SelectItem><SelectItem value="archived">Archived</SelectItem></SelectContent></Select></Field> : null}
           </div>
-          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setDialogOpen(false)}>বাতিল</Button><Button className="gap-2 rounded-xl" disabled={saving || form.nameBn.trim().length < 2} onClick={() => void createMember(form).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Member save হয়নি।"))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <UserRoundPlus className="size-4" />} Profile সংরক্ষণ</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setDialogOpen(false)}>বাতিল</Button><Button className="gap-2 rounded-xl" disabled={saving || form.nameBn.trim().length < 2} onClick={() => void (editingMember ? updateMember(form) : createMember(form)).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Member save হয়নি।"))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingMember ? <Pencil className="size-4" /> : <UserRoundPlus className="size-4" />} {editingMember ? "Profile update" : "Profile সংরক্ষণ"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={relationshipOpen} onOpenChange={setRelationshipOpen}>
+        <DialogContent className="rounded-3xl sm:max-w-lg">
+          <DialogHeader><DialogTitle>Family relationship যোগ করুন</DialogTitle><DialogDescription>Connection-এর direction অনুযায়ী প্রথম ও দ্বিতীয় সদস্য নির্বাচন করুন।</DialogDescription></DialogHeader>
+          <div className="grid gap-4 py-2">
+            <Field label="Relationship type" id="newRelationshipType"><Select value={relationshipForm.relationshipType} onValueChange={(value) => setRelationshipForm((current) => ({ ...current, relationshipType: value as typeof current.relationshipType }))}><SelectTrigger id="newRelationshipType" className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="parent">প্রথম সদস্য parent → দ্বিতীয় সদস্য child</SelectItem><SelectItem value="spouse">Spouse relationship</SelectItem><SelectItem value="guardian">প্রথম সদস্য guardian → দ্বিতীয় সদস্য</SelectItem></SelectContent></Select></Field>
+            <Field label="প্রথম সদস্য" id="fromMemberId"><Select value={relationshipForm.fromMemberId} onValueChange={(value) => setRelationshipForm((current) => ({ ...current, fromMemberId: value }))}><SelectTrigger id="fromMemberId" className="w-full rounded-xl"><SelectValue placeholder="সদস্য নির্বাচন" /></SelectTrigger><SelectContent><SelectItem value="none">নির্বাচন করুন</SelectItem>{members.map((member) => <SelectItem key={member.id} value={member.id} disabled={member.id === relationshipForm.toMemberId}>{member.name_bn}</SelectItem>)}</SelectContent></Select></Field>
+            <Field label="দ্বিতীয় সদস্য" id="toMemberId"><Select value={relationshipForm.toMemberId} onValueChange={(value) => setRelationshipForm((current) => ({ ...current, toMemberId: value }))}><SelectTrigger id="toMemberId" className="w-full rounded-xl"><SelectValue placeholder="সদস্য নির্বাচন" /></SelectTrigger><SelectContent><SelectItem value="none">নির্বাচন করুন</SelectItem>{members.map((member) => <SelectItem key={member.id} value={member.id} disabled={member.id === relationshipForm.fromMemberId}>{member.name_bn}</SelectItem>)}</SelectContent></Select></Field>
+          </div>
+          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setRelationshipOpen(false)}>বাতিল</Button><Button className="gap-2 rounded-xl" disabled={saving || relationshipForm.fromMemberId === "none" || relationshipForm.toMemberId === "none"} onClick={() => void createRelationship().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Relationship save হয়নি।"))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />} Connection সংরক্ষণ</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </main>

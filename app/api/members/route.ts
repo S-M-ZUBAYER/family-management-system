@@ -49,6 +49,18 @@ type CreateMemberBody = {
   email?: unknown;
   phone?: unknown;
   parentId?: unknown;
+  relationshipTargetId?: unknown;
+  relationshipType?: unknown;
+};
+
+type UpdateMemberBody = {
+  action?: unknown;
+  memberId?: unknown;
+  relationshipId?: unknown;
+  fromMemberId?: unknown;
+  toMemberId?: unknown;
+  relationshipType?: unknown;
+  data?: CreateMemberBody & { profileStatus?: unknown };
 };
 
 const optionalText = (value: unknown, max = 160) =>
@@ -148,11 +160,15 @@ export async function POST(request: Request) {
       return Response.json({ error: "Gender value সঠিক নয়।" }, { status: 400 });
     }
 
-    const parentId = optionalText(body.parentId, 64);
-    if (parentId) {
+    const relationshipTargetId = optionalText(body.relationshipTargetId, 64) ?? optionalText(body.parentId, 64);
+    const relationshipType = optionalText(body.relationshipType, 16) ?? "parent";
+    if (!["parent", "spouse", "guardian"].includes(relationshipType)) {
+      return Response.json({ error: "Relationship type সঠিক নয়।" }, { status: 400 });
+    }
+    if (relationshipTargetId) {
       const parentQuery = new URLSearchParams({
         select: "id",
-        id: `eq.${parentId}`,
+        id: `eq.${relationshipTargetId}`,
         family_id: `eq.${membership.family_id}`,
         limit: "1",
       });
@@ -187,16 +203,16 @@ export async function POST(request: Request) {
     });
 
     let relationshipSaved = true;
-    if (parentId) {
+    if (relationshipTargetId) {
       try {
         await supabaseRest("family_relationships", {
           method: "POST",
           headers: { Prefer: "return=minimal" },
           body: JSON.stringify({
             family_id: membership.family_id,
-            from_member_id: parentId,
+            from_member_id: relationshipTargetId,
             to_member_id: member.id,
-            relationship_type: "parent",
+            relationship_type: relationshipType,
             created_by_user_id: user.userId,
           }),
         });
@@ -231,6 +247,107 @@ export async function POST(request: Request) {
   } catch (error) {
     return memberErrorResponse(error, "Unable to create family member");
   }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    if (!isBackendConfigured()) throw new BackendNotConfiguredError();
+    const user = await getChatGPTUser();
+    if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
+    const membership = await getActiveFamilyMembership(user.userId);
+    if (!membership) return Response.json({ code: "FAMILY_SETUP_REQUIRED", error: "প্রথম family setup সম্পন্ন করুন।" }, { status: 409 });
+    if (!canManageProfiles(membership.role)) return Response.json({ error: "Member profile পরিবর্তনের permission নেই।" }, { status: 403 });
+
+    const body = await request.json() as UpdateMemberBody;
+    const action = optionalText(body.action, 40);
+    if (!action) return Response.json({ error: "Member action প্রয়োজন।" }, { status: 400 });
+
+    if (action === "update_profile" || action === "update_status") {
+      const memberId = optionalText(body.memberId, 64);
+      if (!memberId) return Response.json({ error: "Member নির্বাচন করুন।" }, { status: 400 });
+      const existingQuery = new URLSearchParams({ select: "id", id: `eq.${memberId}`, family_id: `eq.${membership.family_id}`, limit: "1" });
+      if (!(await supabaseRest<Array<{ id: string }>>(`member_profiles?${existingQuery}`)).length) {
+        return Response.json({ error: "সদস্যটি এই পরিবারের নয়।" }, { status: 404 });
+      }
+
+      const data = body.data ?? {};
+      let changes: Record<string, unknown>;
+      if (action === "update_status") {
+        const profileStatus = optionalText(data.profileStatus, 16);
+        if (!profileStatus || !["active", "inactive", "deceased", "archived"].includes(profileStatus)) {
+          return Response.json({ error: "Profile status সঠিক নয়।" }, { status: 400 });
+        }
+        changes = { profile_status: profileStatus, updated_at: new Date().toISOString() };
+      } else {
+        const nameBn = optionalText(data.nameBn, 120);
+        const gender = optionalText(data.gender, 12);
+        const profileStatus = optionalText(data.profileStatus, 16) ?? "active";
+        if (!nameBn || nameBn.length < 2) return Response.json({ error: "সদস্যের বাংলা নাম দিন।" }, { status: 400 });
+        if (gender && !["male", "female", "other"].includes(gender)) return Response.json({ error: "Gender value সঠিক নয়।" }, { status: 400 });
+        if (!["active", "inactive", "deceased", "archived"].includes(profileStatus)) return Response.json({ error: "Profile status সঠিক নয়।" }, { status: 400 });
+        changes = {
+          name_bn: nameBn,
+          name_en: optionalText(data.nameEn, 120),
+          relationship_text: optionalText(data.relationship, 160),
+          gender,
+          date_of_birth: optionalText(data.dateOfBirth, 10),
+          blood_group: optionalText(data.bloodGroup, 8),
+          occupation: optionalText(data.occupation, 120),
+          city: optionalText(data.city, 100),
+          country: optionalText(data.country, 100),
+          email: optionalText(data.email, 180),
+          phone: optionalText(data.phone, 40),
+          profile_status: profileStatus,
+          updated_at: new Date().toISOString(),
+        };
+      }
+      const [member] = await supabaseRest<MemberProfileRow[]>(`member_profiles?${new URLSearchParams({ id: `eq.${memberId}`, family_id: `eq.${membership.family_id}` })}`, {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(changes),
+      });
+      await writeMemberAudit(membership.family_id, user.userId, action, "member_profile", memberId, changes);
+      return Response.json({ member, message: action === "update_status" ? "Member status update হয়েছে।" : "Member profile update হয়েছে।" });
+    }
+
+    if (action === "create_relationship") {
+      const fromMemberId = optionalText(body.fromMemberId, 64);
+      const toMemberId = optionalText(body.toMemberId, 64);
+      const relationshipType = optionalText(body.relationshipType, 16);
+      if (!fromMemberId || !toMemberId || fromMemberId === toMemberId || !relationshipType || !["parent", "spouse", "guardian"].includes(relationshipType)) {
+        return Response.json({ error: "দুইজন আলাদা সদস্য ও সঠিক relationship type নির্বাচন করুন।" }, { status: 400 });
+      }
+      const scopedMembers = await supabaseRest<Array<{ id: string }>>(`member_profiles?${new URLSearchParams({ select: "id", family_id: `eq.${membership.family_id}`, id: `in.(${fromMemberId},${toMemberId})` })}`);
+      if (scopedMembers.length !== 2) return Response.json({ error: "নির্বাচিত সদস্যরা এই পরিবারের নয়।" }, { status: 400 });
+      const [relationship] = await supabaseRest<FamilyRelationshipRow[]>("family_relationships", {
+        method: "POST",
+        headers: { Prefer: "return=representation,resolution=ignore-duplicates" },
+        body: JSON.stringify({ family_id: membership.family_id, from_member_id: fromMemberId, to_member_id: toMemberId, relationship_type: relationshipType, created_by_user_id: user.userId }),
+      });
+      await writeMemberAudit(membership.family_id, user.userId, action, "family_relationship", relationship?.id ?? null, { from_member_id: fromMemberId, to_member_id: toMemberId, relationship_type: relationshipType });
+      return Response.json({ relationship: relationship ?? null, message: relationship ? "Family relationship সংরক্ষিত হয়েছে।" : "এই relationship আগে থেকেই আছে।" });
+    }
+
+    if (action === "delete_relationship") {
+      const relationshipId = optionalText(body.relationshipId, 64);
+      if (!relationshipId) return Response.json({ error: "Relationship নির্বাচন করুন।" }, { status: 400 });
+      await supabaseRest(`family_relationships?${new URLSearchParams({ id: `eq.${relationshipId}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+      await writeMemberAudit(membership.family_id, user.userId, action, "family_relationship", relationshipId, {});
+      return Response.json({ message: "Family relationship সরানো হয়েছে।" });
+    }
+
+    return Response.json({ error: "Unsupported member action." }, { status: 400 });
+  } catch (error) {
+    return memberErrorResponse(error, "Unable to update family member");
+  }
+}
+
+async function writeMemberAudit(familyId: string, actorUserId: string, action: string, entityType: string, entityId: string | null, metadata: Record<string, unknown>) {
+  await supabaseRest("audit_logs", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ family_id: familyId, actor_user_id: actorUserId, action, entity_type: entityType, entity_id: entityId, metadata }),
+  });
 }
 
 function memberErrorResponse(error: unknown, logMessage: string) {
