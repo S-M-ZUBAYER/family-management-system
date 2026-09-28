@@ -60,6 +60,8 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { DashboardNoticeTicker } from "./notice-ticker";
+import { useActionFeedback } from "@/components/action-modal-provider";
+import type { DashboardPayload } from "@/lib/dashboard-types";
 
 const MemberApprovals = lazy(() => import("./member-approvals").then((module) => ({ default: module.MemberApprovals })));
 const MemberDirectory = lazy(() => import("./member-directory").then((module) => ({ default: module.MemberDirectory })));
@@ -126,11 +128,24 @@ const mainNavigation = [
   { id: "governance", href: "/governance", label: "ভোট ও সিদ্ধান্ত", english: "Polls & decisions", icon: Vote },
 ];
 
-const approvals = [
-  { name: "মেহেদী হাসান", relation: "রাশেদের ছেলে", initials: "মে", time: "১২ মিনিট আগে" },
-  { name: "নাজিয়া রহমান", relation: "নাসরিনের মেয়ে", initials: "না", time: "১ ঘণ্টা আগে" },
-  { name: "তানভীর মনছুফ", relation: "পরিবারের আমন্ত্রণ", initials: "তা", time: "গতকাল" },
-];
+const numberBn = new Intl.NumberFormat("bn-BD", { maximumFractionDigits: 2 });
+const moneyBn = new Intl.NumberFormat("bn-BD", { style: "currency", currency: "BDT", maximumFractionDigits: 0 });
+const dateBn = new Intl.DateTimeFormat("bn-BD", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+const eventDateBn = new Intl.DateTimeFormat("bn-BD", { day: "2-digit", month: "short" });
+const relativeBn = new Intl.RelativeTimeFormat("bn-BD", { numeric: "auto" });
+
+function relativeTime(value: string, reference: number) {
+  const difference = new Date(value).getTime() - reference;
+  const minutes = Math.round(difference / 60000);
+  if (Math.abs(minutes) < 60) return relativeBn.format(minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 24) return relativeBn.format(hours, "hour");
+  return relativeBn.format(Math.round(hours / 24), "day");
+}
+
+function initials(name: string) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+}
 
 function ThemeSelector({
   value,
@@ -204,15 +219,16 @@ export function FamilyDashboard({
 }: {
   view?: "dashboard" | "directory" | "tree" | "members" | "notices" | "events" | "qurbani" | "finance" | "chat" | "health" | "welfare" | "household" | "archives" | "governance";
 }) {
-  const [theme, setTheme] = useState<ThemeId>("heritage");
-  const [dark, setDark] = useState(false);
-
-  useEffect(() => {
-    const savedTheme = window.localStorage.getItem("family-theme") as ThemeId | null;
-    const savedMode = window.localStorage.getItem("family-mode");
-    if (savedTheme && themes.some((item) => item.id === savedTheme)) setTheme(savedTheme);
-    if (savedMode === "dark") setDark(true);
-  }, []);
+  const [theme, setTheme] = useState<ThemeId>(() => {
+    if (typeof window === "undefined") return "heritage";
+    const saved = window.localStorage.getItem("family-theme") as ThemeId | null;
+    return saved && themes.some((item) => item.id === saved) ? saved : "heritage";
+  });
+  const [dark, setDark] = useState(() => typeof window !== "undefined" && window.localStorage.getItem("family-mode") === "dark");
+  const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(view === "dashboard");
+  const [dashboardNow] = useState(() => Date.now());
+  const [, setFeedback] = useActionFeedback();
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -220,6 +236,62 @@ export function FamilyDashboard({
     window.localStorage.setItem("family-theme", theme);
     window.localStorage.setItem("family-mode", dark ? "dark" : "light");
   }, [theme, dark]);
+
+  useEffect(() => {
+    if (view !== "dashboard") return;
+    let active = true;
+    void fetch("/api/dashboard", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as DashboardPayload & { error?: string };
+        if (!response.ok) throw new Error(payload.error ?? "Dashboard data পাওয়া যায়নি।");
+        return payload;
+      })
+      .then((payload) => {
+        if (!active) return;
+        setDashboard(payload);
+        setTheme(payload.family.theme);
+      })
+      .catch((error: unknown) => {
+        if (active) setFeedback(error instanceof Error ? error.message : "Dashboard data পাওয়া যায়নি।");
+      })
+      .finally(() => {
+        if (active) setDashboardLoading(false);
+      });
+    return () => { active = false; };
+  }, [setFeedback, view]);
+
+  async function exportDashboard() {
+    if (!dashboard) return;
+    try {
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
+        { Metric: "Total members", Value: dashboard.stats.totalMembers },
+        { Metric: "Generations", Value: dashboard.stats.generations },
+        { Metric: "Pending approvals", Value: dashboard.stats.pendingApprovals },
+        { Metric: "Upcoming events", Value: dashboard.stats.upcomingEvents },
+        { Metric: "Unread messages", Value: dashboard.stats.unreadMessages },
+        { Metric: "Unread channels", Value: dashboard.stats.unreadChannels },
+      ]), "Overview");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dashboard.approvals.map((item) => ({ Name: item.name, Relationship: item.relationship, Requested: item.createdAt }))), "Pending Approvals");
+      if (dashboard.qurbani) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([dashboard.qurbani]), "Qurbani");
+      if (dashboard.nextEvent) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([dashboard.nextEvent]), "Next Event");
+      XLSX.writeFile(workbook, `${dashboard.family.name_en.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-dashboard.xlsx`);
+      setFeedback("Dashboard XLSX সফলভাবে তৈরি হয়েছে।");
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Dashboard XLSX তৈরি হয়নি।");
+    }
+  }
+
+  const viewerName = dashboard?.viewer.name ?? "পরিবারের সদস্য";
+  const viewerFirstName = viewerName.split(/\s+/)[0] || viewerName;
+  const viewerRole = dashboard?.viewer.role.replaceAll("_", " ") ?? "Member";
+  const qurbaniProgress = dashboard?.qurbani?.targetShares
+    ? Math.min(100, (dashboard.qurbani.registeredShares / dashboard.qurbani.targetShares) * 100)
+    : 0;
+  const nextEventDays = dashboard?.nextEvent
+    ? Math.max(0, Math.ceil((new Date(dashboard.nextEvent.startAt).getTime() - dashboardNow) / 86400000))
+    : 0;
 
   return (
     <SidebarProvider defaultOpen>
@@ -231,7 +303,7 @@ export function FamilyDashboard({
             </div>
             <div className="min-w-0 group-data-[collapsible=icon]:hidden">
               <p className="truncate text-sm font-bold tracking-tight">Family Management</p>
-              <p className="truncate text-xs text-sidebar-foreground/60">শেখ মনছুফ পরিবার</p>
+              <p className="truncate text-xs text-sidebar-foreground/60">{dashboard?.family.name_bn ?? "Family workspace"}</p>
             </div>
           </div>
         </SidebarHeader>
@@ -253,7 +325,9 @@ export function FamilyDashboard({
                         <span>{item.label}</span>
                       </a>
                     </SidebarMenuButton>
-                    {item.badge ? <SidebarMenuBadge>{item.badge}</SidebarMenuBadge> : null}
+                    {item.id === "directory" && dashboard ? <SidebarMenuBadge>{numberBn.format(dashboard.stats.totalMembers)}</SidebarMenuBadge>
+                      : item.id === "members" && dashboard?.stats.pendingApprovals ? <SidebarMenuBadge>{numberBn.format(dashboard.stats.pendingApprovals)}</SidebarMenuBadge>
+                        : null}
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
@@ -273,11 +347,11 @@ export function FamilyDashboard({
           </SidebarMenu>
           <div className="mt-2 flex items-center gap-3 rounded-2xl border border-sidebar-border bg-sidebar-accent/60 p-2 group-data-[collapsible=icon]:justify-center">
             <Avatar className="size-9">
-              <AvatarFallback className="bg-primary text-xs font-bold text-primary-foreground">SA</AvatarFallback>
+              <AvatarFallback className="bg-primary text-xs font-bold text-primary-foreground">{initials(viewerName)}</AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-sm font-semibold">সাইফুল আহমেদ</p>
-              <p className="truncate text-xs text-sidebar-foreground/55">Family Admin</p>
+              <p className="truncate text-sm font-semibold">{viewerName}</p>
+              <p className="truncate text-xs capitalize text-sidebar-foreground/55">{viewerRole}</p>
             </div>
             <MoreHorizontal className="size-4 group-data-[collapsible=icon]:hidden" />
           </div>
@@ -324,16 +398,16 @@ export function FamilyDashboard({
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
                 <span className="size-2 rounded-full bg-emerald-500" />
-                বৃহস্পতিবার, ২৪ সেপ্টেম্বর
+                {dateBn.format(new Date(dashboardNow))}
               </div>
               <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
-                আসসালামু আলাইকুম, সাইফুল
+                আসসালামু আলাইকুম, {viewerFirstName}
               </h1>
               <p className="mt-1 text-muted-foreground">
                 পরিবারের আজকের গুরুত্বপূর্ণ আপডেটগুলো এক নজরে দেখুন।
               </p>
             </div>
-            <Button className="gap-2 self-start rounded-xl md:self-auto">
+            <Button className="gap-2 self-start rounded-xl md:self-auto" disabled={!dashboard || dashboardLoading} onClick={() => void exportDashboard()}>
               <Download className="size-4" />
               রিপোর্ট এক্সপোর্ট
             </Button>
@@ -343,10 +417,10 @@ export function FamilyDashboard({
 
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {[
-              { title: "মোট সদস্য", value: "৪৮", detail: "৫টি প্রজন্ম", icon: Users },
-              { title: "অনুমোদনের অপেক্ষায়", value: "৩", detail: "আজ ২টি নতুন", icon: UserCheck },
-              { title: "আসন্ন ইভেন্ট", value: "৪", detail: "পরবর্তী ৭ দিনে", icon: CalendarDays },
-              { title: "অপঠিত বার্তা", value: "১২", detail: "৩টি চ্যানেলে", icon: MessageCircle },
+              { title: "মোট সদস্য", value: dashboardLoading ? "…" : numberBn.format(dashboard?.stats.totalMembers ?? 0), detail: `${numberBn.format(dashboard?.stats.generations ?? 0)}টি প্রজন্ম`, icon: Users },
+              { title: "অনুমোদনের অপেক্ষায়", value: dashboardLoading ? "…" : numberBn.format(dashboard?.stats.pendingApprovals ?? 0), detail: `আজ ${numberBn.format(dashboard?.stats.pendingToday ?? 0)}টি নতুন`, icon: UserCheck },
+              { title: "আসন্ন ইভেন্ট", value: dashboardLoading ? "…" : numberBn.format(dashboard?.stats.upcomingEvents ?? 0), detail: `পরবর্তী ৭ দিনে ${numberBn.format(dashboard?.stats.eventsNextSevenDays ?? 0)}টি`, icon: CalendarDays },
+              { title: "অপঠিত বার্তা", value: dashboardLoading ? "…" : numberBn.format(dashboard?.stats.unreadMessages ?? 0), detail: `${numberBn.format(dashboard?.stats.unreadChannels ?? 0)}টি চ্যানেলে`, icon: MessageCircle },
             ].map((stat) => (
               <Card key={stat.title} className="rounded-2xl border-border/75 py-0 shadow-none">
                 <CardContent className="flex items-start justify-between p-5">
@@ -367,19 +441,19 @@ export function FamilyDashboard({
             <Card className="gap-0 overflow-hidden rounded-3xl border-border/75 py-0 shadow-none">
               <CardHeader className="flex-row items-center justify-between border-b bg-muted/20 p-5 md:p-6">
                 <div>
-                  <CardTitle className="text-xl">কোরবানি ২০২৭</CardTitle>
+                  <CardTitle className="text-xl">{dashboard?.qurbani ? `${dashboard.qurbani.title} ${numberBn.format(dashboard.qurbani.year)}` : "কোরবানি পরিকল্পনা"}</CardTitle>
                   <p className="mt-1 text-sm text-muted-foreground">রেজিস্ট্রেশন ও প্রস্তুতির সারসংক্ষেপ</p>
                 </div>
                 <Badge variant="secondary" className="rounded-full bg-amber-500/12 px-3 text-amber-700 dark:text-amber-300">
-                  প্রস্তুতি চলছে
+                  {dashboard?.qurbani?.status.replaceAll("_", " ") ?? "Campaign নেই"}
                 </Badge>
               </CardHeader>
               <CardContent className="space-y-6 p-5 md:p-6">
                 <div className="grid gap-3 sm:grid-cols-3">
                   {[
-                    ["নিবন্ধিত শেয়ার", "২৬ / ৩৫"],
-                    ["সংগৃহীত অর্থ", "৳ ৯,৮৭,৫০০"],
-                    ["বকেয়া", "৳ ২,১২,৫০০"],
+                    ["নিবন্ধিত শেয়ার", dashboard?.qurbani ? `${numberBn.format(dashboard.qurbani.registeredShares)} / ${numberBn.format(dashboard.qurbani.targetShares)}` : "০ / ০"],
+                    ["সংগৃহীত অর্থ", moneyBn.format(dashboard?.qurbani?.collected ?? 0)],
+                    ["বকেয়া", moneyBn.format(dashboard?.qurbani?.due ?? 0)],
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-2xl border bg-card p-4">
                       <p className="text-xs text-muted-foreground">{label}</p>
@@ -390,9 +464,9 @@ export function FamilyDashboard({
                 <div>
                   <div className="mb-2 flex items-center justify-between text-sm">
                     <span className="font-medium">শেয়ার পূরণের অগ্রগতি</span>
-                    <span className="font-semibold text-primary">৭৪%</span>
+                    <span className="font-semibold text-primary">{numberBn.format(Math.round(qurbaniProgress))}%</span>
                   </div>
-                  <Progress value={74} className="h-2.5" />
+                  <Progress value={qurbaniProgress} className="h-2.5" />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button className="rounded-xl" asChild>
@@ -411,29 +485,30 @@ export function FamilyDashboard({
                   <CardTitle className="text-xl">সদস্য অনুমোদন</CardTitle>
                   <p className="mt-1 text-sm text-muted-foreground">আপনার পরিবারের অপেক্ষমাণ আবেদন</p>
                 </div>
-                <Button variant="ghost" size="icon" className="rounded-xl">
-                  <ChevronRight className="size-5" />
-                </Button>
+                 <Button variant="ghost" size="icon" className="rounded-xl" asChild>
+                   <a href="/members" aria-label="সব member request দেখুন"><ChevronRight className="size-5" /></a>
+                 </Button>
               </CardHeader>
               <CardContent className="space-y-1 p-3 pt-1 md:px-4 md:pb-4">
-                {approvals.map((person) => (
+                 {dashboard?.approvals.map((person) => (
                   <button
                     type="button"
-                    key={person.name}
+                    key={person.id}
                     className="flex w-full items-center gap-3 rounded-2xl p-3 text-left transition hover:bg-muted/70"
                   >
                     <Avatar className="size-10">
                       <AvatarFallback className="bg-primary/10 text-sm font-bold text-primary">
-                        {person.initials}
+                         {initials(person.name)}
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold">{person.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">{person.relation}</p>
+                       <p className="truncate text-xs text-muted-foreground">{person.relationship}</p>
                     </div>
-                    <span className="text-[11px] text-muted-foreground">{person.time}</span>
+                     <span className="text-[11px] text-muted-foreground">{relativeTime(person.createdAt, dashboardNow)}</span>
                   </button>
-                ))}
+                 ))}
+                 {!dashboardLoading && !dashboard?.approvals.length ? <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">কোনো pending member request নেই।</div> : null}
               </CardContent>
             </Card>
           </section>
@@ -445,22 +520,22 @@ export function FamilyDashboard({
                   <CardTitle className="text-xl">পরবর্তী পারিবারিক আয়োজন</CardTitle>
                   <p className="mt-1 text-sm text-muted-foreground">সবার জন্য উন্মুক্ত</p>
                 </div>
-                <Badge variant="outline" className="rounded-full">১২ দিন বাকি</Badge>
+                 <Badge variant="outline" className="rounded-full">{dashboard?.nextEvent ? `${numberBn.format(nextEventDays)} দিন বাকি` : "Event নেই"}</Badge>
               </CardHeader>
               <CardContent className="px-5 pb-6 md:px-6">
                 <div className="flex flex-col gap-5 rounded-2xl bg-primary px-5 py-6 text-primary-foreground sm:flex-row sm:items-center">
                   <div className="grid size-16 shrink-0 place-items-center rounded-2xl bg-white/12 text-center">
-                    <span className="text-xs font-semibold uppercase tracking-widest">Oct</span>
-                    <span className="-mt-2 text-2xl font-bold">০৬</span>
+                    <span className="text-center text-xs font-semibold uppercase tracking-widest">{dashboard?.nextEvent ? eventDateBn.format(new Date(dashboard.nextEvent.startAt)).split(" ")[1] : "—"}</span>
+                    <span className="-mt-2 text-2xl font-bold">{dashboard?.nextEvent ? eventDateBn.format(new Date(dashboard.nextEvent.startAt)).split(" ")[0] : "—"}</span>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-lg font-bold">বার্ষিক পারিবারিক মিলনমেলা ২০২৬</p>
+                     <p className="text-lg font-bold">{dashboard?.nextEvent?.title ?? "কোনো upcoming event নেই"}</p>
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm text-primary-foreground/75">
-                      <span className="flex items-center gap-1.5"><MapPin className="size-4" /> পূর্বাচল, ঢাকা</span>
-                      <span className="flex items-center gap-1.5"><Users className="size-4" /> ৩৬ জন যাচ্ছেন</span>
+                       <span className="flex items-center gap-1.5"><MapPin className="size-4" /> {dashboard?.nextEvent ? [dashboard.nextEvent.venue, dashboard.nextEvent.city].filter(Boolean).join(", ") : "স্থান নির্ধারিত নয়"}</span>
+                       <span className="flex items-center gap-1.5"><Users className="size-4" /> {numberBn.format(dashboard?.nextEvent?.goingCount ?? 0)} জন যাচ্ছেন</span>
                     </div>
                   </div>
-                  <Button variant="secondary" className="rounded-xl">বিস্তারিত দেখুন</Button>
+                   <Button variant="secondary" className="rounded-xl" asChild><a href="/events">বিস্তারিত দেখুন</a></Button>
                 </div>
               </CardContent>
             </Card>
@@ -475,13 +550,13 @@ export function FamilyDashboard({
                     <ShieldCheck className="size-5" />
                   </span>
                   <div>
-                    <p className="text-sm font-semibold">Tenant isolation সক্রিয়</p>
-                    <p className="text-xs text-muted-foreground">শেখ মনছুফ পরিবারের ডেটা সুরক্ষিত</p>
+                     <p className="text-sm font-semibold">Family-scoped access সক্রিয়</p>
+                     <p className="text-xs text-muted-foreground">{dashboard?.family.name_bn ?? "Family"} workspace অনুযায়ী API data filter করা হচ্ছে</p>
                   </div>
                 </div>
                 <div className="rounded-2xl border p-4">
                   <p className="text-xs text-muted-foreground">সর্বশেষ সিকিউরিটি যাচাই</p>
-                  <p className="mt-1 text-sm font-semibold">আজ, সকাল ৯:৩০</p>
+                   <p className="mt-1 text-sm font-semibold">Live dashboard data verified</p>
                 </div>
               </CardContent>
             </Card>
