@@ -1,5 +1,7 @@
 "use client";
 
+import { useActionFeedback } from "@/components/action-modal-provider";
+
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ArrowDownRight,
@@ -72,7 +74,7 @@ export function WelfareCenter() {
   const [exporting, setExporting] = useState(false);
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [setupRequired, setSetupRequired] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useActionFeedback();
   const [kind, setKind] = useState<CreateKind | null>(null);
   const [form, setForm] = useState<FormState>({});
   const [uploadOpen, setUploadOpen] = useState(false);

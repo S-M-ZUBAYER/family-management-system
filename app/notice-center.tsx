@@ -1,5 +1,7 @@
 "use client";
 
+import { useActionFeedback } from "@/components/action-modal-provider";
+
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Archive,
@@ -140,7 +142,7 @@ export function NoticeCenter() {
   const [setupRequired, setSetupRequired] = useState(false);
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [canManage, setCanManage] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useActionFeedback();
   const [form, setForm] = useState<NoticeForm>(emptyForm);
 
   const loadNotices = useCallback(async () => {

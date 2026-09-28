@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ActionModalProvider } from "@/components/action-modal-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -20,7 +21,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="bn" suppressHydrationWarning>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <ActionModalProvider>{children}</ActionModalProvider>
+      </body>
     </html>
   );
 }

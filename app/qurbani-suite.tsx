@@ -1,5 +1,7 @@
 "use client";
 
+import { useActionFeedback } from "@/components/action-modal-provider";
+
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   CalendarDays,
@@ -165,7 +167,7 @@ export function QurbaniSuite() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useActionFeedback();
   const [campaignOpen, setCampaignOpen] = useState(false);
   const [recordKind, setRecordKind] = useState<QurbaniRecordKind | null>(null);
   const [recordForm, setRecordForm] = useState<FormState>({});

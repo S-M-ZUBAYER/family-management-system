@@ -1,5 +1,7 @@
 "use client";
 
+import { useActionFeedback } from "@/components/action-modal-provider";
+
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Archive, BookOpenText, Building2, CalendarClock, Camera, CheckCircle2, Download, FileArchive, FileLock2, FileText, FolderHeart, Hourglass, Image as ImageIcon, Landmark, LoaderCircle, LockKeyhole, MoreHorizontal, PackageOpen, Plus, ScrollText, ShieldCheck, Timer, Upload, Users, X } from "lucide-react";
 
@@ -49,7 +51,7 @@ export function ArchiveCenter() {
   const [exporting, setExporting] = useState(false);
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [setupRequired, setSetupRequired] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useActionFeedback();
   const [kind, setKind] = useState<Kind | null>(null);
   const [form, setForm] = useState<Form>({});
   const [uploadMode, setUploadMode] = useState<"memory" | "vault" | null>(null);

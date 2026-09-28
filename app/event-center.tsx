@@ -1,5 +1,7 @@
 "use client";
 
+import { useActionFeedback } from "@/components/action-modal-provider";
+
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   CalendarDays,
@@ -200,7 +202,7 @@ export function EventCenter() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("upcoming");
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useActionFeedback();
   const [form, setForm] = useState<EventForm>(emptyForm);
   const [guestCount, setGuestCount] = useState("0");
   const [rsvpNote, setRsvpNote] = useState("");

@@ -1,5 +1,7 @@
 "use client";
 
+import { useActionFeedback } from "@/components/action-modal-provider";
+
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Activity,
@@ -153,7 +155,7 @@ export function HealthCenter() {
   const [exporting, setExporting] = useState(false);
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [setupRequired, setSetupRequired] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useActionFeedback();
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileForm, setProfileForm] = useState<FormState>({});
   const [donorAvailable, setDonorAvailable] = useState(false);

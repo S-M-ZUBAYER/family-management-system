@@ -1,5 +1,7 @@
 "use client";
 
+import { useActionFeedback } from "@/components/action-modal-provider";
+
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { BadgeCheck, CalendarClock, CheckCircle2, CircleDollarSign, ClipboardCheck, Download, FileText, Home, HousePlus, ListChecks, LoaderCircle, MoreHorizontal, Phone, Plus, ReceiptText, Settings2, ShieldCheck, ShoppingBasket, Star, Upload, Users, Wrench, X, Zap } from "lucide-react";
 
@@ -53,7 +55,7 @@ export function HouseholdCenter() {
   const [exporting, setExporting] = useState(false);
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [setupRequired, setSetupRequired] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useActionFeedback();
   const [kind, setKind] = useState<Kind | null>(null);
   const [form, setForm] = useState<Form>({});
   const [uploadOpen, setUploadOpen] = useState(false);

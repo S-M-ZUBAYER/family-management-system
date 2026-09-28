@@ -1,5 +1,7 @@
 "use client";
 
+import { useActionFeedback } from "@/components/action-modal-provider";
+
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Archive, BarChart3, Check, CheckCircle2, Clock3, Download, FileCheck2, Gavel, Info, LoaderCircle, LockKeyhole, MessageSquareText, MoreHorizontal, Plus, Send, ShieldCheck, Sparkles, ThumbsUp, Users, Vote, XCircle } from "lucide-react";
 
@@ -47,7 +49,7 @@ export function GovernanceCenter() {
   const [exporting, setExporting] = useState(false);
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [setupRequired, setSetupRequired] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useActionFeedback();
   const [pollOpen, setPollOpen] = useState(false);
   const [pollForm, setPollForm] = useState<Form>(pollInitial);
   const [decisionOpen, setDecisionOpen] = useState(false);

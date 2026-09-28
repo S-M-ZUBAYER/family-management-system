@@ -1,5 +1,7 @@
 "use client";
 
+import { useActionFeedback } from "@/components/action-modal-provider";
+
 import { useEffect, useMemo, useState } from "react";
 import {
   Check,
@@ -91,7 +93,7 @@ export function MemberApprovals() {
   const [selected, setSelected] = useState<Applicant | null>(null);
   const [dataSource, setDataSource] = useState<DataSource>("loading");
   const [reviewing, setReviewing] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useActionFeedback();
 
   const visibleApplicants = useMemo(
     () =>

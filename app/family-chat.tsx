@@ -1,5 +1,7 @@
 "use client";
 
+import { useActionFeedback } from "@/components/action-modal-provider";
+
 import {
   useCallback,
   useEffect,
@@ -185,7 +187,7 @@ export function FamilyChat() {
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [setupRequired, setSetupRequired] = useState(false);
   const [canManage, setCanManage] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useActionFeedback();
   const [query, setQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<"all" | "group" | "direct">("all");
   const [draft, setDraft] = useState("");
