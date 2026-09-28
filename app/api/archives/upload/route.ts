@@ -14,10 +14,10 @@ const visibility = (value: FormDataEntryValue | null) => value === "admins" || v
 const tags = (value: FormDataEntryValue | null) => typeof value === "string" ? value.split(",").map((item) => item.trim()).filter(Boolean).slice(0, 30).map((item) => item.slice(0, 80)) : [];
 
 export async function POST(request: Request) {
-  let uploadedKey: string | null = null, entityTable: string | null = null, entityId: string | null = null;
+  let uploadedKey: string | null = null, entityTable: string | null = null, entityId: string | null = null, rollbackFamilyId: string | null = null;
   try {
     const user = await getChatGPTUser(); if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
-    const membership = await getActiveFamilyMembership(user.userId); if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
+    const membership = await getActiveFamilyMembership(user.userId); if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 }); rollbackFamilyId = membership.family_id;
     const canManage = canManageArchives(membership.role), bucket = (env as RuntimeEnv).BUCKET; if (!bucket) return Response.json({ error: "Private archive storage configured নয়।" }, { status: 503 });
     const form = await request.formData(), file = form.get("file"), mode = form.get("mode"); if (!(file instanceof File) || (mode !== "memory" && mode !== "vault")) return Response.json({ error: "Valid file ও upload mode প্রয়োজন।" }, { status: 400 });
     const allowed = mode === "memory" ? allowedMemory : allowedVault, limit = mode === "memory" ? 30 * 1024 * 1024 : 20 * 1024 * 1024;
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: `archive_${mode}_uploaded`, entity_type: entityTable, entity_id: entityId, metadata: { file_id: archiveFile.id, visibility: itemVisibility } }) });
     return Response.json({ file: archiveFile, entityId }, { status: 201 });
   } catch (error) {
-    if (entityTable && entityId) { const filter = new URLSearchParams({ id: `eq.${entityId}` }); await supabaseRest(`${entityTable}?${filter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }).catch(() => undefined); }
+    if (entityTable && entityId && rollbackFamilyId) { const filter = new URLSearchParams({ id: `eq.${entityId}`, family_id: `eq.${rollbackFamilyId}` }); await supabaseRest(`${entityTable}?${filter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }).catch(() => undefined); }
     if (uploadedKey) await (env as RuntimeEnv).BUCKET?.delete(uploadedKey).catch(() => undefined);
     return archiveErrorResponse(error, "Unable to upload archive file");
   }

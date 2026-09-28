@@ -222,11 +222,13 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   let createdChannelId: string | null = null;
+  let rollbackFamilyId: string | null = null;
   try {
     const user = await getChatGPTUser();
     if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
     const membership = await getActiveFamilyMembership(user.userId);
     if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
+    rollbackFamilyId = membership.family_id;
     const body = (await request.json()) as Record<string, unknown>;
     const action = textValue(body.action, 40);
 
@@ -406,7 +408,7 @@ export async function POST(request: Request) {
       });
       const existing = (await supabaseRest<Array<{ id: string }>>(`chat_message_reactions?${reactionQuery}`))[0];
       if (existing) {
-        await supabaseRest(`chat_message_reactions?id=eq.${existing.id}`, {
+        await supabaseRest(`chat_message_reactions?id=eq.${existing.id}&family_id=eq.${membership.family_id}`, {
           method: "DELETE",
           headers: { Prefer: "return=minimal" },
         });
@@ -468,7 +470,7 @@ export async function POST(request: Request) {
       });
       const existing = (await supabaseRest<Array<{ id: string }>>(`chat_channel_members?${memberQuery}`))[0];
       if (existing) {
-        await supabaseRest(`chat_channel_members?id=eq.${existing.id}`, {
+        await supabaseRest(`chat_channel_members?id=eq.${existing.id}&family_id=eq.${membership.family_id}`, {
           method: "PATCH",
           headers: { Prefer: "return=minimal" },
           body: JSON.stringify({ notification_level: level, updated_at: new Date().toISOString() }),
@@ -491,9 +493,9 @@ export async function POST(request: Request) {
 
     return Response.json({ error: "Unsupported chat action." }, { status: 400 });
   } catch (error) {
-    if (createdChannelId) {
+    if (createdChannelId && rollbackFamilyId) {
       try {
-        await supabaseRest(`chat_channels?id=eq.${createdChannelId}`, {
+        await supabaseRest(`chat_channels?id=eq.${createdChannelId}&family_id=eq.${rollbackFamilyId}`, {
           method: "DELETE",
           headers: { Prefer: "return=minimal" },
         });

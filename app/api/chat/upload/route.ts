@@ -45,6 +45,7 @@ function uuidValue(value: FormDataEntryValue | null) {
 }
 
 export async function POST(request: Request) {
+  let rollbackFamilyId: string | null = null;
   let uploadedKey: string | null = null;
   let createdMessageId: string | null = null;
   try {
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
     if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
     const membership = await getActiveFamilyMembership(user.userId);
     if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
+    rollbackFamilyId = membership.family_id;
     const bucket = (env as RuntimeEnv).BUCKET;
     if (!bucket) return Response.json({ error: "Private file storage configured নয়।" }, { status: 503 });
 
@@ -133,8 +135,8 @@ export async function POST(request: Request) {
     return Response.json({ message: { ...message, is_mine: true }, attachment }, { status: 201 });
   } catch (error) {
     if (uploadedKey) await (env as RuntimeEnv).BUCKET?.delete(uploadedKey).catch(() => undefined);
-    if (createdMessageId) {
-      await supabaseRest(`chat_messages?id=eq.${createdMessageId}`, {
+    if (createdMessageId && rollbackFamilyId) {
+      await supabaseRest(`chat_messages?id=eq.${createdMessageId}&family_id=eq.${rollbackFamilyId}`, {
         method: "DELETE",
         headers: { Prefer: "return=minimal" },
       }).catch(() => undefined);
