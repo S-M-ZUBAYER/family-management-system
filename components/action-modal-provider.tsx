@@ -16,6 +16,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { useLocale, type AppLocale } from "@/components/locale-provider";
 import {
   Dialog,
   DialogClose,
@@ -88,6 +89,50 @@ const actionLabels: Record<string, string> = {
   respond_sos: "SOS response পাঠানো",
   update_sos: "SOS status পরিবর্তন",
   update_membership: "member role ও access পরিবর্তন",
+  update_locale: "ভাষার পছন্দ পরিবর্তন",
+};
+
+const actionLabelsEn: Record<string, string> = {
+  create_collection: "create an archive collection",
+  create_story: "save a family story",
+  create_asset: "save an asset record",
+  create_capsule: "create a time capsule",
+  create_channel: "create a chat channel",
+  create_message: "send a message",
+  send_message: "send a message",
+  toggle_reaction: "change a reaction",
+  update_notification: "change notification settings",
+  update_status: "change the status",
+  update_profile: "update a member profile",
+  create_relationship: "add a family relationship",
+  delete_relationship: "remove a family relationship",
+  create_proposal: "submit a proposal",
+  review_proposal: "review a proposal",
+  cast_vote: "submit a vote",
+  add_comment: "publish a comment",
+  create_decision: "save a formal decision",
+  create_household: "create a household",
+  create_item: "add a shopping item",
+  create_bill: "add a bill",
+  create_task: "add a household task",
+  create_maintenance: "add a maintenance record",
+  create_service: "add a service contact",
+  create_fund: "create a welfare fund",
+  create_contribution: "save a contribution",
+  create_pledge: "save a pledge",
+  create_request: "submit an assistance request",
+  review_request: "review an assistance request",
+  create_expense: "save an expense",
+  create_profile: "save a health profile",
+  save_profile: "save a health profile",
+  create_medication: "add a medicine",
+  create_appointment: "add an appointment",
+  create_measurement: "add a health measurement",
+  create_sos: "send a family SOS",
+  respond_sos: "respond to an SOS",
+  update_sos: "change the SOS status",
+  update_membership: "change member role and access",
+  update_locale: "change the language preference",
 };
 
 const destructiveWords = [
@@ -112,26 +157,23 @@ function parseBody(body: BodyInit | null | undefined) {
   }
 }
 
-function endpointLabel(pathname: string) {
-  if (pathname.includes("member-requests")) return "member approval";
-  if (pathname.includes("members")) return "member profile";
-  if (pathname.includes("notices")) return "notice";
-  if (pathname.includes("events")) return "event বা RSVP";
-  if (pathname.includes("qurbani")) return "Qurbani record";
-  if (pathname.includes("finance")) return "finance record";
-  if (pathname.includes("health")) return "health record";
-  if (pathname.includes("welfare")) return "welfare record";
-  if (pathname.includes("household")) return "household record";
-  if (pathname.includes("archives")) return "archive record";
-  if (pathname.includes("governance")) return "governance record";
-  if (pathname.includes("workspace")) return "family theme";
-  if (pathname.includes("admin")) return "admin setting";
-  if (pathname.includes("chat")) return "chat action";
-  if (pathname.includes("setup/family")) return "family workspace";
-  return "record";
+function endpointLabel(pathname: string, locale: AppLocale) {
+  const labels: Array<[string, string, string]> = [
+    ["member-requests", "সদস্য অনুমোদন", "member approval"],
+    ["members", "সদস্য প্রোফাইল", "member profile"],
+    ["notices", "নোটিশ", "notice"], ["events", "ইভেন্ট বা RSVP", "event or RSVP"],
+    ["qurbani", "কোরবানি রেকর্ড", "Qurbani record"], ["finance", "হিসাবের রেকর্ড", "finance record"],
+    ["health", "স্বাস্থ্য রেকর্ড", "health record"], ["welfare", "কল্যাণ তহবিলের রেকর্ড", "welfare record"],
+    ["household", "বাসা ব্যবস্থাপনার রেকর্ড", "household record"], ["archives", "আর্কাইভ রেকর্ড", "archive record"],
+    ["governance", "ভোট বা সিদ্ধান্তের রেকর্ড", "governance record"], ["workspace", "পরিবারের preference", "family preference"],
+    ["admin", "অ্যাডমিন সেটিং", "admin setting"], ["chat", "চ্যাট action", "chat action"],
+    ["setup/family", "ফ্যামিলি workspace", "family workspace"],
+  ];
+  const match = labels.find(([part]) => pathname.includes(part));
+  return match ? (locale === "bn" ? match[1] : match[2]) : (locale === "bn" ? "রেকর্ড" : "record");
 }
 
-function actionCopy(pathname: string, method: string, body: Record<string, unknown>): ActionCopy | null {
+function actionCopy(pathname: string, method: string, body: Record<string, unknown>, locale: AppLocale): ActionCopy | null {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method) || !pathname.startsWith("/api/")) return null;
 
   const action = typeof body.action === "string" ? body.action : "";
@@ -142,14 +184,14 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
   const status = typeof body.status === "string" ? body.status : typeof nested.status === "string" ? nested.status : "";
   const intent = [action, decision, status, method].join(" ").toLowerCase();
   const destructive = destructiveWords.some((word) => intent.includes(word)) || method === "DELETE";
-  const label = actionLabels[action] ?? endpointLabel(pathname);
+  const label = (locale === "bn" ? actionLabels[action] : actionLabelsEn[action]) ?? endpointLabel(pathname, locale);
 
   return {
-    title: destructive ? "গুরুত্বপূর্ণ action নিশ্চিত করুন" : "Action নিশ্চিত করুন",
-    description: `আপনি কি নিশ্চিতভাবে ${label} করতে চান? নিশ্চিত করার পর পরিবর্তনটি database-এ সংরক্ষিত হবে।`,
-    confirmLabel: destructive ? "হ্যাঁ, নিশ্চিত করুন" : "Confirm ও continue",
+    title: locale === "bn" ? (destructive ? "গুরুত্বপূর্ণ action নিশ্চিত করুন" : "Action নিশ্চিত করুন") : (destructive ? "Confirm important action" : "Confirm action"),
+    description: locale === "bn" ? `আপনি কি নিশ্চিতভাবে ${label} করতে চান? নিশ্চিত করার পর পরিবর্তনটি database-এ সংরক্ষিত হবে।` : `Are you sure you want to ${label}? The change will be saved after confirmation.`,
+    confirmLabel: locale === "bn" ? (destructive ? "হ্যাঁ, নিশ্চিত করুন" : "নিশ্চিত করে এগিয়ে যান") : (destructive ? "Yes, confirm" : "Confirm and continue"),
     destructive,
-    successMessage: `${label.charAt(0).toUpperCase()}${label.slice(1)} সফলভাবে সম্পন্ন হয়েছে।`,
+    successMessage: locale === "bn" ? `${label} সফলভাবে সম্পন্ন হয়েছে।` : `${label.charAt(0).toUpperCase()}${label.slice(1)} completed successfully.`,
   };
 }
 
@@ -165,7 +207,7 @@ async function responseMessage(response: Response, fallback: string) {
   return fallback;
 }
 
-function feedbackResult(message: string): ResultState {
+function feedbackResult(message: string, locale: AppLocale): ResultState {
   const normalized = message.toLowerCase();
   const failed = ["হয়নি", "যায়নি", "পাওয়া যায়নি", "error", "failed", "invalid", "required", "denied", "unable", "cannot"]
     .some((word) => normalized.includes(word));
@@ -174,23 +216,25 @@ function feedbackResult(message: string): ResultState {
   const successful = ["হয়েছে", "সংরক্ষিত", "যোগ হয়েছে", "তৈরি হয়েছে", "সম্পন্ন", "success"]
     .some((word) => normalized.includes(word));
 
-  if (failed) return { kind: "error", title: "Action সম্পন্ন হয়নি", message };
-  if (informational) return { kind: "info", title: "পরবর্তী ধাপ প্রয়োজন", message };
-  if (successful) return { kind: "success", title: "সফল হয়েছে", message };
-  return { kind: "info", title: "গুরুত্বপূর্ণ তথ্য", message };
+  if (failed) return { kind: "error", title: locale === "bn" ? "Action সম্পন্ন হয়নি" : "Action not completed", message };
+  if (informational) return { kind: "info", title: locale === "bn" ? "পরবর্তী ধাপ প্রয়োজন" : "Next step required", message };
+  if (successful) return { kind: "success", title: locale === "bn" ? "সফল হয়েছে" : "Completed successfully", message };
+  return { kind: "info", title: locale === "bn" ? "গুরুত্বপূর্ণ তথ্য" : "Important information", message };
 }
 
 export function useActionFeedback(): [string | null, Dispatch<SetStateAction<string | null>>] {
+  const { locale } = useLocale();
   const setFeedback = useCallback<Dispatch<SetStateAction<string | null>>>((value) => {
     const message = typeof value === "function" ? value(null) : value;
     if (!message || typeof window === "undefined") return;
-    window.dispatchEvent(new CustomEvent<ResultState>(feedbackEvent, { detail: feedbackResult(message) }));
-  }, []);
+    window.dispatchEvent(new CustomEvent<ResultState>(feedbackEvent, { detail: feedbackResult(message, locale) }));
+  }, [locale]);
 
   return [null, setFeedback];
 }
 
 export function ActionModalProvider({ children }: { children: React.ReactNode }) {
+  const { locale } = useLocale();
   const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
   const [result, setResult] = useState<ResultState | null>(null);
   const mounted = useRef(true);
@@ -214,14 +258,14 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
       const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
       const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       const url = new URL(rawUrl, window.location.origin);
-      const copy = url.origin === window.location.origin ? actionCopy(url.pathname, method, parseBody(init?.body)) : null;
+      const copy = url.origin === window.location.origin ? actionCopy(url.pathname, method, parseBody(init?.body), locale) : null;
 
       if (!copy) return originalFetch(input, init);
 
       const confirmed = await requestConfirmation(copy);
       if (!confirmed) {
-        if (mounted.current) setResult({ kind: "info", title: "Action বাতিল হয়েছে", message: "কোনো পরিবর্তন সংরক্ষণ করা হয়নি।" });
-        return new Response(JSON.stringify({ error: "Action বাতিল হয়েছে।" }), {
+        if (mounted.current) setResult({ kind: "info", title: locale === "bn" ? "Action বাতিল হয়েছে" : "Action cancelled", message: locale === "bn" ? "কোনো পরিবর্তন সংরক্ষণ করা হয়নি।" : "No changes were saved." });
+        return new Response(JSON.stringify({ error: locale === "bn" ? "Action বাতিল হয়েছে।" : "Action cancelled." }), {
           status: 499,
           headers: { "Content-Type": "application/json" },
         });
@@ -230,10 +274,10 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
       try {
         const response = await originalFetch(input, init);
         if (mounted.current) {
-          const message = await responseMessage(response, response.ok ? copy.successMessage : "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।");
+          const message = await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."));
           setResult({
             kind: response.ok ? "success" : "error",
-            title: response.ok ? "সফল হয়েছে" : "Action ব্যর্থ হয়েছে",
+            title: response.ok ? (locale === "bn" ? "সফল হয়েছে" : "Completed successfully") : (locale === "bn" ? "Action ব্যর্থ হয়েছে" : "Action failed"),
             message,
           });
         }
@@ -242,8 +286,8 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
         if (mounted.current) {
           setResult({
             kind: "error",
-            title: "সংযোগজনিত error",
-            message: error instanceof Error ? error.message : "Server-এর সাথে যোগাযোগ করা যায়নি। আবার চেষ্টা করুন।",
+            title: locale === "bn" ? "সংযোগজনিত error" : "Connection error",
+            message: error instanceof Error ? error.message : (locale === "bn" ? "Server-এর সাথে যোগাযোগ করা যায়নি। আবার চেষ্টা করুন।" : "Could not contact the server. Please try again."),
           });
         }
         throw error;
@@ -258,7 +302,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
         return null;
       });
     };
-  }, [requestConfirmation]);
+  }, [locale, requestConfirmation]);
 
   useEffect(() => {
     const handleFeedback = (event: Event) => setResult((event as CustomEvent<ResultState>).detail);
@@ -285,7 +329,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
               variant="ghost"
               size="icon-sm"
               className="absolute right-4 top-4 rounded-full"
-              aria-label="Close confirmation"
+              aria-label={locale === "bn" ? "নিশ্চিতকরণ বন্ধ করুন" : "Close confirmation"}
               onClick={() => settleConfirmation(false)}
             >
               <X className="size-4" />
@@ -299,7 +343,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
             <AlertDialogDescription className="leading-6">{confirmation?.description}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => settleConfirmation(false)}>না, ফিরে যান</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => settleConfirmation(false)}>{locale === "bn" ? "না, ফিরে যান" : "No, go back"}</AlertDialogCancel>
             <AlertDialogAction
               variant={confirmation?.destructive ? "destructive" : "default"}
               onClick={() => settleConfirmation(true)}
@@ -321,7 +365,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
           </DialogHeader>
           <DialogFooter className="sm:justify-center">
             <DialogClose asChild>
-              <Button className="min-w-32 rounded-xl">বন্ধ করুন</Button>
+              <Button className="min-w-32 rounded-xl">{locale === "bn" ? "বন্ধ করুন" : "Close"}</Button>
             </DialogClose>
           </DialogFooter>
         </DialogContent>

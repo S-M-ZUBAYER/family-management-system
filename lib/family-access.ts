@@ -3,14 +3,16 @@ import { supabaseRest } from "./supabase-rest";
 export type FamilyRole = "owner" | "family_admin" | "manager" | "member";
 
 export type ActiveFamilyMembership = {
+  id: string;
   family_id: string;
   role: FamilyRole;
   status: "active";
+  preferred_locale: "bn" | "en";
 };
 
 export async function getActiveFamilyMembership(authUserId: string) {
   const query = new URLSearchParams({
-    select: "family_id,role,status",
+    select: "id,family_id,role,status,preferred_locale",
     auth_user_id: `eq.${authUserId}`,
     status: "eq.active",
     order: "created_at.asc",

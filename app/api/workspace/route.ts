@@ -41,7 +41,11 @@ export async function GET() {
     })}`);
     const payload: WorkspacePayload = {
       family,
-      viewer: { name: profile?.name_bn || profile?.name_en || user.displayName, role: membership.role },
+      viewer: {
+        name: profile?.name_bn || profile?.name_en || user.displayName,
+        role: membership.role,
+        preferredLocale: membership.preferred_locale,
+      },
       permissions: { canManageTheme: canReviewMembers(membership.role) },
     };
     return Response.json(payload);
@@ -55,11 +59,35 @@ export async function PATCH(request: Request) {
     const current = await context();
     if (current.response) return current.response;
     const { user, membership } = current;
+    const body = await request.json() as { theme?: unknown; preferredLocale?: unknown };
+    const preferredLocale = typeof body.preferredLocale === "string" ? body.preferredLocale : "";
+    if (preferredLocale) {
+      if (!(["bn", "en"] as const).includes(preferredLocale as "bn" | "en")) {
+        return Response.json({ error: "Language selection is invalid." }, { status: 400 });
+      }
+      const [updated] = await supabaseRest<Array<{ preferred_locale: "bn" | "en" }>>(
+        `family_memberships?${new URLSearchParams({
+          id: `eq.${membership.id}`,
+          family_id: `eq.${membership.family_id}`,
+          auth_user_id: `eq.${user.userId}`,
+        })}`,
+        {
+          method: "PATCH",
+          headers: { Prefer: "return=representation" },
+          body: JSON.stringify({ preferred_locale: preferredLocale, updated_at: new Date().toISOString() }),
+        },
+      );
+      if (!updated) return Response.json({ error: "Language preference could not be saved." }, { status: 404 });
+      return Response.json({
+        preferredLocale: updated.preferred_locale,
+        message: updated.preferred_locale === "bn" ? "ভাষার পছন্দ সংরক্ষিত হয়েছে।" : "Language preference saved.",
+      });
+    }
+
     if (!canReviewMembers(membership.role)) {
       return Response.json({ error: "শুধু Owner বা Family Admin theme পরিবর্তন করতে পারবেন।" }, { status: 403 });
     }
 
-    const body = await request.json() as { theme?: unknown };
     const theme = typeof body.theme === "string" ? body.theme : "";
     if (!themes.includes(theme as FamilyTheme)) {
       return Response.json({ error: "Theme selection সঠিক নয়।" }, { status: 400 });

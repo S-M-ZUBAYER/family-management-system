@@ -63,6 +63,7 @@ import {
 } from "@/components/ui/sidebar";
 import { DashboardNoticeTicker } from "./notice-ticker";
 import { useActionFeedback } from "@/components/action-modal-provider";
+import { useLocale, type AppLocale } from "@/components/locale-provider";
 import type { DashboardPayload } from "@/lib/dashboard-types";
 import type { WorkspacePayload } from "@/lib/workspace-types";
 
@@ -163,25 +164,27 @@ function ThemeSelector({
   onChange,
   canManage,
   saving,
+  locale,
 }: {
   value: ThemeId;
   onChange: (theme: ThemeId) => void;
   canManage: boolean;
   saving: boolean;
+  locale: AppLocale;
 }) {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2 rounded-xl bg-card" disabled={!canManage || saving} title={canManage ? "Family theme পরিবর্তন করুন" : "শুধু Owner বা Family Admin theme পরিবর্তন করতে পারবেন"}>
+        <Button variant="outline" size="sm" className="gap-2 rounded-xl bg-card" disabled={!canManage || saving} title={canManage ? (locale === "bn" ? "পরিবারের থিম পরিবর্তন করুন" : "Change the family theme") : (locale === "bn" ? "শুধু Owner বা Family Admin থিম পরিবর্তন করতে পারবেন" : "Only the Owner or Family Admin can change the theme")}>
           <Palette className="size-4" />
-          <span className="hidden sm:inline">থিম</span>
+          <span className="hidden sm:inline">{locale === "bn" ? "থিম" : "Theme"}</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl rounded-3xl p-0">
         <DialogHeader className="border-b px-6 py-5 text-left">
-          <DialogTitle className="text-xl">পরিবারের রঙ নির্বাচন করুন</DialogTitle>
+          <DialogTitle className="text-xl">{locale === "bn" ? "পরিবারের রঙ নির্বাচন করুন" : "Choose the family colors"}</DialogTitle>
           <DialogDescription>
-            Family Admin-এর নির্বাচিত theme পুরো family workspace-এ ব্যবহার হবে।
+            {locale === "bn" ? "Family Admin-এর নির্বাচিত থিম পুরো family workspace-এ ব্যবহার হবে।" : "The theme selected by a Family Admin is used across the family workspace."}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 p-6 sm:grid-cols-2">
@@ -239,6 +242,7 @@ export function FamilyDashboard({
 }: {
   view?: "dashboard" | "directory" | "tree" | "members" | "notices" | "events" | "magazine" | "qurbani" | "finance" | "chat" | "health" | "welfare" | "household" | "archives" | "governance" | "admin";
 }) {
+  const { locale, setLocale } = useLocale();
   const [theme, setTheme] = useState<ThemeId>("heritage");
   const [dark, setDark] = useState(false);
   const [modePreference, setModePreference] = useState<"system" | "light" | "dark">("system");
@@ -247,7 +251,7 @@ export function FamilyDashboard({
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(view === "dashboard");
   const [themeSaving, setThemeSaving] = useState(false);
-  const [locale, setLocale] = useState<"bn" | "en">("bn");
+  const [localeSaving, setLocaleSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [dashboardNow, setDashboardNow] = useState<number | null>(null);
   const [setupRequired, setSetupRequired] = useState(false);
@@ -256,7 +260,6 @@ export function FamilyDashboard({
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("family-theme") as ThemeId | null;
     const savedMode = window.localStorage.getItem("family-mode");
-    const savedLocale = window.localStorage.getItem("family-locale");
     queueMicrotask(() => {
       if (savedTheme && themes.some((item) => item.id === savedTheme)) setTheme(savedTheme);
       if (savedMode === "dark" || savedMode === "light") {
@@ -265,7 +268,6 @@ export function FamilyDashboard({
       } else {
         setDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
       }
-      if (savedLocale === "en") setLocale("en");
       setDashboardNow(Date.now());
       setPreferencesReady(true);
     });
@@ -279,12 +281,6 @@ export function FamilyDashboard({
     if (modePreference === "system") window.localStorage.removeItem("family-mode");
     else window.localStorage.setItem("family-mode", modePreference);
   }, [theme, dark, modePreference, preferencesReady]);
-
-  useEffect(() => {
-    if (!preferencesReady) return;
-    document.documentElement.lang = locale;
-    window.localStorage.setItem("family-locale", locale);
-  }, [locale, preferencesReady]);
 
   useEffect(() => {
     if (modePreference !== "system") return;
@@ -309,6 +305,7 @@ export function FamilyDashboard({
         setSetupRequired(false);
         setDashboard(payload);
         setWorkspace({ family: payload.family, viewer: payload.viewer, permissions: { canManageTheme: ["owner", "family_admin"].includes(payload.viewer.role) } });
+        setLocale(payload.viewer.preferredLocale);
         setTheme(payload.family.theme);
       } catch (error) {
         if (active) setFeedback(error instanceof Error ? error.message : "Dashboard data পাওয়া যায়নি।");
@@ -317,7 +314,7 @@ export function FamilyDashboard({
       }
     })();
     return () => { active = false; };
-  }, [setFeedback, view]);
+  }, [setFeedback, setLocale, view]);
 
   async function changeFamilyTheme(nextTheme: ThemeId) {
     if (!workspace?.permissions.canManageTheme || nextTheme === theme) return;
@@ -338,6 +335,28 @@ export function FamilyDashboard({
       setFeedback(error instanceof Error ? error.message : "Theme update হয়নি।");
     } finally {
       setThemeSaving(false);
+    }
+  }
+
+  async function changeLocale(nextLocale: AppLocale) {
+    if (nextLocale === locale || localeSaving) return;
+    setLocaleSaving(true);
+    try {
+      const response = await fetch("/api/workspace", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update_locale", preferredLocale: nextLocale }),
+      });
+      const payload = await response.json() as { preferredLocale?: AppLocale; message?: string; error?: string };
+      if (!response.ok || !payload.preferredLocale) throw new Error(payload.error ?? "Language preference could not be saved.");
+      setLocale(payload.preferredLocale);
+      setWorkspace((current) => current ? { ...current, viewer: { ...current.viewer, preferredLocale: payload.preferredLocale! } } : current);
+      setDashboard((current) => current ? { ...current, viewer: { ...current.viewer, preferredLocale: payload.preferredLocale! } } : current);
+      setFeedback(payload.message ?? (payload.preferredLocale === "bn" ? "ভাষার পছন্দ সংরক্ষিত হয়েছে।" : "Language preference saved."));
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Language preference could not be saved.");
+    } finally {
+      setLocaleSaving(false);
     }
   }
 
@@ -462,7 +481,7 @@ export function FamilyDashboard({
             {searchResults.length ? <div className="absolute left-0 right-0 top-12 z-50 overflow-hidden rounded-2xl border bg-popover p-2 shadow-xl">{searchResults.map((item) => <a key={item.id} href={item.href} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-muted" onClick={() => setSearchQuery("")}><item.icon className="size-4 text-primary" /><span>{locale === "bn" ? item.label : item.english}</span></a>)}</div> : null}
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <ThemeSelector value={theme} onChange={(nextTheme) => void changeFamilyTheme(nextTheme)} canManage={workspace?.permissions.canManageTheme ?? false} saving={themeSaving} />
+            <ThemeSelector value={theme} onChange={(nextTheme) => void changeFamilyTheme(nextTheme)} canManage={workspace?.permissions.canManageTheme ?? false} saving={themeSaving} locale={locale} />
             <Button
               aria-label={dark ? "Use light mode" : "Use dark mode"}
               variant="outline"
@@ -475,7 +494,7 @@ export function FamilyDashboard({
             >
               {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </Button>
-            <Button variant="outline" size="sm" className="gap-2 rounded-xl bg-card" onClick={() => setLocale((current) => current === "bn" ? "en" : "bn")} aria-label={locale === "bn" ? "Switch to English" : "বাংলায় পরিবর্তন করুন"}>
+            <Button variant="outline" size="sm" className="gap-2 rounded-xl bg-card" disabled={localeSaving || !workspace} onClick={() => void changeLocale(locale === "bn" ? "en" : "bn")} aria-label={locale === "bn" ? "Switch to English" : "বাংলায় পরিবর্তন করুন"}>
               <Languages className="size-4" />
               <span className="hidden sm:inline">{locale === "bn" ? "EN" : "বাংলা"}</span>
             </Button>

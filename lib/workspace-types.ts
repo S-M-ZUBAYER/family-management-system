@@ -12,6 +12,7 @@ export type WorkspacePayload = {
   viewer: {
     name: string;
     role: FamilyRole;
+    preferredLocale: "bn" | "en";
   };
   permissions: {
     canManageTheme: boolean;

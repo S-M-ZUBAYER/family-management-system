@@ -125,6 +125,7 @@ export async function GET() {
       viewer: {
         name: profile?.name_bn || profile?.name_en || user.displayName,
         role: membership.role,
+        preferredLocale: membership.preferred_locale,
       },
       stats: {
         totalMembers: profiles.length,

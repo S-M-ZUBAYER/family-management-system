@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ActionModalProvider } from "@/components/action-modal-provider";
+import { LocaleProvider } from "@/components/locale-provider";
 import { PwaRegistration } from "@/components/pwa-registration";
 import "./globals.css";
 
@@ -29,10 +30,12 @@ export default function RootLayout({
   return (
     <html lang="bn" suppressHydrationWarning>
       <body className="antialiased">
-        <ActionModalProvider>
-          {children}
-          <PwaRegistration />
-        </ActionModalProvider>
+        <LocaleProvider>
+          <ActionModalProvider>
+            {children}
+            <PwaRegistration />
+          </ActionModalProvider>
+        </LocaleProvider>
       </body>
     </html>
   );

@@ -11,6 +11,7 @@ export type DashboardPayload = {
   viewer: {
     name: string;
     role: FamilyRole;
+    preferredLocale: "bn" | "en";
   };
   stats: {
     totalMembers: number;

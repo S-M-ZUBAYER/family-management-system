@@ -66,6 +66,8 @@ create table if not exists public.family_memberships (
   member_profile_id uuid references public.member_profiles(id) on delete set null,
   role text not null default 'member'
     check (role in ('owner', 'family_admin', 'manager', 'member')),
+  preferred_locale text not null default 'bn'
+    check (preferred_locale in ('bn', 'en')),
   status text not null default 'active'
     check (status in ('active', 'suspended', 'left')),
   created_at timestamptz not null default now(),

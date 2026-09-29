@@ -7,10 +7,11 @@ This file is the authoritative handoff for continuing the project from another C
 ## Immediate continuation status
 
 - Local Magazine and Family Tree relationship updates are implemented and committed.
+- A shared BN/EN locale provider, database-persisted per-user language preference, bilingual theme controls, and bilingual global confirmation/result modals are now implemented locally. This batch adds `supabase/migrations/20260929_user_locale_preference.sql`, which must be applied before deployment.
 - `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` were run again successfully after the latest continuation request.
 - The user applied all SQL files in `supabase/migrations` on 2026-09-29. A direct Supabase REST check for `public.family_magazine_articles` then returned HTTP `200`, confirming that the Magazine migration is ready.
 - The Codex/ChatGPT account used on 2026-09-29 could not access the existing Sites project ID (`Sites project not found`). The original owning account must either deploy the update or add the new account as an editor/collaborator; do not create a duplicate Site.
-- After migration confirmation, `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` all passed again. Deployment is blocked only by Sites project access.
+- After the locale-preference implementation, `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` all passed. Deployment is blocked by the new locale migration and Sites project access.
 - The stable production site remains version 30 at `https://family-management-system.hitht.chatgpt.site`.
 - The next account must run `git status --short` and `git log -1 --oneline` first; the working tree should be clean at handoff.
 
@@ -22,7 +23,7 @@ C:\Personal project\family-management-system
 
 First read C:\Personal project\family-management-system\PROJECT_HANDOFF.md completely. Then run git status --short and git log -1 --oneline, and inspect package.json, .env.example, .openai/hosting.json, supabase/schema.sql, and all migrations. Do not expose, print, copy, or commit .env.local or any Supabase secret. Preserve existing work and keep the deployed site owner-private/custom unless I explicitly ask to change sharing.
 
-The stable live site is currently version 30 at https://family-management-system.hitht.chatgpt.site. The latest local commit contains a verified Family Magazine module and improved family-tree relationship labels. A Supabase REST check confirmed that public.family_magazine_articles does not exist yet, so do not deploy until I confirm that supabase/migrations/20260928_family_magazine.sql has been run in Supabase SQL Editor. If I am signed in to Supabase and explicitly ask you to finish, you may use the signed-in dashboard to run that exact migration. After confirmation, run npm.cmd run lint, npm.cmd run security:audit, and npm.cmd run build; deploy to the existing Sites project appgprj_6ab4e57009088191814056c14e820221 while preserving owner-private/custom access; then smoke-test /magazine and /family-tree.
+The stable live site is currently version 30 at https://family-management-system.hitht.chatgpt.site. The latest local code contains a verified Family Magazine module, improved family-tree relationship labels, and the first system-wide bilingual foundation. The Magazine migration is applied. Before deployment, run supabase/migrations/20260929_user_locale_preference.sql in Supabase SQL Editor. Then run npm.cmd run lint, npm.cmd run security:audit, and npm.cmd run build; deploy to the existing Sites project appgprj_6ab4e57009088191814056c14e820221 while preserving owner-private/custom access; then smoke-test /magazine, /family-tree, language switching, preference persistence, and confirmation/result modals.
 
 Continue the remaining roadmap one module at a time. Every mutating action must show a confirmation modal first and a success/error/info modal afterward, with a close X/button. Every major management section must support XLSX export. Every API and database operation must preserve family_id tenant isolation. New membership must remain pending until that family's owner/family_admin approves it. Personal-finance data must remain private to its user. Keep audit logging and safe-delete/finalized-record restrictions.
 ```
@@ -190,8 +191,9 @@ Permission helper functions must be used rather than duplicating role logic ad h
 
 | Module | Page | Status |
 |---|---|---|
-| Digital Family Magazine | `/magazine` | Code and database migration complete; lint/audit/build passed; migration and deployment pending |
+| Digital Family Magazine | `/magazine` | Code and database migration complete; lint/audit/build passed; deployment pending |
 | Relationship-to-me labels | `/family-tree` | Code complete and verified locally; deployment pending |
+| Bilingual foundation | Global shell and modals | Shared locale context, persisted member preference, bilingual theme control and global action dialogs complete locally; new migration and deployment pending |
 
 ### Shared interaction behavior
 
@@ -255,7 +257,8 @@ Do not rerun destructive SQL. The scripts are designed around `create table if n
 9. `20260927_shared_household.sql`
 10. `20260927_family_archives_vault.sql`
 11. `20260927_family_governance.sql`
-12. `20260928_family_magazine.sql` — pending on the live Supabase project unless the user confirms otherwise
+12. `20260928_family_magazine.sql` — applied and verified on 2026-09-29
+13. `20260929_user_locale_preference.sql` — adds the per-member `preferred_locale`; must be applied before deploying the bilingual preference code
 
 ### Main table groups
 
@@ -309,13 +312,14 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 
 ### Priority 1 — publish the verified local batch
 
-1. Obtain access to the existing Sites project from the original owning account; do not create a duplicate deployment unless the user explicitly chooses a new URL/project.
-2. Deploy the next owner-private Sites version from the verified local commit.
-3. Smoke-test Magazine create/edit/publish/feature/comment/react/upload/export and Family Tree relationship labels.
+1. Run `20260929_user_locale_preference.sql` in the connected Supabase project.
+2. Obtain access to the existing Sites project from the original owning account; do not create a duplicate deployment unless the user explicitly chooses a new URL/project.
+3. Deploy the next owner-private Sites version from the verified local commit.
+4. Smoke-test Magazine, Family Tree relationship labels, language switching/persistence, and bilingual confirmation/result modals.
 
 ### Priority 2 — complete bilingual support
 
-- Build a system-wide BN/EN dictionary and translation helper.
+- Shared BN/EN locale context and per-user persistence are implemented; extend the shared approach through every module.
 - Replace mixed hard-coded Bangla/English text in all modules.
 - Translate validation, modal, empty-state, export headings, dates, currencies, and statuses.
 - Persist language preference in the user profile/database; current preference is primarily browser/local-storage based.
