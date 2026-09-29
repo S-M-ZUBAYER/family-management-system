@@ -7,11 +7,11 @@ This file is the authoritative handoff for continuing the project from another C
 ## Immediate continuation status
 
 - Local Magazine and Family Tree relationship updates are implemented and committed.
-- A shared BN/EN locale provider, database-persisted per-user language preference, bilingual theme controls, and bilingual global confirmation/result modals are now implemented locally. This batch adds `supabase/migrations/20260929_user_locale_preference.sql`, which must be applied before deployment.
+- A shared BN/EN locale provider, database-persisted per-user language preference, bilingual theme controls, and bilingual global confirmation/result modals are now implemented locally. The bilingual pass now also covers onboarding, member approvals, the primary member-directory view, family-tree controls and relationship-to-me labels, notice ticker/primary notice views, and the full Magazine reading/writing flow. This work depends on `supabase/migrations/20260929_user_locale_preference.sql`, which must be applied before deployment.
 - `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` were run again successfully after the latest continuation request.
 - The user applied all SQL files in `supabase/migrations` on 2026-09-29. A direct Supabase REST check for `public.family_magazine_articles` then returned HTTP `200`, confirming that the Magazine migration is ready.
 - The Codex/ChatGPT account used on 2026-09-29 could not access the existing Sites project ID (`Sites project not found`). The original owning account must either deploy the update or add the new account as an editor/collaborator; do not create a duplicate Site.
-- After the locale-preference implementation, `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` all passed. Deployment is blocked by the new locale migration and Sites project access.
+- After the expanded bilingual implementation, `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` all passed. The first sandboxed build attempt hit a Windows `spawn EPERM`; the unrestricted verification build then completed successfully. Deployment is blocked by the new locale migration and Sites project access.
 - The stable production site remains version 30 at `https://family-management-system.hitht.chatgpt.site`.
 - The next account must run `git status --short` and `git log -1 --oneline` first; the working tree should be clean at handoff.
 
@@ -193,7 +193,7 @@ Permission helper functions must be used rather than duplicating role logic ad h
 |---|---|---|
 | Digital Family Magazine | `/magazine` | Code and database migration complete; lint/audit/build passed; deployment pending |
 | Relationship-to-me labels | `/family-tree` | Code complete and verified locally; deployment pending |
-| Bilingual foundation | Global shell and modals | Shared locale context, persisted member preference, bilingual theme control and global action dialogs complete locally; new migration and deployment pending |
+| Bilingual foundation | Global shell and core flows | Shared locale context, persisted member preference, bilingual theme/global action dialogs, onboarding, member approval, primary directory view, family tree, notice ticker/primary notice views, and Magazine flow complete locally; new migration and deployment pending |
 
 ### Shared interaction behavior
 
@@ -319,10 +319,10 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 
 ### Priority 2 — complete bilingual support
 
-- Shared BN/EN locale context and per-user persistence are implemented; extend the shared approach through every module.
-- Replace mixed hard-coded Bangla/English text in all modules.
-- Translate validation, modal, empty-state, export headings, dates, currencies, and statuses.
-- Persist language preference in the user profile/database; current preference is primarily browser/local-storage based.
+- Shared BN/EN locale context and per-user database persistence are implemented.
+- Core bilingual coverage is implemented for onboarding, member approval, the primary directory screen, family tree (including computed relationship names), the notice ticker/primary notice screen, Magazine, theme controls, and global confirmation/result dialogs.
+- Finish the remaining mixed form/action labels in Directory and Notice Center, then extend the same approach through Events, Qurbani, Finance, Chat, Health, Welfare, Household, Archives, Governance, and Admin.
+- Translate the remaining server-returned validation text plus all module-specific export headings, dates, currencies, statuses, empty states, and secondary dialogs.
 - Add a missing-translation check to CI/tests.
 
 ### Priority 3 — notifications and health automation
@@ -375,7 +375,7 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 2. Obtain editor access to the existing Sites project or use its original owning account for deployment.
 3. Publish the next private Sites version using the existing Sites project ID.
 4. Smoke-test the new routes against the live deployment.
-5. Start system-wide i18n as the next development phase.
+5. Continue the system-wide i18n pass from the remaining secondary Directory/Notice forms, then Events, Qurbani, Finance, Chat, Health, Welfare, Household, Archives, Governance, and Admin.
 6. Continue with notifications, stronger encryption/security, reports, and then SaaS billing/custom domains.
 
 ## 13. Verification checklist for every future batch

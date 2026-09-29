@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Megaphone } from "lucide-react";
+import { useLocale } from "@/components/locale-provider";
 
 export type NoticeTickerItem = {
   id: string;
   title_bn: string;
+  title_en?: string | null;
   priority: "normal" | "high" | "urgent";
   status: "draft" | "published" | "archived";
   publish_at: string | null;
@@ -13,6 +15,7 @@ export type NoticeTickerItem = {
 };
 
 export function NoticeTicker({ notices }: { notices: NoticeTickerItem[] }) {
+  const { locale, pick } = useLocale();
   const [now] = useState(Date.now);
   const activeNotices = useMemo(() => {
     return notices.filter((notice) => {
@@ -28,18 +31,18 @@ export function NoticeTicker({ notices }: { notices: NoticeTickerItem[] }) {
   return (
     <a
       href="/notices"
-      aria-label="সব পারিবারিক নোটিশ দেখুন"
+      aria-label={pick("সব পারিবারিক নোটিশ দেখুন", "View all family notices")}
       className="group flex min-h-12 overflow-hidden rounded-2xl border border-primary/20 bg-primary/[0.055]"
     >
       <span className="z-10 flex shrink-0 items-center gap-2 border-r border-primary/15 bg-primary px-4 text-sm font-bold text-primary-foreground">
-        <Megaphone className="size-4" /> নোটিশ
+        <Megaphone className="size-4" /> {pick("নোটিশ", "Notices")}
       </span>
       <span className="min-w-0 flex-1 overflow-hidden py-3">
         <span className="notice-ticker-track flex w-max items-center group-hover:[animation-play-state:paused]">
           {repeated.map((notice, index) => (
             <span key={`${notice.id}-${index}`} className="flex items-center gap-3 whitespace-nowrap px-5 text-sm font-medium">
               <span className={`size-2 rounded-full ${notice.priority === "urgent" ? "bg-destructive" : notice.priority === "high" ? "bg-amber-500" : "bg-primary"}`} />
-              {notice.title_bn}
+              {locale === "en" && notice.title_en ? notice.title_en : notice.title_bn}
             </span>
           ))}
         </span>

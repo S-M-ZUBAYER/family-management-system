@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionFeedback } from "@/components/action-modal-provider";
+import { useLocale } from "@/components/locale-provider";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -119,6 +120,7 @@ const emptyForm: MemberForm = {
 };
 
 export function MemberDirectory() {
+  const { locale, pick } = useLocale();
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [relationships, setRelationships] = useState<FamilyRelationship[]>([]);
   const [family, setFamily] = useState<DirectoryPayload["family"]>();
@@ -432,11 +434,11 @@ export function MemberDirectory() {
               <ShieldAlert className="size-6" />
             </span>
             <div className="flex-1">
-              <h1 className="text-2xl font-bold">Family access সক্রিয় নয়</h1>
-              <p className="mt-1 text-muted-foreground">Join code দিয়ে আবেদন করুন। Family Owner বা Admin অনুমোদন করার পর directory ব্যবহার করতে পারবেন।</p>
+              <h1 className="text-2xl font-bold">{pick("ফ্যামিলি access সক্রিয় নয়", "Family access is not active")}</h1>
+              <p className="mt-1 text-muted-foreground">{pick("Join code দিয়ে আবেদন করুন। Family Owner বা Admin অনুমোদন করার পর directory ব্যবহার করতে পারবেন।", "Apply with a join code. You can use the directory after the Family Owner or Admin approves the request.")}</p>
             </div>
             <Button asChild className="rounded-xl">
-              <a href="/setup">Family onboarding খুলুন</a>
+              <a href="/setup">{pick("Family onboarding খুলুন", "Open family onboarding")}</a>
             </Button>
           </CardContent>
         </Card>
@@ -449,10 +451,10 @@ export function MemberDirectory() {
       <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
-            <Users className="size-4" /> PostgreSQL Family Directory
+            <Users className="size-4" /> {pick("PostgreSQL ফ্যামিলি ডিরেক্টরি", "PostgreSQL Family Directory")}
           </div>
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">পরিবারের সদস্য ডিরেক্টরি</h1>
-          <p className="mt-1 text-muted-foreground">Profile, সম্পর্ক, রক্তের গ্রুপ, পেশা ও অবস্থান এক জায়গায়।</p>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{pick("পরিবারের সদস্য ডিরেক্টরি", "Family member directory")}</h1>
+          <p className="mt-1 text-muted-foreground">{pick("Profile, সম্পর্ক, রক্তের গ্রুপ, পেশা ও অবস্থান এক জায়গায়।", "Profiles, relationships, blood groups, professions, and locations in one place.")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -462,10 +464,10 @@ export function MemberDirectory() {
             onClick={() => void exportXlsx()}
           >
             {exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />}
-            XLSX Export
+            {pick("XLSX Export", "Export XLSX")}
           </Button>
           {canManage ? (
-            <><Button variant="outline" className="gap-2 rounded-xl" disabled={members.length < 2} onClick={() => setRelationshipOpen(true)}><Link2 className="size-4" /> সম্পর্ক যোগ করুন</Button><Button className="gap-2 rounded-xl" onClick={openCreateMember}><UserRoundPlus className="size-4" /> সদস্য যোগ করুন</Button></>
+            <><Button variant="outline" className="gap-2 rounded-xl" disabled={members.length < 2} onClick={() => setRelationshipOpen(true)}><Link2 className="size-4" /> {pick("সম্পর্ক যোগ করুন", "Add relationship")}</Button><Button className="gap-2 rounded-xl" onClick={openCreateMember}><UserRoundPlus className="size-4" /> {pick("সদস্য যোগ করুন", "Add member")}</Button></>
           ) : null}
         </div>
       </section>
@@ -473,7 +475,7 @@ export function MemberDirectory() {
       {migrationRequired ? (
         <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/8 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
           <GitFork className="mt-0.5 size-4 shrink-0" />
-          Member directory প্রস্তুত। Family Tree connection চালু করতে নতুন relationship migration একবার apply করতে হবে।
+          {pick("Member directory প্রস্তুত। Family Tree connection চালু করতে নতুন relationship migration একবার apply করতে হবে।", "The member directory is ready. Apply the new relationship migration once to activate Family Tree connections.")}
         </div>
       ) : null}
       {feedback ? (
@@ -482,10 +484,10 @@ export function MemberDirectory() {
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "মোট সদস্য", value: members.length.toLocaleString("bn-BD"), icon: Users },
-          { label: "রক্তের গ্রুপ যুক্ত", value: members.filter((member) => member.blood_group).length.toLocaleString("bn-BD"), icon: Database },
-          { label: "বাংলাদেশের বাইরে", value: members.filter((member) => member.country && member.country !== "বাংলাদেশ").length.toLocaleString("bn-BD"), icon: MapPin },
-          { label: "Tree connections", value: relationships.length.toLocaleString("bn-BD"), icon: GitFork },
+          { label: pick("মোট সদস্য", "Total members"), value: members.length.toLocaleString(locale === "bn" ? "bn-BD" : "en-US"), icon: Users },
+          { label: pick("রক্তের গ্রুপ যুক্ত", "Blood group recorded"), value: members.filter((member) => member.blood_group).length.toLocaleString(locale === "bn" ? "bn-BD" : "en-US"), icon: Database },
+          { label: pick("বাংলাদেশের বাইরে", "Outside Bangladesh"), value: members.filter((member) => member.country && member.country !== "বাংলাদেশ").length.toLocaleString(locale === "bn" ? "bn-BD" : "en-US"), icon: MapPin },
+          { label: pick("Tree connections", "Tree connections"), value: relationships.length.toLocaleString(locale === "bn" ? "bn-BD" : "en-US"), icon: GitFork },
         ].map(({ label, value, icon: Icon }) => (
           <Card key={label} className="rounded-2xl border-border/75 py-0 shadow-none">
             <CardContent className="flex items-start justify-between p-5">
@@ -500,41 +502,41 @@ export function MemberDirectory() {
         <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between md:p-5">
           <div className="relative w-full md:max-w-md">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="নাম, সম্পর্ক, পেশা বা রক্তের গ্রুপ" className="h-10 rounded-xl pl-10" />
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={pick("নাম, সম্পর্ক, পেশা বা রক্তের গ্রুপ", "Name, relationship, profession, or blood group")} className="h-10 rounded-xl pl-10" />
           </div>
-          <Badge variant="secondary" className="w-fit rounded-full px-3">{visibleMembers.length.toLocaleString("bn-BD")} জন</Badge>
+          <Badge variant="secondary" className="w-fit rounded-full px-3">{visibleMembers.length.toLocaleString(locale === "bn" ? "bn-BD" : "en-US")} {pick("জন", "members")}</Badge>
         </div>
         {loading ? (
-          <div className="flex min-h-72 items-center justify-center gap-3 text-muted-foreground"><LoaderCircle className="size-5 animate-spin" /> Directory load হচ্ছে</div>
+          <div className="flex min-h-72 items-center justify-center gap-3 text-muted-foreground"><LoaderCircle className="size-5 animate-spin" /> {pick("Directory লোড হচ্ছে", "Loading directory")}</div>
         ) : visibleMembers.length ? (
           <div className="overflow-x-auto">
             <Table>
-              <TableHeader><TableRow className="bg-muted/35"><TableHead className="pl-5">সদস্য</TableHead><TableHead>সম্পর্ক</TableHead><TableHead>রক্ত</TableHead><TableHead>পেশা</TableHead><TableHead>অবস্থান</TableHead><TableHead>যোগাযোগ</TableHead>{canManage ? <TableHead className="pr-5 text-right">Action</TableHead> : null}</TableRow></TableHeader>
+              <TableHeader><TableRow className="bg-muted/35"><TableHead className="pl-5">{pick("সদস্য", "Member")}</TableHead><TableHead>{pick("সম্পর্ক", "Relationship")}</TableHead><TableHead>{pick("রক্ত", "Blood")}</TableHead><TableHead>{pick("পেশা", "Profession")}</TableHead><TableHead>{pick("অবস্থান", "Location")}</TableHead><TableHead>{pick("যোগাযোগ", "Contact")}</TableHead>{canManage ? <TableHead className="pr-5 text-right">{pick("কাজ", "Action")}</TableHead> : null}</TableRow></TableHeader>
               <TableBody>
                 {visibleMembers.map((member) => (
                   <TableRow key={member.id}>
-                    <TableCell className="pl-5"><div className="flex items-center gap-3"><Avatar className="size-10">{member.profile_photo_file_id ? <AvatarImage src={`/api/archive-file/${member.profile_photo_file_id}`} alt={member.name_bn} className="object-cover" /> : null}<AvatarFallback className="bg-primary/10 text-sm font-bold text-primary">{member.name_bn.slice(0, 2)}</AvatarFallback></Avatar><div><p className="font-semibold">{member.name_bn}</p><p className="text-xs text-muted-foreground">{member.name_en || "—"}</p></div></div></TableCell>
+                    <TableCell className="pl-5"><div className="flex items-center gap-3"><Avatar className="size-10">{member.profile_photo_file_id ? <AvatarImage src={`/api/archive-file/${member.profile_photo_file_id}`} alt={member.name_bn} className="object-cover" /> : null}<AvatarFallback className="bg-primary/10 text-sm font-bold text-primary">{member.name_bn.slice(0, 2)}</AvatarFallback></Avatar><div><p className="font-semibold">{locale === "en" ? member.name_en || member.name_bn : member.name_bn}</p><p className="text-xs text-muted-foreground">{locale === "en" ? member.name_bn : member.name_en || "—"}</p></div></div></TableCell>
                     <TableCell>{member.relationship_text || "—"}</TableCell>
                     <TableCell>{member.blood_group ? <Badge variant="outline">{member.blood_group}</Badge> : "—"}</TableCell>
                     <TableCell>{member.occupation || "—"}</TableCell>
                     <TableCell>{[member.city, member.country].filter(Boolean).join(", ") || "—"}</TableCell>
                     <TableCell><p>{member.phone || "—"}</p><p className="text-xs text-muted-foreground">{member.email || ""}</p></TableCell>
-                    {canManage ? <TableCell className="pr-5 text-right"><Button variant="ghost" size="sm" className="gap-2 rounded-xl" onClick={() => openEditMember(member)}><Pencil className="size-4" /> Edit</Button></TableCell> : null}
+                    {canManage ? <TableCell className="pr-5 text-right"><Button variant="ghost" size="sm" className="gap-2 rounded-xl" onClick={() => openEditMember(member)}><Pencil className="size-4" /> {pick("সম্পাদনা", "Edit")}</Button></TableCell> : null}
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
         ) : (
-          <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center"><Users className="size-10 text-muted-foreground/50" /><h2 className="mt-4 text-lg font-bold">এখনও কোনো member profile নেই</h2><p className="mt-1 text-sm text-muted-foreground">প্রথম সদস্য যোগ করলে directory ও family tree তৈরি শুরু হবে।</p>{canManage ? <Button className="mt-5 gap-2 rounded-xl" onClick={openCreateMember}><Plus className="size-4" /> প্রথম সদস্য যোগ করুন</Button> : null}</div>
+          <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center"><Users className="size-10 text-muted-foreground/50" /><h2 className="mt-4 text-lg font-bold">{pick("এখনও কোনো member profile নেই", "There are no member profiles yet")}</h2><p className="mt-1 text-sm text-muted-foreground">{pick("প্রথম সদস্য যোগ করলে directory ও family tree তৈরি শুরু হবে।", "Add the first member to begin building the directory and family tree.")}</p>{canManage ? <Button className="mt-5 gap-2 rounded-xl" onClick={openCreateMember}><Plus className="size-4" /> {pick("প্রথম সদস্য যোগ করুন", "Add first member")}</Button> : null}</div>
         )}
       </Card>
 
       <Card className="gap-0 overflow-hidden rounded-3xl border-border/75 py-0 shadow-none">
-        <div className="flex items-center justify-between gap-3 border-b p-5"><div><h2 className="font-bold">Family relationships</h2><p className="mt-1 text-sm text-muted-foreground">Parent, spouse এবং guardian connections Family Tree-তে ব্যবহার হয়।</p></div>{canManage ? <Button variant="outline" className="gap-2 rounded-xl" disabled={members.length < 2} onClick={() => setRelationshipOpen(true)}><Link2 className="size-4" /> নতুন connection</Button> : null}</div>
+        <div className="flex items-center justify-between gap-3 border-b p-5"><div><h2 className="font-bold">{pick("পারিবারিক সম্পর্ক", "Family relationships")}</h2><p className="mt-1 text-sm text-muted-foreground">{pick("Parent, spouse এবং guardian connection Family Tree-তে ব্যবহার হয়।", "Parent, spouse, and guardian connections are used in the Family Tree.")}</p></div>{canManage ? <Button variant="outline" className="gap-2 rounded-xl" disabled={members.length < 2} onClick={() => setRelationshipOpen(true)}><Link2 className="size-4" /> {pick("নতুন connection", "New connection")}</Button> : null}</div>
         <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-3">
           {relationships.map((item) => <div key={item.id} className="flex items-center gap-3 rounded-2xl border p-4"><div className="min-w-0 flex-1"><p className="truncate font-semibold">{memberById.get(item.from_member_id)?.name_bn ?? "Unknown"}</p><p className="my-1 text-xs font-bold uppercase tracking-wide text-primary">{item.relationship_type} →</p><p className="truncate font-semibold">{memberById.get(item.to_member_id)?.name_bn ?? "Unknown"}</p></div>{canManage ? <Button size="icon-sm" variant="ghost" className="text-destructive hover:text-destructive" aria-label="Remove relationship" onClick={() => void deleteRelationship(item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Relationship সরানো যায়নি।"))}><Trash2 /></Button> : null}</div>)}
-          {!relationships.length ? <div className="col-span-full rounded-2xl border border-dashed p-7 text-center text-sm text-muted-foreground">এখনও কোনো relationship connection নেই।</div> : null}
+          {!relationships.length ? <div className="col-span-full rounded-2xl border border-dashed p-7 text-center text-sm text-muted-foreground">{pick("এখনও কোনো relationship connection নেই।", "There are no relationship connections yet.")}</div> : null}
         </div>
       </Card>
 
