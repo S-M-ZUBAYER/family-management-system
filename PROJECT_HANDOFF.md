@@ -7,7 +7,7 @@ This file is the authoritative handoff for continuing the project from another C
 ## Immediate continuation status
 
 - Local Magazine and Family Tree relationship updates are implemented and committed.
-- A shared BN/EN locale provider, database-persisted per-user language preference, bilingual theme controls, and bilingual global confirmation/result modals are implemented locally. The bilingual pass now covers onboarding, member approvals, the primary member-directory view, family-tree controls and relationship-to-me labels, notice ticker/primary notice views, Magazine, Events, core Qurbani, Personal Finance, Family Chat, and the primary Health/SOS workflow. Qurbani, Finance, Chat, and Health XLSX headings/sheet names follow the selected language. This work depends on `supabase/migrations/20260929_user_locale_preference.sql`, which must be applied before deployment.
+- A shared BN/EN locale provider, database-persisted per-user language preference, bilingual theme controls, and bilingual global confirmation/result modals are implemented locally. The bilingual pass now covers onboarding, member approvals, the primary member-directory view, family-tree controls and relationship-to-me labels, notice ticker/primary notice views, Magazine, Events, core Qurbani, Personal Finance, Family Chat, the primary Health/SOS workflow, and the primary Welfare Fund dashboard/contribution workflow. Qurbani, Finance, Chat, and Health XLSX headings/sheet names follow the selected language. This work depends on `supabase/migrations/20260929_user_locale_preference.sql`, which must be applied before deployment.
 - `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` were run again successfully after the latest continuation request.
 - The user applied all SQL files in `supabase/migrations` on 2026-09-29. A direct Supabase REST check for `public.family_magazine_articles` then returned HTTP `200`, confirming that the Magazine migration is ready.
 - The Codex/ChatGPT account used on 2026-09-29 could not access the existing Sites project ID (`Sites project not found`). The original owning account must either deploy the update or add the new account as an editor/collaborator; do not create a duplicate Site.
@@ -62,6 +62,7 @@ The following work is implemented, verified, and committed locally, but is inten
    - Personal Finance: private dashboard, accounts, transactions, budgets, debts, bills, goals, forms/actions, date/currency formatting, and localized XLSX workbooks use the selected locale.
    - Family Chat: channel navigation/creation, group/direct conversation states, live status, notifications, message composer, privacy copy, feedback, date/time formatting, and XLSX workbooks use the selected locale.
    - Health/SOS: primary dashboard, reminders, metrics, care and health-log tables, SOS cards/actions, localized date/time/status display, feedback, and XLSX workbooks use the selected locale. Some secondary health profile/upload/SOS form labels remain mixed and are listed below.
+   - Welfare Fund: locale-aware currency/date formatting, header, metrics, navigation, contribution ledger, and contribution approval/refund actions use the selected language. Remaining Welfare assistance/expense/pledge/document forms are listed below.
 
 The user confirmed and the API check verified that `supabase/migrations/20260928_family_magazine.sql` is applied. This batch is database-ready for deployment.
 
@@ -327,7 +328,7 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 
 - Shared BN/EN locale context and per-user database persistence are implemented.
 - Core bilingual coverage is implemented for onboarding, member approval, the primary directory screen, family tree (including computed relationship names), the notice ticker/primary notice screen, Magazine, Events, core Qurbani, Personal Finance, Family Chat, primary Health/SOS, theme controls, and global confirmation/result dialogs.
-- Finish the remaining secondary mixed labels/server-returned messages in Directory, Notice Center, Events, Qurbani, Finance, and Health profile/upload/SOS forms, then extend the same approach through Welfare, Household, Archives, Governance, and Admin.
+- Finish remaining secondary mixed labels/server-returned messages in Directory, Notice Center, Events, Qurbani, Finance, Health profile/upload/SOS forms, and Welfare assistance/expense/pledge/document flows, then extend the same approach through Household, Archives, Governance, and Admin.
 - Translate remaining server-returned validation text plus module-specific exports, dates, currencies, statuses, empty states, and secondary dialogs in modules not yet covered.
 - Add a missing-translation check to CI/tests.
 
