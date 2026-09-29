@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionFeedback } from "@/components/action-modal-provider";
+import { useLocale, type AppLocale } from "@/components/locale-provider";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -81,12 +82,8 @@ type ProgressTarget = {
   maximum: number;
 } | null;
 
-const money = new Intl.NumberFormat("bn-BD", {
-  style: "currency",
-  currency: "BDT",
-  maximumFractionDigits: 0,
-});
-const date = new Intl.DateTimeFormat("bn-BD", { dateStyle: "medium" });
+const moneyFor = (locale: AppLocale) => new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", maximumFractionDigits: 0 });
+const dateFor = (locale: AppLocale) => new Intl.DateTimeFormat(locale === "bn" ? "bn-BD" : "en-BD", { dateStyle: "medium" });
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 const today = () => new Date().toISOString().slice(0, 10);
 const valueOf = (value: number | string | null | undefined) => Number(value ?? 0) || 0;
@@ -106,13 +103,16 @@ const categorySuggestions = [
   "Other",
 ];
 
-const kindLabels: Record<FinanceRecordKind, string> = {
+const kindLabelsEn: Record<FinanceRecordKind, string> = {
   account: "Account / Wallet",
   transaction: "Income or Expense",
   budget: "Monthly Budget",
   debt: "Debt / Lending",
   bill: "Bill Reminder",
   goal: "Savings Goal",
+};
+const kindLabelsBn: Record<FinanceRecordKind, string> = {
+  account: "অ্যাকাউন্ট / ওয়ালেট", transaction: "আয় বা ব্যয়", budget: "মাসিক বাজেট", debt: "দেনা / পাওনা", bill: "বিল রিমাইন্ডার", goal: "সঞ্চয়ের লক্ষ্য",
 };
 
 function initialForm(kind: FinanceRecordKind): FormState {
@@ -125,6 +125,10 @@ function initialForm(kind: FinanceRecordKind): FormState {
 }
 
 export function PersonalFinanceCenter() {
+  const { locale, pick } = useLocale();
+  const money = moneyFor(locale);
+  const date = dateFor(locale);
+  const kindLabels = locale === "bn" ? kindLabelsBn : kindLabelsEn;
   const [family, setFamily] = useState<FinancePayload["family"]>();
   const [viewer, setViewer] = useState<FinancePayload["viewer"]>();
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
@@ -167,11 +171,11 @@ export function PersonalFinanceCenter() {
       setMigrationRequired(Boolean(payload.migrationRequired));
       setSetupRequired(false);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "ব্যক্তিগত হিসাব load হয়নি।");
+      setFeedback(error instanceof Error ? error.message : pick("ব্যক্তিগত হিসাব লোড হয়নি।", "Personal finance could not be loaded."));
     } finally {
       setLoading(false);
     }
-  }, [setFeedback]);
+  }, [pick, setFeedback]);
 
   useEffect(() => {
     queueMicrotask(() => void loadFinance());
@@ -342,78 +346,78 @@ export function PersonalFinanceCenter() {
   }
 
   const summaryRows = [{
-    Month: month,
-    "Current balance": totals.balance,
-    Income: totals.income,
-    Expense: totals.expense,
-    "Net cashflow": totals.net,
-    "Budget limit": totals.budgetLimit,
-    "Budget used percent": Math.round(totals.budgetUsed),
-    "Lent outstanding": totals.lentOutstanding,
-    "Borrowed outstanding": totals.borrowedOutstanding,
-    "Pending bills": totals.pendingBills,
-    "Pending bill amount": totals.pendingBillAmount,
+    [pick("মাস", "Month")]: month,
+    [pick("বর্তমান ব্যালান্স", "Current balance")]: totals.balance,
+    [pick("আয়", "Income")]: totals.income,
+    [pick("ব্যয়", "Expense")]: totals.expense,
+    [pick("নিট নগদ প্রবাহ", "Net cashflow")]: totals.net,
+    [pick("বাজেট সীমা", "Budget limit")]: totals.budgetLimit,
+    [pick("বাজেট ব্যবহারের শতাংশ", "Budget used percent")]: Math.round(totals.budgetUsed),
+    [pick("বকেয়া পাওনা", "Lent outstanding")]: totals.lentOutstanding,
+    [pick("বকেয়া দেনা", "Borrowed outstanding")]: totals.borrowedOutstanding,
+    [pick("অপেক্ষমাণ বিল", "Pending bills")]: totals.pendingBills,
+    [pick("অপেক্ষমাণ বিলের পরিমাণ", "Pending bill amount")]: totals.pendingBillAmount,
   }];
   const accountRows = accounts.map((item) => ({
-    Account: item.name,
-    Type: item.account_type,
-    "Opening balance": valueOf(item.opening_balance),
-    "Current balance": accountBalance(item),
-    Currency: item.currency,
-    Status: item.status,
+    [pick("অ্যাকাউন্ট", "Account")]: item.name,
+    [pick("ধরন", "Type")]: item.account_type,
+    [pick("প্রারম্ভিক ব্যালান্স", "Opening balance")]: valueOf(item.opening_balance),
+    [pick("বর্তমান ব্যালান্স", "Current balance")]: accountBalance(item),
+    [pick("মুদ্রা", "Currency")]: item.currency,
+    [pick("স্ট্যাটাস", "Status")]: financeStatusLabel(item.status, locale),
   }));
   const transactionRows = transactions.map((item) => ({
-    Date: item.transaction_date,
-    Direction: item.direction,
-    Category: item.category,
-    Account: accounts.find((account) => account.id === item.account_id)?.name ?? "",
-    Amount: valueOf(item.amount),
-    Method: item.payment_method,
-    Recurring: item.is_recurring ? "Yes" : "No",
-    Reference: item.reference ?? "",
-    Notes: item.notes ?? "",
+    [pick("তারিখ", "Date")]: item.transaction_date,
+    [pick("দিক", "Direction")]: financeStatusLabel(item.direction, locale),
+    [pick("ক্যাটাগরি", "Category")]: item.category,
+    [pick("অ্যাকাউন্ট", "Account")]: accounts.find((account) => account.id === item.account_id)?.name ?? "",
+    [pick("পরিমাণ", "Amount")]: valueOf(item.amount),
+    [pick("পদ্ধতি", "Method")]: item.payment_method,
+    [pick("পুনরাবৃত্ত", "Recurring")]: item.is_recurring ? pick("হ্যাঁ", "Yes") : pick("না", "No"),
+    [pick("রেফারেন্স", "Reference")]: item.reference ?? "",
+    [pick("নোট", "Notes")]: item.notes ?? "",
   }));
   const budgetRows = budgets.map((item) => {
     const spent = transactions
       .filter((transaction) => transaction.direction === "expense" && transaction.category === item.category && transaction.transaction_date.startsWith(item.budget_month.slice(0, 7)))
       .reduce((sum, transaction) => sum + valueOf(transaction.amount), 0);
     return {
-      Month: item.budget_month.slice(0, 7),
-      Category: item.category,
-      Limit: valueOf(item.limit_amount),
-      Spent: spent,
-      Remaining: valueOf(item.limit_amount) - spent,
-      "Alert percent": item.alert_percent,
-      Notes: item.notes ?? "",
+      [pick("মাস", "Month")]: item.budget_month.slice(0, 7),
+      [pick("ক্যাটাগরি", "Category")]: item.category,
+      [pick("সীমা", "Limit")]: valueOf(item.limit_amount),
+      [pick("ব্যয়", "Spent")]: spent,
+      [pick("অবশিষ্ট", "Remaining")]: valueOf(item.limit_amount) - spent,
+      [pick("সতর্কতার শতাংশ", "Alert percent")]: item.alert_percent,
+      [pick("নোট", "Notes")]: item.notes ?? "",
     };
   });
   const debtRows = debts.map((item) => ({
-    Type: item.debt_type,
-    Person: item.counterparty,
-    Principal: valueOf(item.principal_amount),
-    Settled: valueOf(item.settled_amount),
-    Outstanding: Math.max(0, valueOf(item.principal_amount) - valueOf(item.settled_amount)),
-    "Due date": item.due_date ?? "",
-    Status: item.status,
-    Notes: item.notes ?? "",
+    [pick("ধরন", "Type")]: financeStatusLabel(item.debt_type, locale),
+    [pick("ব্যক্তি", "Person")]: item.counterparty,
+    [pick("মূল পরিমাণ", "Principal")]: valueOf(item.principal_amount),
+    [pick("নিষ্পত্তি", "Settled")]: valueOf(item.settled_amount),
+    [pick("বাকি", "Outstanding")]: Math.max(0, valueOf(item.principal_amount) - valueOf(item.settled_amount)),
+    [pick("নির্ধারিত তারিখ", "Due date")]: item.due_date ?? "",
+    [pick("স্ট্যাটাস", "Status")]: financeStatusLabel(item.status, locale),
+    [pick("নোট", "Notes")]: item.notes ?? "",
   }));
   const billRows = bills.map((item) => ({
-    Bill: item.title,
-    Category: item.category,
-    Amount: valueOf(item.amount),
-    "Due date": item.due_date,
-    Recurrence: item.recurrence,
-    Status: item.status,
-    Notes: item.notes ?? "",
+    [pick("বিল", "Bill")]: item.title,
+    [pick("ক্যাটাগরি", "Category")]: item.category,
+    [pick("পরিমাণ", "Amount")]: valueOf(item.amount),
+    [pick("নির্ধারিত তারিখ", "Due date")]: item.due_date,
+    [pick("পুনরাবৃত্তি", "Recurrence")]: item.recurrence,
+    [pick("স্ট্যাটাস", "Status")]: financeStatusLabel(item.status, locale),
+    [pick("নোট", "Notes")]: item.notes ?? "",
   }));
   const goalRows = goals.map((item) => ({
-    Goal: item.title,
-    Target: valueOf(item.target_amount),
-    Saved: valueOf(item.current_amount),
-    Remaining: Math.max(0, valueOf(item.target_amount) - valueOf(item.current_amount)),
-    "Target date": item.target_date ?? "",
-    Status: item.status,
-    Notes: item.notes ?? "",
+    [pick("লক্ষ্য", "Goal")]: item.title,
+    [pick("লক্ষ্যমাত্রা", "Target")]: valueOf(item.target_amount),
+    [pick("সঞ্চিত", "Saved")]: valueOf(item.current_amount),
+    [pick("অবশিষ্ট", "Remaining")]: Math.max(0, valueOf(item.target_amount) - valueOf(item.current_amount)),
+    [pick("লক্ষ্যের তারিখ", "Target date")]: item.target_date ?? "",
+    [pick("স্ট্যাটাস", "Status")]: financeStatusLabel(item.status, locale),
+    [pick("নোট", "Notes")]: item.notes ?? "",
   }));
 
   async function exportWorkbook(single?: { name: string; rows: Array<Record<string, unknown>> }) {
@@ -424,18 +428,18 @@ export function PersonalFinanceCenter() {
       const sheets = single
         ? [single]
         : [
-            { name: "Summary", rows: summaryRows },
-            { name: "Accounts", rows: accountRows },
-            { name: "Transactions", rows: transactionRows },
-            { name: "Budgets", rows: budgetRows },
-            { name: "Debts", rows: debtRows },
-            { name: "Bills", rows: billRows },
-            { name: "Goals", rows: goalRows },
+            { name: pick("সারসংক্ষেপ", "Summary"), rows: summaryRows },
+            { name: pick("অ্যাকাউন্ট", "Accounts"), rows: accountRows },
+            { name: pick("লেনদেন", "Transactions"), rows: transactionRows },
+            { name: pick("বাজেট", "Budgets"), rows: budgetRows },
+            { name: pick("দেনা-পাওনা", "Debts"), rows: debtRows },
+            { name: pick("বিল", "Bills"), rows: billRows },
+            { name: pick("লক্ষ্য", "Goals"), rows: goalRows },
           ];
       sheets.forEach((sheet) => {
         XLSX.utils.book_append_sheet(
           workbook,
-          XLSX.utils.json_to_sheet(sheet.rows.length ? sheet.rows : [{ Information: "No records yet" }]),
+          XLSX.utils.json_to_sheet(sheet.rows.length ? sheet.rows : [{ [pick("তথ্য", "Information")]: pick("এখনও কোনো রেকর্ড নেই", "No records yet") }]),
           sheet.name,
         );
       });
@@ -502,7 +506,7 @@ export function PersonalFinanceCenter() {
   }, [month, totals]);
 
   if (setupRequired) {
-    return <StateCard icon={<ShieldCheck />} title="Family setup প্রয়োজন" text="ব্যক্তিগত finance workspace ব্যবহার করতে active family membership প্রয়োজন।" action={<Button asChild className="rounded-xl"><a href="/setup">Setup খুলুন</a></Button>} />;
+    return <StateCard icon={<ShieldCheck />} title={pick("পরিবার সেটআপ প্রয়োজন", "Family setup required")} text={pick("ব্যক্তিগত হিসাবের জায়গা ব্যবহার করতে সক্রিয় পরিবার সদস্যপদ প্রয়োজন।", "An active family membership is required to use your personal finance workspace.")} action={<Button asChild className="rounded-xl"><a href="/setup">{pick("সেটআপ খুলুন", "Open setup")}</a></Button>} />;
   }
 
   return (
@@ -510,20 +514,20 @@ export function PersonalFinanceCenter() {
       <section className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
-            <LockKeyhole className="size-4" /> Private to you
+             <LockKeyhole className="size-4" /> {pick("শুধু আপনার জন্য", "Private to you")}
           </div>
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">ব্যক্তিগত হিসাব-নিকাশ</h1>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{pick("ব্যক্তিগত হিসাব-নিকাশ", "Personal finance")}</h1>
           <p className="mt-1 max-w-3xl text-muted-foreground">
-            Income, expense, budget, দেনা-পাওনা, bills ও savings goals—আপনার নিজের নিরাপদ workspace।
+            {pick("আয়, ব্যয়, বাজেট, দেনা-পাওনা, বিল ও সঞ্চয়ের লক্ষ্য—আপনার নিজের নিরাপদ কর্মক্ষেত্র।", "Income, expenses, budgets, debts, bills and savings goals—your own secure workspace.")}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Input aria-label="Report month" type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="w-[175px] rounded-xl bg-card" />
           <Button variant="outline" className="gap-2 rounded-xl" disabled={exporting} onClick={() => void exportWorkbook()}>
-            {exporting ? <LoaderCircle className="size-4 animate-spin" /> : <FileSpreadsheet className="size-4" />} Complete XLSX
+            {exporting ? <LoaderCircle className="size-4 animate-spin" /> : <FileSpreadsheet className="size-4" />} {pick("সম্পূর্ণ XLSX", "Complete XLSX")}
           </Button>
           <Button className="gap-2 rounded-xl" disabled={!activeAccounts.length || migrationRequired} onClick={() => openRecord("transaction")}>
-            <Plus className="size-4" /> আয়/ব্যয় যোগ করুন
+            <Plus className="size-4" /> {pick("আয়/ব্যয় যোগ করুন", "Add income/expense")}
           </Button>
         </div>
       </section>
@@ -531,20 +535,20 @@ export function PersonalFinanceCenter() {
       <div className="flex items-start gap-3 rounded-2xl border border-primary/20 bg-primary/[0.04] p-4">
         <ShieldCheck className="mt-0.5 size-5 shrink-0 text-primary" />
         <div>
-          <p className="font-semibold">সম্পূর্ণ ব্যক্তিগত</p>
+          <p className="font-semibold">{pick("সম্পূর্ণ ব্যক্তিগত", "Completely private")}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {viewer?.displayName ? viewer.displayName + "-এর " : ""}এই হিসাব অন্য সদস্য বা Family Admin দেখতে পারবেন না। প্রতিটি request family ও account owner দিয়ে server-side যাচাই করা হয়।
+            {pick(`${viewer?.displayName ? viewer.displayName + "-এর " : ""}এই হিসাব অন্য সদস্য বা পরিবার অ্যাডমিন দেখতে পারবেন না। প্রতিটি অনুরোধ পরিবার ও অ্যাকাউন্ট মালিক দিয়ে সার্ভারে যাচাই করা হয়।`, `${viewer?.displayName ? viewer.displayName + "'s " : ""}finance data cannot be viewed by other members or Family Admins. Every request is checked server-side against the family and account owner.`)}
           </p>
         </div>
       </div>
 
-      {feedback ? <div className="flex items-start justify-between gap-3 rounded-2xl border bg-card px-4 py-3 text-sm"><span>{feedback}</span><button type="button" className="text-muted-foreground" onClick={() => setFeedback(null)}>বন্ধ</button></div> : null}
+      {feedback ? <div className="flex items-start justify-between gap-3 rounded-2xl border bg-card px-4 py-3 text-sm"><span>{feedback}</span><button type="button" className="text-muted-foreground" onClick={() => setFeedback(null)}>{pick("বন্ধ", "Close")}</button></div> : null}
 
       {migrationRequired ? (
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
-          <p className="font-bold">Personal Finance database migration প্রয়োজন</p>
+          <p className="font-bold">{pick("ব্যক্তিগত হিসাবের ডাটাবেস মাইগ্রেশন প্রয়োজন", "Personal Finance database migration required")}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Supabase SQL Editor-এ supabase/migrations/20260927_personal_finance.sql একবার চালান।
+            {pick("Supabase SQL Editor-এ supabase/migrations/20260927_personal_finance.sql একবার চালান।", "Run supabase/migrations/20260927_personal_finance.sql once in the Supabase SQL Editor.")}
           </p>
         </div>
       ) : null}
@@ -554,69 +558,69 @@ export function PersonalFinanceCenter() {
       ) : (
         <>
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-            <Metric icon={<WalletCards />} label="বর্তমান balance" value={money.format(totals.balance)} note={activeAccounts.length + " active accounts"} />
-            <Metric icon={<ArrowUpRight />} label="এই মাসের আয়" value={money.format(totals.income)} note={monthTransactions.filter((item) => item.direction === "income").length + " entries"} />
-            <Metric icon={<ArrowDownRight />} label="এই মাসের ব্যয়" value={money.format(totals.expense)} note={monthTransactions.filter((item) => item.direction === "expense").length + " entries"} />
-            <Metric icon={<CircleDollarSign />} label="Net cashflow" value={money.format(totals.net)} note={totals.net >= 0 ? "Positive" : "Expense বেশি"} />
-            <Metric icon={<ReceiptText />} label="Pending bills" value={money.format(totals.pendingBillAmount)} note={totals.pendingBills + " bills"} />
-            <Metric icon={<Landmark />} label="Net দেনা-পাওনা" value={money.format(totals.lentOutstanding - totals.borrowedOutstanding)} note={money.format(totals.borrowedOutstanding) + " borrowed"} />
+            <Metric icon={<WalletCards />} label={pick("বর্তমান ব্যালান্স", "Current balance")} value={money.format(totals.balance)} note={pick(activeAccounts.length + "টি সক্রিয় অ্যাকাউন্ট", activeAccounts.length + " active accounts")} />
+            <Metric icon={<ArrowUpRight />} label={pick("এই মাসের আয়", "Income this month")} value={money.format(totals.income)} note={pick(monthTransactions.filter((item) => item.direction === "income").length + "টি এন্ট্রি", monthTransactions.filter((item) => item.direction === "income").length + " entries")} />
+            <Metric icon={<ArrowDownRight />} label={pick("এই মাসের ব্যয়", "Expenses this month")} value={money.format(totals.expense)} note={pick(monthTransactions.filter((item) => item.direction === "expense").length + "টি এন্ট্রি", monthTransactions.filter((item) => item.direction === "expense").length + " entries")} />
+            <Metric icon={<CircleDollarSign />} label={pick("নিট নগদ প্রবাহ", "Net cashflow")} value={money.format(totals.net)} note={totals.net >= 0 ? pick("ইতিবাচক", "Positive") : pick("ব্যয় বেশি", "Expenses are higher")} />
+            <Metric icon={<ReceiptText />} label={pick("অপেক্ষমাণ বিল", "Pending bills")} value={money.format(totals.pendingBillAmount)} note={pick(totals.pendingBills + "টি বিল", totals.pendingBills + " bills")} />
+            <Metric icon={<Landmark />} label={pick("নিট দেনা-পাওনা", "Net debts")} value={money.format(totals.lentOutstanding - totals.borrowedOutstanding)} note={pick(money.format(totals.borrowedOutstanding) + " ধার নেওয়া", money.format(totals.borrowedOutstanding) + " borrowed")} />
           </section>
 
           {!accounts.length && !migrationRequired ? (
-            <StateCard icon={<WalletCards />} title="প্রথম account বা wallet যোগ করুন" text="Cash, bank, mobile banking, savings বা credit account দিয়ে ব্যক্তিগত হিসাব শুরু করুন।" action={<Button className="gap-2 rounded-xl" onClick={() => openRecord("account")}><Plus className="size-4" /> Account যোগ করুন</Button>} compact />
+            <StateCard icon={<WalletCards />} title={pick("প্রথম অ্যাকাউন্ট বা ওয়ালেট যোগ করুন", "Add your first account or wallet")} text={pick("নগদ, ব্যাংক, মোবাইল ব্যাংকিং, সঞ্চয় বা ক্রেডিট অ্যাকাউন্ট দিয়ে ব্যক্তিগত হিসাব শুরু করুন।", "Start personal finance with a cash, bank, mobile banking, savings or credit account.")} action={<Button className="gap-2 rounded-xl" onClick={() => openRecord("account")}><Plus className="size-4" /> {pick("অ্যাকাউন্ট যোগ করুন", "Add account")}</Button>} compact />
           ) : (
             <Tabs defaultValue="overview" className="space-y-4">
               <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl bg-muted/70 p-1.5">
-                <TabsTrigger value="overview" className="rounded-xl px-4 py-2.5">Overview</TabsTrigger>
-                <TabsTrigger value="transactions" className="rounded-xl px-4 py-2.5">Transactions ({transactions.length})</TabsTrigger>
-                <TabsTrigger value="budgets" className="rounded-xl px-4 py-2.5">Budgets ({monthBudgets.length})</TabsTrigger>
-                <TabsTrigger value="debts" className="rounded-xl px-4 py-2.5">দেনা-পাওনা ({debts.length})</TabsTrigger>
-                <TabsTrigger value="bills" className="rounded-xl px-4 py-2.5">Bills ({bills.length})</TabsTrigger>
-                <TabsTrigger value="goals" className="rounded-xl px-4 py-2.5">Goals ({goals.length})</TabsTrigger>
+                <TabsTrigger value="overview" className="rounded-xl px-4 py-2.5">{pick("সারসংক্ষেপ", "Overview")}</TabsTrigger>
+                <TabsTrigger value="transactions" className="rounded-xl px-4 py-2.5">{pick("লেনদেন", "Transactions")} ({transactions.length})</TabsTrigger>
+                <TabsTrigger value="budgets" className="rounded-xl px-4 py-2.5">{pick("বাজেট", "Budgets")} ({monthBudgets.length})</TabsTrigger>
+                <TabsTrigger value="debts" className="rounded-xl px-4 py-2.5">{pick("দেনা-পাওনা", "Debts")} ({debts.length})</TabsTrigger>
+                <TabsTrigger value="bills" className="rounded-xl px-4 py-2.5">{pick("বিল", "Bills")} ({bills.length})</TabsTrigger>
+                <TabsTrigger value="goals" className="rounded-xl px-4 py-2.5">{pick("লক্ষ্য", "Goals")} ({goals.length})</TabsTrigger>
               </TabsList>
 
               <TabsContent value="overview" className="space-y-4">
                 <div className="grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
                   <Card className="rounded-3xl py-0 shadow-none">
                     <CardHeader className="flex-row items-start justify-between p-5 pb-3 md:p-6 md:pb-3">
-                      <div><CardTitle>Monthly cashflow</CardTitle><p className="mt-1 text-sm text-muted-foreground">Budget ও spending health</p></div>
-                      <Button variant="outline" size="sm" className="gap-2 rounded-xl" onClick={() => void exportWorkbook({ name: "Summary", rows: summaryRows })}><Download className="size-4" /> XLSX</Button>
+                      <div><CardTitle>{pick("মাসিক নগদ প্রবাহ", "Monthly cashflow")}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{pick("বাজেট ও ব্যয়ের স্বাস্থ্য", "Budget and spending health")}</p></div>
+                      <Button variant="outline" size="sm" className="gap-2 rounded-xl" onClick={() => void exportWorkbook({ name: pick("সারসংক্ষেপ", "Summary"), rows: summaryRows })}><Download className="size-4" /> {pick("XLSX রপ্তানি", "Export XLSX")}</Button>
                     </CardHeader>
                     <CardContent className="space-y-5 p-5 pt-2 md:p-6 md:pt-2">
                       <div className="grid grid-cols-3 gap-3">
-                        <CashflowStat label="Income" value={totals.income} tone="good" />
-                        <CashflowStat label="Expense" value={totals.expense} tone="bad" />
-                        <CashflowStat label="Net" value={totals.net} tone="neutral" />
+                        <CashflowStat label={pick("আয়", "Income")} value={totals.income} tone="good" />
+                        <CashflowStat label={pick("ব্যয়", "Expense")} value={totals.expense} tone="bad" />
+                        <CashflowStat label={pick("নিট", "Net")} value={totals.net} tone="neutral" />
                       </div>
                       <div>
-                        <div className="mb-2 flex items-center justify-between gap-3 text-sm"><span>Monthly budget used</span><strong>{Math.round(totals.budgetUsed)}%</strong></div>
+                        <div className="mb-2 flex items-center justify-between gap-3 text-sm"><span>{pick("মাসিক বাজেট ব্যবহার", "Monthly budget used")}</span><strong>{Math.round(totals.budgetUsed)}%</strong></div>
                         <Progress value={totals.budgetUsed} className="h-2.5" />
-                        <p className="mt-2 text-xs text-muted-foreground">{money.format(totals.expense)} of {money.format(totals.budgetLimit || 0)}</p>
+                        <p className="mt-2 text-xs text-muted-foreground">{money.format(totals.expense)} {pick("এর মধ্যে", "of")} {money.format(totals.budgetLimit || 0)}</p>
                       </div>
                       <div className="space-y-3">
-                        <p className="font-semibold">Top expense categories</p>
+                        <p className="font-semibold">{pick("শীর্ষ ব্যয়ের ক্যাটাগরি", "Top expense categories")}</p>
                         {expenseCategories.slice(0, 5).map(([category, amount]) => <CategoryBar key={category} category={category} amount={amount} total={totals.expense} />)}
-                        {!expenseCategories.length ? <p className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">এই মাসে কোনো expense নেই।</p> : null}
+                        {!expenseCategories.length ? <p className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">{pick("এই মাসে কোনো ব্যয় নেই।", "There are no expenses this month.")}</p> : null}
                       </div>
                     </CardContent>
                   </Card>
                   <Card className="rounded-3xl bg-primary py-0 text-primary-foreground shadow-none">
                     <CardContent className="p-6">
                       <PiggyBank className="size-8" />
-                      <p className="mt-5 text-sm text-primary-foreground/70">Financial breathing room</p>
+                      <p className="mt-5 text-sm text-primary-foreground/70">{pick("ব্যবহারযোগ্য আর্থিক অবস্থা", "Financial breathing room")}</p>
                       <p className="mt-1 text-3xl font-bold">{money.format(totals.balance - totals.pendingBillAmount)}</p>
-                      <p className="mt-2 text-sm text-primary-foreground/70">Current balance থেকে pending bills বাদ দিয়ে</p>
+                      <p className="mt-2 text-sm text-primary-foreground/70">{pick("বর্তমান ব্যালান্স থেকে অপেক্ষমাণ বিল বাদ দিয়ে", "Current balance after pending bills")}</p>
                       <div className="mt-6 grid grid-cols-2 gap-3">
-                        <DarkStat label="Receivable" value={money.format(totals.lentOutstanding)} />
-                        <DarkStat label="Payable" value={money.format(totals.borrowedOutstanding)} />
-                        <DarkStat label="Goals" value={String(goals.filter((item) => item.status === "active").length)} />
-                        <DarkStat label="Recurring" value={String(transactions.filter((item) => item.is_recurring).length)} />
+                        <DarkStat label={pick("পাওনা", "Receivable")} value={money.format(totals.lentOutstanding)} />
+                        <DarkStat label={pick("দেনা", "Payable")} value={money.format(totals.borrowedOutstanding)} />
+                        <DarkStat label={pick("লক্ষ্য", "Goals")} value={String(goals.filter((item) => item.status === "active").length)} />
+                        <DarkStat label={pick("পুনরাবৃত্ত", "Recurring")} value={String(transactions.filter((item) => item.is_recurring).length)} />
                       </div>
                     </CardContent>
                   </Card>
                 </div>
 
-                <DataSection title="Accounts & wallets" description="Opening balance এবং transaction থেকে live balance" onAdd={() => openRecord("account")} onExport={() => void exportWorkbook({ name: "Accounts", rows: accountRows })}>
+                <DataSection title={pick("অ্যাকাউন্ট ও ওয়ালেট", "Accounts and wallets")} description={pick("প্রারম্ভিক ব্যালান্স ও লেনদেন থেকে বর্তমান ব্যালান্স", "Live balance from opening balance and transactions")} onAdd={() => openRecord("account")} onExport={() => void exportWorkbook({ name: pick("অ্যাকাউন্ট", "Accounts"), rows: accountRows })}>
                   <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">
                     {accounts.map((account) => <div key={account.id} className="rounded-2xl border bg-card p-4"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><WalletCards className="size-5" /></span><div className="flex items-center"><Badge variant="outline">{account.account_type}</Badge><RecordActions disabled={saving} onEdit={() => openEditRecord("account", account)} onDelete={() => void deleteRecord("account", account.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></div><p className="mt-4 font-semibold">{account.name}</p><p className="mt-1 text-2xl font-bold">{money.format(accountBalance(account))}</p><div className="mt-3 flex items-center justify-between"><StatusBadge value={account.status} />{account.status === "active" ? <Button variant="ghost" size="sm" disabled={saving} onClick={() => void updateStatus("account", account.id, "archived").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Update হয়নি।"))}>Archive</Button> : null}</div></div>)}
                   </div>
@@ -624,8 +628,8 @@ export function PersonalFinanceCenter() {
               </TabsContent>
 
               <TabsContent value="transactions">
-                <DataSection title="Income & expense ledger" description="Date, account, category, method ও recurring reference" onAdd={() => openRecord("transaction")} onExport={() => void exportWorkbook({ name: "Transactions", rows: transactionRows })}>
-                  <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Category</TableHead><TableHead>Account</TableHead><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Notes</TableHead><TableHead /></TableRow></TableHeader><TableBody>
+                <DataSection title={pick("আয় ও ব্যয়ের খতিয়ান", "Income and expense ledger")} description={pick("তারিখ, অ্যাকাউন্ট, ক্যাটাগরি, পদ্ধতি ও পুনরাবৃত্ত রেফারেন্স", "Date, account, category, method and recurring reference")} onAdd={() => openRecord("transaction")} onExport={() => void exportWorkbook({ name: pick("লেনদেন", "Transactions"), rows: transactionRows })}>
+                  <Table><TableHeader><TableRow><TableHead>{pick("তারিখ", "Date")}</TableHead><TableHead>{pick("ধরন", "Type")}</TableHead><TableHead>{pick("ক্যাটাগরি", "Category")}</TableHead><TableHead>{pick("অ্যাকাউন্ট", "Account")}</TableHead><TableHead>{pick("পরিমাণ", "Amount")}</TableHead><TableHead>{pick("পদ্ধতি", "Method")}</TableHead><TableHead>{pick("নোট", "Notes")}</TableHead><TableHead /></TableRow></TableHeader><TableBody>
                     {transactions.map((item) => <TableRow key={item.id}><TableCell>{date.format(new Date(item.transaction_date + "T00:00:00"))}</TableCell><TableCell><StatusBadge value={item.direction} /></TableCell><TableCell>{item.category}{item.is_recurring ? <Badge variant="outline" className="ml-2">Recurring</Badge> : null}</TableCell><TableCell>{accounts.find((account) => account.id === item.account_id)?.name || "Archived"}</TableCell><TableCell className={item.direction === "income" ? "font-bold text-emerald-600" : "font-bold text-rose-600"}>{item.direction === "income" ? "+" : "-"}{money.format(valueOf(item.amount))}</TableCell><TableCell>{item.payment_method}</TableCell><TableCell className="max-w-64 truncate">{item.notes || item.reference || "—"}</TableCell><TableCell><RecordActions disabled={saving} onEdit={() => openEditRecord("transaction", item)} onDelete={() => void deleteRecord("transaction", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></TableCell></TableRow>)}
                     <EmptyRows show={!transactions.length} columns={8} />
                   </TableBody></Table>
@@ -633,21 +637,21 @@ export function PersonalFinanceCenter() {
               </TabsContent>
 
               <TabsContent value="budgets">
-                <DataSection title="Monthly category budgets" description={month + " মাসের limit, spending ও alert threshold"} onAdd={() => openRecord("budget")} onExport={() => void exportWorkbook({ name: "Budgets", rows: budgetRows })}>
+                <DataSection title={pick("মাসিক ক্যাটাগরি বাজেট", "Monthly category budgets")} description={pick(month + " মাসের সীমা, ব্যয় ও সতর্কতার মাত্রা", "Limits, spending and alert threshold for " + month)} onAdd={() => openRecord("budget")} onExport={() => void exportWorkbook({ name: pick("বাজেট", "Budgets"), rows: budgetRows })}>
                   <div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
                     {monthBudgets.map((item) => {
                       const spent = monthTransactions.filter((transaction) => transaction.direction === "expense" && transaction.category === item.category).reduce((sum, transaction) => sum + valueOf(transaction.amount), 0);
                       const percent = Math.min(100, (spent / valueOf(item.limit_amount)) * 100);
                       return <div key={item.id} className="rounded-2xl border p-4"><div className="flex items-start justify-between"><div><p className="font-semibold">{item.category}</p><p className="text-sm text-muted-foreground">{money.format(spent)} / {money.format(valueOf(item.limit_amount))}</p></div><div className="flex items-center"><StatusBadge value={percent >= item.alert_percent ? "alert" : "healthy"} /><RecordActions disabled={saving} onEdit={() => openEditRecord("budget", item)} onDelete={() => void deleteRecord("budget", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></div><Progress value={percent} className="mt-4 h-2.5" /><p className="mt-2 text-xs text-muted-foreground">Alert at {item.alert_percent}% · {money.format(Math.max(0, valueOf(item.limit_amount) - spent))} remaining</p></div>;
                     })}
-                    {!monthBudgets.length ? <EmptyCard text="এই মাসের কোনো budget নেই।" /> : null}
+                    {!monthBudgets.length ? <EmptyCard text={pick("এই মাসের কোনো বাজেট নেই।", "There are no budgets for this month.")} /> : null}
                   </div>
                 </DataSection>
               </TabsContent>
 
               <TabsContent value="debts">
-                <DataSection title="দেনা-পাওনা tracker" description="কাকে দিয়েছেন, কার কাছ থেকে নিয়েছেন, due date ও settlement" onAdd={() => openRecord("debt")} onExport={() => void exportWorkbook({ name: "Debts", rows: debtRows })}>
-                  <Table><TableHeader><TableRow><TableHead>Person</TableHead><TableHead>Type</TableHead><TableHead>Principal</TableHead><TableHead>Settled</TableHead><TableHead>Outstanding</TableHead><TableHead>Due</TableHead><TableHead>Status</TableHead><TableHead /></TableRow></TableHeader><TableBody>
+                <DataSection title={pick("দেনা-পাওনা ট্র্যাকার", "Debt and lending tracker")} description={pick("কাকে দিয়েছেন, কার কাছ থেকে নিয়েছেন, নির্ধারিত তারিখ ও নিষ্পত্তি", "Who you lent to or borrowed from, due dates and settlement")} onAdd={() => openRecord("debt")} onExport={() => void exportWorkbook({ name: pick("দেনা-পাওনা", "Debts"), rows: debtRows })}>
+                  <Table><TableHeader><TableRow><TableHead>{pick("ব্যক্তি", "Person")}</TableHead><TableHead>{pick("ধরন", "Type")}</TableHead><TableHead>{pick("মূল পরিমাণ", "Principal")}</TableHead><TableHead>{pick("নিষ্পত্তি", "Settled")}</TableHead><TableHead>{pick("বাকি", "Outstanding")}</TableHead><TableHead>{pick("নির্ধারিত", "Due")}</TableHead><TableHead>{pick("স্ট্যাটাস", "Status")}</TableHead><TableHead /></TableRow></TableHeader><TableBody>
                     {debts.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.counterparty}</TableCell><TableCell><StatusBadge value={item.debt_type} /></TableCell><TableCell>{money.format(valueOf(item.principal_amount))}</TableCell><TableCell>{money.format(valueOf(item.settled_amount))}</TableCell><TableCell className="font-bold">{money.format(Math.max(0, valueOf(item.principal_amount) - valueOf(item.settled_amount)))}</TableCell><TableCell>{item.due_date ? date.format(new Date(item.due_date + "T00:00:00")) : "No date"}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell><TableCell><div className="flex"><Button variant="ghost" size="sm" onClick={() => setProgressTarget({ entity: "debt", id: item.id, title: item.counterparty, amount: String(item.settled_amount), maximum: valueOf(item.principal_amount) })}>Progress</Button><RecordActions disabled={saving} onEdit={() => openEditRecord("debt", item)} onDelete={() => void deleteRecord("debt", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell></TableRow>)}
                     <EmptyRows show={!debts.length} columns={8} />
                   </TableBody></Table>
@@ -655,8 +659,8 @@ export function PersonalFinanceCenter() {
               </TabsContent>
 
               <TabsContent value="bills">
-                <DataSection title="Bills & payment reminders" description="Utility, rent, subscription, tax এবং recurring dues" onAdd={() => openRecord("bill")} onExport={() => void exportWorkbook({ name: "Bills", rows: billRows })}>
-                  <Table><TableHeader><TableRow><TableHead>Bill</TableHead><TableHead>Category</TableHead><TableHead>Amount</TableHead><TableHead>Due date</TableHead><TableHead>Recurrence</TableHead><TableHead>Status</TableHead><TableHead /></TableRow></TableHeader><TableBody>
+                <DataSection title={pick("বিল ও পরিশোধের রিমাইন্ডার", "Bills and payment reminders")} description={pick("ইউটিলিটি, ভাড়া, সাবস্ক্রিপশন, কর ও পুনরাবৃত্ত পাওনা", "Utilities, rent, subscriptions, tax and recurring dues")} onAdd={() => openRecord("bill")} onExport={() => void exportWorkbook({ name: pick("বিল", "Bills"), rows: billRows })}>
+                  <Table><TableHeader><TableRow><TableHead>{pick("বিল", "Bill")}</TableHead><TableHead>{pick("ক্যাটাগরি", "Category")}</TableHead><TableHead>{pick("পরিমাণ", "Amount")}</TableHead><TableHead>{pick("নির্ধারিত তারিখ", "Due date")}</TableHead><TableHead>{pick("পুনরাবৃত্তি", "Recurrence")}</TableHead><TableHead>{pick("স্ট্যাটাস", "Status")}</TableHead><TableHead /></TableRow></TableHeader><TableBody>
                     {bills.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.title}</TableCell><TableCell>{item.category}</TableCell><TableCell>{money.format(valueOf(item.amount))}</TableCell><TableCell>{date.format(new Date(item.due_date + "T00:00:00"))}</TableCell><TableCell>{item.recurrence}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell><TableCell><div className="flex"><StatusMenu values={["pending", "paid", "skipped"]} disabled={saving} onSelect={(status) => void updateStatus("bill", item.id, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Update হয়নি।"))} /><RecordActions disabled={saving} onEdit={() => openEditRecord("bill", item)} onDelete={() => void deleteRecord("bill", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell></TableRow>)}
                     <EmptyRows show={!bills.length} columns={7} />
                   </TableBody></Table>
@@ -664,13 +668,13 @@ export function PersonalFinanceCenter() {
               </TabsContent>
 
               <TabsContent value="goals">
-                <DataSection title="Savings goals" description="Target, saved amount, deadline ও completion progress" onAdd={() => openRecord("goal")} onExport={() => void exportWorkbook({ name: "Goals", rows: goalRows })}>
+                <DataSection title={pick("সঞ্চয়ের লক্ষ্য", "Savings goals")} description={pick("লক্ষ্য, সঞ্চিত পরিমাণ, সময়সীমা ও সম্পন্নের অগ্রগতি", "Target, saved amount, deadline and completion progress")} onAdd={() => openRecord("goal")} onExport={() => void exportWorkbook({ name: pick("লক্ষ্য", "Goals"), rows: goalRows })}>
                   <div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
                     {goals.map((item) => {
                       const progress = Math.min(100, (valueOf(item.current_amount) / valueOf(item.target_amount)) * 100);
                       return <div key={item.id} className="rounded-2xl border p-5"><div className="flex items-start justify-between gap-3"><span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><Target className="size-5" /></span><div className="flex items-center"><StatusBadge value={item.status} /><RecordActions disabled={saving} onEdit={() => openEditRecord("goal", item)} onDelete={() => void deleteRecord("goal", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></div><h3 className="mt-4 font-bold">{item.title}</h3><p className="mt-1 text-2xl font-bold">{money.format(valueOf(item.current_amount))}</p><p className="text-sm text-muted-foreground">of {money.format(valueOf(item.target_amount))}</p><Progress value={progress} className="mt-4 h-2.5" /><div className="mt-3 flex items-center justify-between text-xs text-muted-foreground"><span>{Math.round(progress)}%</span><span>{item.target_date ? date.format(new Date(item.target_date + "T00:00:00")) : "No deadline"}</span></div><Button variant="outline" size="sm" className="mt-4 w-full rounded-xl" onClick={() => setProgressTarget({ entity: "goal", id: item.id, title: item.title, amount: String(item.current_amount), maximum: valueOf(item.target_amount) })}>Saved amount update</Button></div>;
                     })}
-                    {!goals.length ? <EmptyCard text="এখনও কোনো savings goal নেই।" /> : null}
+                    {!goals.length ? <EmptyCard text={pick("এখনও কোনো সঞ্চয়ের লক্ষ্য নেই।", "There are no savings goals yet.")} /> : null}
                   </div>
                 </DataSection>
               </TabsContent>
@@ -681,17 +685,17 @@ export function PersonalFinanceCenter() {
 
       <Dialog open={Boolean(recordKind)} onOpenChange={(open) => { if (!open) { setRecordKind(null); setEditingRecord(null); } }}>
         <DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-3xl">
-          <DialogHeader><DialogTitle>{recordKind ? kindLabels[recordKind] : "Finance record"} {editingRecord ? "edit করুন" : "যোগ করুন"}</DialogTitle><DialogDescription>এই তথ্য শুধু আপনার private finance workspace-এ থাকবে।</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{recordKind ? kindLabels[recordKind] : pick("হিসাবের রেকর্ড", "Finance record")} {editingRecord ? pick("সম্পাদনা করুন", "edit") : pick("যোগ করুন", "add")}</DialogTitle><DialogDescription>{pick("এই তথ্য শুধু আপনার ব্যক্তিগত হিসাবের জায়গায় থাকবে।", "This information stays only in your private finance workspace.")}</DialogDescription></DialogHeader>
           {recordKind ? <FinanceForm kind={recordKind} form={form} setForm={setForm} accounts={activeAccounts} /> : null}
-          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => { setRecordKind(null); setEditingRecord(null); }}>বাতিল</Button><Button className="gap-2 rounded-xl" disabled={saving} onClick={() => void saveRecord().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Save হয়নি।"))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingRecord ? <Pencil className="size-4" /> : <Plus className="size-4" />} {editingRecord ? "Update করুন" : "Save করুন"}</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => { setRecordKind(null); setEditingRecord(null); }}>{pick("বাতিল", "Cancel")}</Button><Button className="gap-2 rounded-xl" disabled={saving} onClick={() => void saveRecord().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("সংরক্ষণ হয়নি।", "Could not save.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingRecord ? <Pencil className="size-4" /> : <Plus className="size-4" />} {editingRecord ? pick("হালনাগাদ করুন", "Update") : pick("সংরক্ষণ করুন", "Save")}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={Boolean(progressTarget)} onOpenChange={(open) => !open && setProgressTarget(null)}>
         <DialogContent className="rounded-3xl sm:max-w-md">
-          <DialogHeader><DialogTitle>Progress update</DialogTitle><DialogDescription>{progressTarget?.title} · সর্বোচ্চ {money.format(progressTarget?.maximum ?? 0)}</DialogDescription></DialogHeader>
-          <FormField label={progressTarget?.entity === "debt" ? "মোট settled amount" : "মোট saved amount"} id="progress-amount"><Input id="progress-amount" type="number" min="0" max={progressTarget?.maximum} value={progressTarget?.amount ?? ""} onChange={(event) => setProgressTarget((current) => current ? { ...current, amount: event.target.value } : current)} /></FormField>
-          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setProgressTarget(null)}>বাতিল</Button><Button className="rounded-xl" disabled={saving} onClick={() => void saveProgress().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Update হয়নি।"))}>Update করুন</Button></DialogFooter>
+          <DialogHeader><DialogTitle>{pick("অগ্রগতি হালনাগাদ", "Update progress")}</DialogTitle><DialogDescription>{progressTarget?.title} · {pick("সর্বোচ্চ", "maximum")} {money.format(progressTarget?.maximum ?? 0)}</DialogDescription></DialogHeader>
+          <FormField label={progressTarget?.entity === "debt" ? pick("মোট নিষ্পত্তির পরিমাণ", "Total settled amount") : pick("মোট সঞ্চিত পরিমাণ", "Total saved amount")} id="progress-amount"><Input id="progress-amount" type="number" min="0" max={progressTarget?.maximum} value={progressTarget?.amount ?? ""} onChange={(event) => setProgressTarget((current) => current ? { ...current, amount: event.target.value } : current)} /></FormField>
+          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setProgressTarget(null)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving} onClick={() => void saveProgress().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("হালনাগাদ হয়নি।", "Could not update.")))}>{pick("হালনাগাদ করুন", "Update")}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </main>
@@ -703,6 +707,8 @@ function Metric({ icon, label, value, note }: { icon: ReactNode; label: string; 
 }
 
 function CashflowStat({ label, value, tone }: { label: string; value: number; tone: "good" | "bad" | "neutral" }) {
+  const { locale } = useLocale();
+  const money = moneyFor(locale);
   const style = tone === "good" ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : tone === "bad" ? "bg-rose-500/10 text-rose-700 dark:text-rose-300" : "bg-primary/10 text-primary";
   return <div className={"rounded-2xl p-3 " + style}><p className="text-xs opacity-75">{label}</p><p className="mt-1 font-bold">{money.format(value)}</p></div>;
 }
@@ -712,16 +718,20 @@ function DarkStat({ label, value }: { label: string; value: string }) {
 }
 
 function CategoryBar({ category, amount, total }: { category: string; amount: number; total: number }) {
+  const { locale } = useLocale();
+  const money = moneyFor(locale);
   const percent = total ? (amount / total) * 100 : 0;
   return <div><div className="mb-1.5 flex items-center justify-between text-sm"><span>{category}</span><strong>{money.format(amount)}</strong></div><Progress value={percent} className="h-2" /></div>;
 }
 
 function DataSection({ title, description, onAdd, onExport, children }: { title: string; description: string; onAdd: () => void; onExport: () => void; children: ReactNode }) {
-  return <Card className="gap-0 overflow-hidden rounded-3xl py-0 shadow-none"><div className="flex flex-col gap-3 border-b p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-bold">{title}</h2><p className="text-sm text-muted-foreground">{description}</p></div><div className="flex gap-2"><Button variant="outline" size="sm" className="gap-2 rounded-xl" onClick={onExport}><Download className="size-4" /> XLSX</Button><Button size="sm" className="gap-2 rounded-xl" onClick={onAdd}><Plus className="size-4" /> Add</Button></div></div><div className="overflow-x-auto">{children}</div></Card>;
+  const { pick } = useLocale();
+  return <Card className="gap-0 overflow-hidden rounded-3xl py-0 shadow-none"><div className="flex flex-col gap-3 border-b p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-bold">{title}</h2><p className="text-sm text-muted-foreground">{description}</p></div><div className="flex gap-2"><Button variant="outline" size="sm" className="gap-2 rounded-xl" onClick={onExport}><Download className="size-4" /> {pick("XLSX রপ্তানি", "Export XLSX")}</Button><Button size="sm" className="gap-2 rounded-xl" onClick={onAdd}><Plus className="size-4" /> {pick("যোগ করুন", "Add")}</Button></div></div><div className="overflow-x-auto">{children}</div></Card>;
 }
 
 function EmptyRows({ show, columns }: { show: boolean; columns: number }) {
-  return show ? <TableRow><TableCell colSpan={columns} className="h-28 text-center text-muted-foreground">এখনও কোনো record নেই। Add দিয়ে শুরু করুন।</TableCell></TableRow> : null;
+  const { pick } = useLocale();
+  return show ? <TableRow><TableCell colSpan={columns} className="h-28 text-center text-muted-foreground">{pick("এখনও কোনো রেকর্ড নেই। যোগ করুন দিয়ে শুরু করুন।", "No records yet. Use Add to begin.")}</TableCell></TableRow> : null;
 }
 
 function EmptyCard({ text }: { text: string }) {
@@ -733,6 +743,7 @@ function StateCard({ icon, title, text, action, compact = false }: { icon: React
 }
 
 function StatusBadge({ value }: { value: string }) {
+  const { locale } = useLocale();
   const positive = ["active", "paid", "settled", "completed", "income", "healthy", "lent"];
   const warning = ["pending", "partial", "open", "alert", "borrowed"];
   const bad = ["overdue", "expense", "skipped"];
@@ -743,15 +754,22 @@ function StatusBadge({ value }: { value: string }) {
       : bad.includes(value)
         ? "bg-rose-500/12 text-rose-700 dark:text-rose-300"
         : "bg-muted text-muted-foreground";
-  return <Badge variant="secondary" className={className}>{value.replaceAll("_", " ")}</Badge>;
+  return <Badge variant="secondary" className={className}>{financeStatusLabel(value, locale)}</Badge>;
 }
 
 function StatusMenu({ values, onSelect, disabled }: { values: string[]; onSelect: (value: string) => void; disabled: boolean }) {
-  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">Status actions</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{values.map((value) => <DropdownMenuItem key={value} onClick={() => onSelect(value)}>{value}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>;
+  const { locale, pick } = useLocale();
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">{pick("স্ট্যাটাস পরিবর্তন", "Status actions")}</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{values.map((value) => <DropdownMenuItem key={value} onClick={() => onSelect(value)}>{financeStatusLabel(value, locale)}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>;
 }
 
 function RecordActions({ onEdit, onDelete, disabled }: { onEdit: () => void; onDelete: () => void; disabled: boolean }) {
-  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">Record actions</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={onEdit}><Pencil /> Edit details</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}><Trash2 /> Delete permanently</DropdownMenuItem></DropdownMenuContent></DropdownMenu>;
+  const { pick } = useLocale();
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">{pick("রেকর্ডের কাজ", "Record actions")}</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={onEdit}><Pencil /> {pick("বিস্তারিত সম্পাদনা", "Edit details")}</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}><Trash2 /> {pick("স্থায়ীভাবে মুছুন", "Delete permanently")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>;
+}
+
+const financeStatusBn: Record<string, string> = { active: "সক্রিয়", archived: "আর্কাইভ", paid: "পরিশোধিত", settled: "নিষ্পত্তি", completed: "সম্পন্ন", income: "আয়", healthy: "স্বাভাবিক", lent: "ধার দিয়েছি", pending: "অপেক্ষমাণ", partial: "আংশিক", open: "খোলা", alert: "সতর্কতা", borrowed: "ধার নিয়েছি", overdue: "সময়োত্তীর্ণ", expense: "ব্যয়", skipped: "বাদ দেওয়া" };
+function financeStatusLabel(value: string, locale: AppLocale) {
+  return (locale === "bn" ? financeStatusBn[value] : undefined) ?? value.replaceAll("_", " ");
 }
 
 function FormField({ label, id, children }: { label: string; id: string; children: ReactNode }) {
@@ -763,17 +781,18 @@ function ValueSelect({ id, value, onChange, items }: { id: string; value: string
 }
 
 function FinanceForm({ kind, form, setForm, accounts }: { kind: FinanceRecordKind; form: FormState; setForm: (value: FormState) => void; accounts: FinanceAccount[] }) {
+  const { pick } = useLocale();
   const set = (key: string, value: string) => setForm({ ...form, [key]: value });
   const input = (key: string, label: string, type = "text", options?: { min?: string; max?: string; step?: string; list?: string }) => <FormField label={label} id={"finance-" + key}><Input id={"finance-" + key} type={type} min={options?.min} max={options?.max} step={options?.step} list={options?.list} value={form[key] ?? ""} onChange={(event) => set(key, event.target.value)} /></FormField>;
   const select = (key: string, label: string, items: Array<[string, string]>) => <FormField label={label} id={"finance-" + key}><ValueSelect id={"finance-" + key} value={form[key] ?? items[0]?.[0] ?? ""} onChange={(value) => set(key, value)} items={items} /></FormField>;
-  const notes = <div className="sm:col-span-2"><FormField label="Notes" id="finance-notes"><Textarea id="finance-notes" rows={3} value={form.notes ?? ""} onChange={(event) => set("notes", event.target.value)} /></FormField></div>;
-  const category = input("category", "Category", "text", { list: "finance-categories" });
+  const notes = <div className="sm:col-span-2"><FormField label={pick("নোট", "Notes")} id="finance-notes"><Textarea id="finance-notes" rows={3} value={form.notes ?? ""} onChange={(event) => set("notes", event.target.value)} /></FormField></div>;
+  const category = input("category", pick("ক্যাটাগরি", "Category"), "text", { list: "finance-categories" });
   const suggestions = <datalist id="finance-categories">{categorySuggestions.map((item) => <option key={item} value={item} />)}</datalist>;
 
-  if (kind === "account") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("name", "Account / wallet name")}{select("accountType", "Account type", [["cash", "Cash"], ["bank", "Bank"], ["mobile", "Mobile banking"], ["savings", "Savings"], ["credit", "Credit"]])}{input("openingBalance", "Opening balance", "number", { step: "0.01" })}{notes}</div>;
-  if (kind === "transaction") return <div className="grid gap-4 py-2 sm:grid-cols-2">{select("accountId", "Account", accounts.map((item) => [item.id, item.name]))}{select("direction", "Type", [["expense", "Expense"], ["income", "Income"]])}{category}{suggestions}{input("amount", "Amount", "number", { min: "0.01", step: "0.01" })}{input("transactionDate", "Date", "date")}{select("paymentMethod", "Payment method", [["cash", "Cash"], ["bank", "Bank"], ["mobile", "Mobile banking"], ["card", "Card"], ["other", "Other"]])}{select("isRecurring", "Recurring entry", [["false", "No"], ["true", "Yes"]])}{input("reference", "Reference")}{notes}</div>;
-  if (kind === "budget") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("budgetMonth", "Budget month", "month")}{category}{suggestions}{input("limitAmount", "Limit amount", "number", { min: "0.01" })}{input("alertPercent", "Alert at %", "number", { min: "1", max: "100" })}{notes}</div>;
-  if (kind === "debt") return <div className="grid gap-4 py-2 sm:grid-cols-2">{select("debtType", "Type", [["lent", "আমি ধার দিয়েছি"], ["borrowed", "আমি ধার নিয়েছি"]])}{input("counterparty", "Person / organization")}{input("principalAmount", "Principal amount", "number", { min: "0.01" })}{input("settledAmount", "Already settled", "number", { min: "0" })}{input("dueDate", "Due date", "date")}{notes}</div>;
-  if (kind === "bill") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("title", "Bill name")}{category}{suggestions}{input("amount", "Amount", "number", { min: "0.01" })}{input("dueDate", "Due date", "date")}{select("recurrence", "Recurrence", [["none", "One time"], ["monthly", "Monthly"], ["yearly", "Yearly"]])}{notes}</div>;
-  return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("title", "Goal title")}{input("targetAmount", "Target amount", "number", { min: "0.01" })}{input("currentAmount", "Already saved", "number", { min: "0" })}{input("targetDate", "Target date", "date")}{notes}</div>;
+  if (kind === "account") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("name", pick("অ্যাকাউন্ট / ওয়ালেটের নাম", "Account / wallet name"))}{select("accountType", pick("অ্যাকাউন্টের ধরন", "Account type"), [["cash", pick("নগদ", "Cash")], ["bank", pick("ব্যাংক", "Bank")], ["mobile", pick("মোবাইল ব্যাংকিং", "Mobile banking")], ["savings", pick("সঞ্চয়", "Savings")], ["credit", pick("ক্রেডিট", "Credit")]])}{input("openingBalance", pick("প্রারম্ভিক ব্যালান্স", "Opening balance"), "number", { step: "0.01" })}{notes}</div>;
+  if (kind === "transaction") return <div className="grid gap-4 py-2 sm:grid-cols-2">{select("accountId", pick("অ্যাকাউন্ট", "Account"), accounts.map((item) => [item.id, item.name]))}{select("direction", pick("ধরন", "Type"), [["expense", pick("ব্যয়", "Expense")], ["income", pick("আয়", "Income")]])}{category}{suggestions}{input("amount", pick("পরিমাণ", "Amount"), "number", { min: "0.01", step: "0.01" })}{input("transactionDate", pick("তারিখ", "Date"), "date")}{select("paymentMethod", pick("পরিশোধ পদ্ধতি", "Payment method"), [["cash", pick("নগদ", "Cash")], ["bank", pick("ব্যাংক", "Bank")], ["mobile", pick("মোবাইল ব্যাংকিং", "Mobile banking")], ["card", pick("কার্ড", "Card")], ["other", pick("অন্যান্য", "Other")]])}{select("isRecurring", pick("পুনরাবৃত্ত এন্ট্রি", "Recurring entry"), [["false", pick("না", "No")], ["true", pick("হ্যাঁ", "Yes")]])}{input("reference", pick("রেফারেন্স", "Reference"))}{notes}</div>;
+  if (kind === "budget") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("budgetMonth", pick("বাজেটের মাস", "Budget month"), "month")}{category}{suggestions}{input("limitAmount", pick("সীমার পরিমাণ", "Limit amount"), "number", { min: "0.01" })}{input("alertPercent", pick("সতর্কতা %", "Alert at %"), "number", { min: "1", max: "100" })}{notes}</div>;
+  if (kind === "debt") return <div className="grid gap-4 py-2 sm:grid-cols-2">{select("debtType", pick("ধরন", "Type"), [["lent", pick("আমি ধার দিয়েছি", "I lent money")], ["borrowed", pick("আমি ধার নিয়েছি", "I borrowed money")]])}{input("counterparty", pick("ব্যক্তি / প্রতিষ্ঠান", "Person / organization"))}{input("principalAmount", pick("মূল পরিমাণ", "Principal amount"), "number", { min: "0.01" })}{input("settledAmount", pick("ইতিমধ্যে নিষ্পত্তি", "Already settled"), "number", { min: "0" })}{input("dueDate", pick("নির্ধারিত তারিখ", "Due date"), "date")}{notes}</div>;
+  if (kind === "bill") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("title", pick("বিলের নাম", "Bill name"))}{category}{suggestions}{input("amount", pick("পরিমাণ", "Amount"), "number", { min: "0.01" })}{input("dueDate", pick("নির্ধারিত তারিখ", "Due date"), "date")}{select("recurrence", pick("পুনরাবৃত্তি", "Recurrence"), [["none", pick("একবার", "One time")], ["monthly", pick("মাসিক", "Monthly")], ["yearly", pick("বার্ষিক", "Yearly")]])}{notes}</div>;
+  return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("title", pick("লক্ষ্যের শিরোনাম", "Goal title"))}{input("targetAmount", pick("লক্ষ্যের পরিমাণ", "Target amount"), "number", { min: "0.01" })}{input("currentAmount", pick("ইতিমধ্যে সঞ্চিত", "Already saved"), "number", { min: "0" })}{input("targetDate", pick("লক্ষ্যের তারিখ", "Target date"), "date")}{notes}</div>;
 }

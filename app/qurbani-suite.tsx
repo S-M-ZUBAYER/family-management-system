@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionFeedback } from "@/components/action-modal-provider";
+import { useLocale, type AppLocale } from "@/components/locale-provider";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -87,7 +88,7 @@ type SectionKey =
   | "tasks"
   | "distribution";
 
-const campaignStatusLabels: Record<QurbaniCampaignStatus, string> = {
+const campaignStatusLabelsBn: Record<QurbaniCampaignStatus, string> = {
   planning: "পরিকল্পনা",
   registration: "রেজিস্ট্রেশন",
   procurement: "পশু ক্রয়",
@@ -96,6 +97,8 @@ const campaignStatusLabels: Record<QurbaniCampaignStatus, string> = {
   settled: "হিসাব নিষ্পত্তি",
   closed: "বন্ধ",
 };
+const campaignStatusLabelsEn: Record<QurbaniCampaignStatus, string> = { planning: "Planning", registration: "Registration", procurement: "Procurement", slaughter: "Qurbani day", distribution: "Distribution", settled: "Settled", closed: "Closed" };
+const campaignLabelsFor = (locale: AppLocale) => locale === "bn" ? campaignStatusLabelsBn : campaignStatusLabelsEn;
 
 const workflow: QurbaniCampaignStatus[] = [
   "planning",
@@ -107,7 +110,7 @@ const workflow: QurbaniCampaignStatus[] = [
   "closed",
 ];
 
-const kindLabels: Record<QurbaniRecordKind, string> = {
+const kindLabelsBn: Record<QurbaniRecordKind, string> = {
   participant: "অংশগ্রহণকারী ও শেয়ার",
   animal: "পশু",
   transaction: "লেনদেন",
@@ -116,18 +119,8 @@ const kindLabels: Record<QurbaniRecordKind, string> = {
   task: "Task / Volunteer duty",
   distribution: "মাংস বণ্টন",
 };
-
-const moneyFormatter = new Intl.NumberFormat("bn-BD", {
-  style: "currency",
-  currency: "BDT",
-  maximumFractionDigits: 0,
-});
-const numberFormatter = new Intl.NumberFormat("bn-BD", { maximumFractionDigits: 2 });
-const dateFormatter = new Intl.DateTimeFormat("bn-BD", { dateStyle: "medium" });
-const dateTimeFormatter = new Intl.DateTimeFormat("bn-BD", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
+const kindLabelsEn: Record<QurbaniRecordKind, string> = { participant: "Participants & shares", animal: "Animals", transaction: "Transactions", vendor: "Vendors", schedule: "Qurbani schedule", task: "Tasks / volunteer duties", distribution: "Meat distribution" };
+const kindLabelsFor = (locale: AppLocale) => locale === "bn" ? kindLabelsBn : kindLabelsEn;
 
 const today = () => new Date().toISOString().slice(0, 10);
 const numberOf = (value: number | string | null | undefined) => Number(value ?? 0) || 0;
@@ -158,6 +151,13 @@ function defaultRecordForm(kind: QurbaniRecordKind): FormState {
 }
 
 export function QurbaniSuite() {
+  const { locale, pick } = useLocale();
+  const campaignStatusLabels = campaignLabelsFor(locale);
+  const kindLabels = kindLabelsFor(locale);
+  const moneyFormatter = new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", maximumFractionDigits: 0 });
+  const numberFormatter = new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-US", { maximumFractionDigits: 2 });
+  const dateFormatter = new Intl.DateTimeFormat(locale === "bn" ? "bn-BD" : "en-GB", { dateStyle: "medium" });
+  const dateTimeFormatter = new Intl.DateTimeFormat(locale === "bn" ? "bn-BD" : "en-GB", { dateStyle: "medium", timeStyle: "short" });
   const [campaigns, setCampaigns] = useState<QurbaniCampaign[]>([]);
   const [participants, setParticipants] = useState<QurbaniParticipant[]>([]);
   const [animals, setAnimals] = useState<QurbaniAnimal[]>([]);
@@ -447,107 +447,107 @@ export function QurbaniSuite() {
   const summaryRows = campaign
     ? [
         {
-          Campaign: campaign.title,
-          Year: campaign.year,
-          "Hijri year": campaign.hijri_year ?? "",
-          Status: campaignStatusLabels[campaign.status],
-          Location: campaign.location ?? "",
-          "Slaughter date": campaign.slaughter_date ?? "",
-          "Share price": numberOf(campaign.share_price),
-          "Target shares": numberOf(campaign.target_shares),
-          "Registered shares": totals.shares,
-          "Participant dues": totals.due,
-          "Participant paid": totals.paid,
-          Outstanding: totals.outstanding,
-          "Ledger collection": totals.collected,
-          Expenses: totals.expenses,
-          Refunds: totals.refunds,
-          Balance: totals.balance,
-          "Animals count": campaignAnimals.length,
-          "Estimated meat kg": totals.meatEstimate,
-          "Distributed kg": totals.distributed,
-          Packages: totals.packages,
-          "Open tasks": totals.openTasks,
+          [pick("ক্যাম্পেইন", "Campaign")]: campaign.title,
+          [pick("বছর", "Year")]: campaign.year,
+          [pick("হিজরি বছর", "Hijri year")]: campaign.hijri_year ?? "",
+          [pick("স্ট্যাটাস", "Status")]: campaignStatusLabels[campaign.status],
+          [pick("স্থান", "Location")]: campaign.location ?? "",
+          [pick("কোরবানির তারিখ", "Slaughter date")]: campaign.slaughter_date ?? "",
+          [pick("শেয়ার মূল্য", "Share price")]: numberOf(campaign.share_price),
+          [pick("লক্ষ্য শেয়ার", "Target shares")]: numberOf(campaign.target_shares),
+          [pick("নিবন্ধিত শেয়ার", "Registered shares")]: totals.shares,
+          [pick("অংশগ্রহণকারীর পাওনা", "Participant dues")]: totals.due,
+          [pick("অংশগ্রহণকারীর পরিশোধ", "Participant paid")]: totals.paid,
+          [pick("বকেয়া", "Outstanding")]: totals.outstanding,
+          [pick("খতিয়ান সংগ্রহ", "Ledger collection")]: totals.collected,
+          [pick("খরচ", "Expenses")]: totals.expenses,
+          [pick("ফেরত", "Refunds")]: totals.refunds,
+          [pick("ব্যালান্স", "Balance")]: totals.balance,
+          [pick("পশুর সংখ্যা", "Animals count")]: campaignAnimals.length,
+          [pick("আনুমানিক মাংস কেজি", "Estimated meat kg")]: totals.meatEstimate,
+          [pick("বণ্টিত কেজি", "Distributed kg")]: totals.distributed,
+          [pick("প্যাকেট", "Packages")]: totals.packages,
+          [pick("অসম্পন্ন কাজ", "Open tasks")]: totals.openTasks,
         },
       ]
     : [];
 
   const participantRows = campaignParticipants.map((item, index) => ({
-    SL: index + 1,
-    Participant: item.member_name,
-    Phone: item.phone ?? "",
-    Animal: campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code ?? "",
-    Shares: numberOf(item.share_count),
-    Due: numberOf(item.amount_due),
-    Paid: numberOf(item.amount_paid),
-    Outstanding: Math.max(0, numberOf(item.amount_due) - numberOf(item.amount_paid)),
-    Status: item.status,
-    Notes: item.notes ?? "",
+    [pick("ক্রম", "SL")]: index + 1,
+    [pick("অংশগ্রহণকারী", "Participant")]: item.member_name,
+    [pick("ফোন", "Phone")]: item.phone ?? "",
+    [pick("পশু", "Animal")]: campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code ?? "",
+    [pick("শেয়ার", "Shares")]: numberOf(item.share_count),
+    [pick("পাওনা", "Due")]: numberOf(item.amount_due),
+    [pick("পরিশোধিত", "Paid")]: numberOf(item.amount_paid),
+    [pick("বকেয়া", "Outstanding")]: Math.max(0, numberOf(item.amount_due) - numberOf(item.amount_paid)),
+    [pick("স্ট্যাটাস", "Status")]: statusLabel(item.status, locale),
+    [pick("নোট", "Notes")]: item.notes ?? "",
   }));
   const animalRows = campaignAnimals.map((item) => ({
-    Tag: item.tag_code,
-    Type: item.animal_type,
-    Breed: item.breed ?? "",
-    Color: item.color ?? "",
-    "Live weight kg": numberOf(item.live_weight_kg),
-    "Estimated meat kg": numberOf(item.estimated_meat_kg),
-    "Purchase price": numberOf(item.purchase_price),
-    Transport: numberOf(item.transport_cost),
-    Feed: numberOf(item.feed_cost),
-    Vendor: item.vendor_name ?? "",
-    "Purchase date": item.purchase_date ?? "",
-    Health: item.health_status,
-    Status: item.status,
-    "Vet notes": item.vet_notes ?? "",
+    [pick("ট্যাগ", "Tag")]: item.tag_code,
+    [pick("ধরন", "Type")]: item.animal_type,
+    [pick("জাত", "Breed")]: item.breed ?? "",
+    [pick("রং", "Color")]: item.color ?? "",
+    [pick("জীবিত ওজন কেজি", "Live weight kg")]: numberOf(item.live_weight_kg),
+    [pick("আনুমানিক মাংস কেজি", "Estimated meat kg")]: numberOf(item.estimated_meat_kg),
+    [pick("ক্রয়মূল্য", "Purchase price")]: numberOf(item.purchase_price),
+    [pick("পরিবহন", "Transport")]: numberOf(item.transport_cost),
+    [pick("খাদ্য", "Feed")]: numberOf(item.feed_cost),
+    [pick("বিক্রেতা", "Vendor")]: item.vendor_name ?? "",
+    [pick("ক্রয়ের তারিখ", "Purchase date")]: item.purchase_date ?? "",
+    [pick("স্বাস্থ্য", "Health")]: statusLabel(item.health_status, locale),
+    [pick("স্ট্যাটাস", "Status")]: statusLabel(item.status, locale),
+    [pick("পশু চিকিৎসকের নোট", "Vet notes")]: item.vet_notes ?? "",
   }));
   const ledgerRows = campaignTransactions.map((item) => ({
-    Date: item.transaction_date,
-    Type: item.transaction_type,
-    Category: item.category,
-    Amount: numberOf(item.amount),
-    Method: item.payment_method,
-    Participant:
+    [pick("তারিখ", "Date")]: item.transaction_date,
+    [pick("ধরন", "Type")]: statusLabel(item.transaction_type, locale),
+    [pick("ক্যাটাগরি", "Category")]: item.category,
+    [pick("পরিমাণ", "Amount")]: numberOf(item.amount),
+    [pick("পদ্ধতি", "Method")]: item.payment_method,
+    [pick("অংশগ্রহণকারী", "Participant")]:
       campaignParticipants.find((participant) => participant.id === item.participant_id)?.member_name ?? "",
-    Animal: campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code ?? "",
-    Reference: item.reference ?? "",
-    Notes: item.notes ?? "",
+    [pick("পশু", "Animal")]: campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code ?? "",
+    [pick("রেফারেন্স", "Reference")]: item.reference ?? "",
+    [pick("নোট", "Notes")]: item.notes ?? "",
   }));
   const vendorRows = campaignVendors.map((item) => ({
-    Vendor: item.name,
-    Type: item.vendor_type,
-    Phone: item.phone ?? "",
-    Address: item.address ?? "",
-    Agreed: numberOf(item.agreed_amount),
-    Paid: numberOf(item.paid_amount),
-    Due: Math.max(0, numberOf(item.agreed_amount) - numberOf(item.paid_amount)),
-    Status: item.status,
-    Notes: item.notes ?? "",
+    [pick("বিক্রেতা", "Vendor")]: item.name,
+    [pick("ধরন", "Type")]: item.vendor_type,
+    [pick("ফোন", "Phone")]: item.phone ?? "",
+    [pick("ঠিকানা", "Address")]: item.address ?? "",
+    [pick("চুক্তি", "Agreed")]: numberOf(item.agreed_amount),
+    [pick("পরিশোধিত", "Paid")]: numberOf(item.paid_amount),
+    [pick("বকেয়া", "Due")]: Math.max(0, numberOf(item.agreed_amount) - numberOf(item.paid_amount)),
+    [pick("স্ট্যাটাস", "Status")]: statusLabel(item.status, locale),
+    [pick("নোট", "Notes")]: item.notes ?? "",
   }));
   const scheduleRows = campaignSchedules.map((item) => ({
-    Sequence: item.sequence_no,
-    Animal: campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code ?? "",
-    "Scheduled at": dateTimeFormatter.format(new Date(item.scheduled_at)),
-    Location: item.location ?? "",
-    Team: item.butcher_team ?? "",
-    Status: item.status,
-    Notes: item.notes ?? "",
+    [pick("ক্রম", "Sequence")]: item.sequence_no,
+    [pick("পশু", "Animal")]: campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code ?? "",
+    [pick("নির্ধারিত সময়", "Scheduled at")]: dateTimeFormatter.format(new Date(item.scheduled_at)),
+    [pick("স্থান", "Location")]: item.location ?? "",
+    [pick("দল", "Team")]: item.butcher_team ?? "",
+    [pick("স্ট্যাটাস", "Status")]: statusLabel(item.status, locale),
+    [pick("নোট", "Notes")]: item.notes ?? "",
   }));
   const taskRows = campaignTasks.map((item) => ({
-    Task: item.title,
-    Category: item.category,
-    "Assigned to": item.assigned_to ?? "",
-    Due: item.due_at ? dateTimeFormatter.format(new Date(item.due_at)) : "",
-    Priority: item.priority,
-    Status: item.status,
-    Notes: item.notes ?? "",
+    [pick("কাজ", "Task")]: item.title,
+    [pick("ক্যাটাগরি", "Category")]: item.category,
+    [pick("দায়িত্বপ্রাপ্ত", "Assigned to")]: item.assigned_to ?? "",
+    [pick("সময়সীমা", "Due")]: item.due_at ? dateTimeFormatter.format(new Date(item.due_at)) : "",
+    [pick("অগ্রাধিকার", "Priority")]: statusLabel(item.priority, locale),
+    [pick("স্ট্যাটাস", "Status")]: statusLabel(item.status, locale),
+    [pick("নোট", "Notes")]: item.notes ?? "",
   }));
   const distributionRows = campaignDistributions.map((item) => ({
-    Recipient: item.recipient_name,
-    Type: item.recipient_type,
-    "Weight kg": numberOf(item.weight_kg),
-    Packages: item.package_count,
-    Collected: item.collected_at ? dateTimeFormatter.format(new Date(item.collected_at)) : "",
-    Notes: item.notes ?? "",
+    [pick("গ্রহীতা", "Recipient")]: item.recipient_name,
+    [pick("ধরন", "Type")]: statusLabel(item.recipient_type, locale),
+    [pick("ওজন কেজি", "Weight kg")]: numberOf(item.weight_kg),
+    [pick("প্যাকেট", "Packages")]: item.package_count,
+    [pick("সংগ্রহ", "Collected")]: item.collected_at ? dateTimeFormatter.format(new Date(item.collected_at)) : "",
+    [pick("নোট", "Notes")]: item.notes ?? "",
   }));
 
   async function exportWorkbook(single?: { name: string; rows: Array<Record<string, unknown>> }) {
@@ -559,17 +559,17 @@ export function QurbaniSuite() {
       const sheets = single
         ? [single]
         : [
-            { name: "Campaign Summary", rows: summaryRows },
-            { name: "Participants", rows: participantRows },
-            { name: "Animals", rows: animalRows },
-            { name: "Ledger", rows: ledgerRows },
-            { name: "Vendors", rows: vendorRows },
-            { name: "Schedule", rows: scheduleRows },
-            { name: "Tasks", rows: taskRows },
-            { name: "Distribution", rows: distributionRows },
+            { name: pick("ক্যাম্পেইন সারাংশ", "Campaign Summary"), rows: summaryRows },
+            { name: pick("অংশগ্রহণকারী", "Participants"), rows: participantRows },
+            { name: pick("পশু", "Animals"), rows: animalRows },
+            { name: pick("খতিয়ান", "Ledger"), rows: ledgerRows },
+            { name: pick("বিক্রেতা", "Vendors"), rows: vendorRows },
+            { name: pick("সময়সূচি", "Schedule"), rows: scheduleRows },
+            { name: pick("কাজ", "Tasks"), rows: taskRows },
+            { name: pick("বণ্টন", "Distribution"), rows: distributionRows },
           ];
       sheets.forEach((sheet) => {
-        const data = sheet.rows.length ? sheet.rows : [{ Information: "No records yet" }];
+        const data = sheet.rows.length ? sheet.rows : [{ [pick("তথ্য", "Information")]: pick("এখনও কোনো রেকর্ড নেই", "No records yet") }];
         XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data), sheet.name.slice(0, 31));
       });
       const baseName =
@@ -629,9 +629,9 @@ export function QurbaniSuite() {
     return (
       <StateCard
         icon={<ShieldAlert />}
-        title="Family access সক্রিয় নয়"
-        text="Join code দিয়ে আবেদন করুন। Admin approval-এর পর কোরবানি operations ব্যবহার করা যাবে।"
-        action={<Button asChild className="rounded-xl"><a href="/setup">Family onboarding খুলুন</a></Button>}
+        title={pick("ফ্যামিলি access সক্রিয় নয়", "Family access is not active")}
+        text={pick("Join code দিয়ে আবেদন করুন। Admin অনুমোদনের পর কোরবানি operations ব্যবহার করা যাবে।", "Apply with a join code. You can use Qurbani operations after admin approval.")}
+        action={<Button asChild className="rounded-xl"><a href="/setup">{pick("Family onboarding খুলুন", "Open family onboarding")}</a></Button>}
       />
     );
   }
@@ -641,18 +641,18 @@ export function QurbaniSuite() {
       <section className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
-            <CalendarDays className="size-4" /> Qurbani A–Z Operations
+            <CalendarDays className="size-4" /> {pick("কোরবানি A–Z কার্যক্রম", "Qurbani A–Z Operations")}
           </div>
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">কোরবানি ম্যানেজমেন্ট সিস্টেম</h1>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{pick("কোরবানি ম্যানেজমেন্ট সিস্টেম", "Qurbani Management System")}</h1>
           <p className="mt-1 max-w-3xl text-muted-foreground">
-            Campaign, shares, পশু, health, collection, expense, vendor, schedule, volunteer duty, বণ্টন ও final settlement।
+            {pick("Campaign, share, পশু, health, collection, expense, vendor, schedule, volunteer duty, বণ্টন ও final settlement।", "Campaigns, shares, animals, health, collections, expenses, vendors, schedules, volunteer duties, distribution, and final settlement.")}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           {campaigns.length ? (
             <Select value={selectedCampaignId} onValueChange={setSelectedCampaignId}>
               <SelectTrigger className="w-[220px] rounded-xl bg-card">
-                <SelectValue placeholder="Campaign নির্বাচন" />
+                <SelectValue placeholder={pick("Campaign নির্বাচন", "Select campaign")} />
               </SelectTrigger>
               <SelectContent>
                 {campaigns.map((item) => (
@@ -670,11 +670,11 @@ export function QurbaniSuite() {
             onClick={() => void exportWorkbook()}
           >
             {exporting ? <LoaderCircle className="size-4 animate-spin" /> : <FileSpreadsheet className="size-4" />}
-            Complete XLSX
+            {pick("সম্পূর্ণ XLSX", "Complete XLSX")}
           </Button>
           {canManage && !migrationRequired ? (
             <Button className="gap-2 rounded-xl" onClick={openCreateCampaign}>
-              <Plus className="size-4" /> নতুন Campaign
+              <Plus className="size-4" /> {pick("নতুন Campaign", "New campaign")}
             </Button>
           ) : null}
         </div>
@@ -683,7 +683,7 @@ export function QurbaniSuite() {
       {feedback ? (
         <div className="flex items-start justify-between gap-3 rounded-2xl border bg-card px-4 py-3 text-sm">
           <span>{feedback}</span>
-          <button type="button" className="text-muted-foreground" onClick={() => setFeedback(null)}>বন্ধ</button>
+          <button type="button" className="text-muted-foreground" onClick={() => setFeedback(null)}>{pick("বন্ধ", "Close")}</button>
         </div>
       ) : null}
 
@@ -692,9 +692,9 @@ export function QurbaniSuite() {
           <div className="flex gap-3">
             <ShieldAlert className="mt-0.5 size-5 shrink-0 text-amber-700 dark:text-amber-300" />
             <div>
-              <p className="font-bold">Qurbani database migration প্রয়োজন</p>
+              <p className="font-bold">{pick("Qurbani database migration প্রয়োজন", "Qurbani database migration required")}</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Supabase SQL Editor-এ supabase/migrations/20260926_qurbani_a_to_z.sql একবার চালান। UI প্রস্তুত আছে; migration শেষ হলেই live records সক্রিয় হবে।
+                {pick("Supabase SQL Editor-এ supabase/migrations/20260926_qurbani_a_to_z.sql একবার চালান। UI প্রস্তুত আছে; migration শেষ হলেই live records সক্রিয় হবে।", "Run supabase/migrations/20260926_qurbani_a_to_z.sql once in the Supabase SQL Editor. The interface is ready; live records activate after the migration.")}
               </p>
             </div>
           </div>
@@ -710,12 +710,12 @@ export function QurbaniSuite() {
       ) : !campaign ? (
         <StateCard
           icon={<CircleDollarSign />}
-          title="প্রথম Qurbani campaign তৈরি করুন"
-          text="Year, share price, target, registration deadline ও location দিয়ে শুরু করুন।"
+          title={pick("প্রথম Qurbani campaign তৈরি করুন", "Create the first Qurbani campaign")}
+          text={pick("Year, share price, target, registration deadline ও location দিয়ে শুরু করুন।", "Start with the year, share price, target, registration deadline, and location.")}
           action={
             canManage && !migrationRequired ? (
               <Button className="gap-2 rounded-xl" onClick={openCreateCampaign}>
-                <Plus className="size-4" /> Campaign তৈরি করুন
+                <Plus className="size-4" /> {pick("Campaign তৈরি করুন", "Create campaign")}
               </Button>
             ) : undefined
           }
@@ -723,12 +723,12 @@ export function QurbaniSuite() {
       ) : (
         <>
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-            <Metric icon={<Users />} label="নিবন্ধিত শেয়ার" value={numberFormatter.format(totals.shares) + " / " + numberFormatter.format(numberOf(campaign.target_shares))} note={Math.round(shareProgress) + "% পূর্ণ"} />
-            <Metric icon={<HandCoins />} label="পরিশোধ" value={moneyFormatter.format(totals.paid)} note={moneyFormatter.format(totals.outstanding) + " বকেয়া"} />
-            <Metric icon={<CircleDollarSign />} label="Ledger balance" value={moneyFormatter.format(totals.balance)} note={moneyFormatter.format(totals.expenses) + " expense"} />
-            <Metric icon={<Truck />} label="মোট পশু" value={numberFormatter.format(campaignAnimals.length)} note={moneyFormatter.format(totals.animalBudget) + " procurement"} />
-            <Metric icon={<Scale />} label="Meat progress" value={numberFormatter.format(totals.distributed) + " kg"} note={numberFormatter.format(totals.meatEstimate) + " kg estimated"} />
-            <Metric icon={<ClipboardCheck />} label="বাকি কাজ" value={numberFormatter.format(totals.openTasks)} note={numberFormatter.format(campaignTasks.length) + " total tasks"} />
+            <Metric icon={<Users />} label={pick("নিবন্ধিত শেয়ার", "Registered shares")} value={numberFormatter.format(totals.shares) + " / " + numberFormatter.format(numberOf(campaign.target_shares))} note={pick(Math.round(shareProgress) + "% পূর্ণ", Math.round(shareProgress) + "% filled")} />
+            <Metric icon={<HandCoins />} label={pick("পরিশোধ", "Payments")} value={moneyFormatter.format(totals.paid)} note={pick(moneyFormatter.format(totals.outstanding) + " বকেয়া", moneyFormatter.format(totals.outstanding) + " outstanding")} />
+            <Metric icon={<CircleDollarSign />} label={pick("Ledger balance", "Ledger balance")} value={moneyFormatter.format(totals.balance)} note={pick(moneyFormatter.format(totals.expenses) + " খরচ", moneyFormatter.format(totals.expenses) + " expenses")} />
+            <Metric icon={<Truck />} label={pick("মোট পশু", "Total animals")} value={numberFormatter.format(campaignAnimals.length)} note={pick(moneyFormatter.format(totals.animalBudget) + " ক্রয় বাজেট", moneyFormatter.format(totals.animalBudget) + " procurement")} />
+            <Metric icon={<Scale />} label={pick("মাংস বণ্টনের অগ্রগতি", "Meat progress")} value={numberFormatter.format(totals.distributed) + " kg"} note={pick(numberFormatter.format(totals.meatEstimate) + " kg আনুমানিক", numberFormatter.format(totals.meatEstimate) + " kg estimated")} />
+            <Metric icon={<ClipboardCheck />} label={pick("বাকি কাজ", "Open tasks")} value={numberFormatter.format(totals.openTasks)} note={pick(numberFormatter.format(campaignTasks.length) + "টি মোট কাজ", numberFormatter.format(campaignTasks.length) + " total tasks")} />
           </section>
 
           <Card className="gap-0 overflow-hidden rounded-3xl border-border/75 py-0 shadow-none">
@@ -740,10 +740,10 @@ export function QurbaniSuite() {
                     <StatusBadge value={campaign.status} />
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {[campaign.hijri_year, campaign.location, campaign.slaughter_date ? dateFormatter.format(new Date(campaign.slaughter_date + "T00:00:00")) : null].filter(Boolean).join(" · ") || "Campaign details"}
+                    {[campaign.hijri_year, campaign.location, campaign.slaughter_date ? dateFormatter.format(new Date(campaign.slaughter_date + "T00:00:00")) : null].filter(Boolean).join(" · ") || pick("Campaign বিস্তারিত", "Campaign details")}
                   </p>
                 </div>
-                {canManage ? <div className="flex flex-wrap gap-2"><Button variant="outline" className="gap-2 rounded-xl" disabled={saving} onClick={openEditCampaign}><Pencil className="size-4" /> Edit campaign</Button><CampaignStatusMenu disabled={saving} onSelect={(status) => void updateStatus("campaign", campaign.id, status)} /><Button variant="destructive" className="gap-2 rounded-xl" disabled={saving} onClick={() => void deleteCampaign().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Campaign delete হয়নি।"))}><Trash2 className="size-4" /> Delete</Button></div> : null}
+                {canManage ? <div className="flex flex-wrap gap-2"><Button variant="outline" className="gap-2 rounded-xl" disabled={saving} onClick={openEditCampaign}><Pencil className="size-4" /> {pick("Campaign সম্পাদনা", "Edit campaign")}</Button><CampaignStatusMenu disabled={saving} onSelect={(status) => void updateStatus("campaign", campaign.id, status)} /><Button variant="destructive" className="gap-2 rounded-xl" disabled={saving} onClick={() => void deleteCampaign().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Campaign delete হয়নি।", "Campaign could not be deleted.")))}><Trash2 className="size-4" /> {pick("মুছুন", "Delete")}</Button></div> : null}
               </div>
               <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4 lg:grid-cols-7">
                 {workflow.map((status, index) => {
@@ -764,14 +764,14 @@ export function QurbaniSuite() {
 
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as SectionKey)} className="space-y-4">
             <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl bg-muted/70 p-1.5">
-              <TabsTrigger value="overview" className="rounded-xl px-4 py-2.5">Overview</TabsTrigger>
-              <TabsTrigger value="participants" className="rounded-xl px-4 py-2.5">Shares ({campaignParticipants.length})</TabsTrigger>
-              <TabsTrigger value="animals" className="rounded-xl px-4 py-2.5">Animals ({campaignAnimals.length})</TabsTrigger>
-              <TabsTrigger value="ledger" className="rounded-xl px-4 py-2.5">Ledger ({campaignTransactions.length})</TabsTrigger>
-              <TabsTrigger value="vendors" className="rounded-xl px-4 py-2.5">Vendors ({campaignVendors.length})</TabsTrigger>
-              <TabsTrigger value="schedule" className="rounded-xl px-4 py-2.5">Schedule ({campaignSchedules.length})</TabsTrigger>
-              <TabsTrigger value="tasks" className="rounded-xl px-4 py-2.5">Tasks ({campaignTasks.length})</TabsTrigger>
-              <TabsTrigger value="distribution" className="rounded-xl px-4 py-2.5">Distribution ({campaignDistributions.length})</TabsTrigger>
+              <TabsTrigger value="overview" className="rounded-xl px-4 py-2.5">{pick("সারসংক্ষেপ", "Overview")}</TabsTrigger>
+              <TabsTrigger value="participants" className="rounded-xl px-4 py-2.5">{pick("শেয়ার", "Shares")} ({campaignParticipants.length})</TabsTrigger>
+              <TabsTrigger value="animals" className="rounded-xl px-4 py-2.5">{pick("পশু", "Animals")} ({campaignAnimals.length})</TabsTrigger>
+              <TabsTrigger value="ledger" className="rounded-xl px-4 py-2.5">{pick("হিসাব", "Ledger")} ({campaignTransactions.length})</TabsTrigger>
+              <TabsTrigger value="vendors" className="rounded-xl px-4 py-2.5">{pick("Vendor", "Vendors")} ({campaignVendors.length})</TabsTrigger>
+              <TabsTrigger value="schedule" className="rounded-xl px-4 py-2.5">{pick("সময়সূচি", "Schedule")} ({campaignSchedules.length})</TabsTrigger>
+              <TabsTrigger value="tasks" className="rounded-xl px-4 py-2.5">{pick("কাজ", "Tasks")} ({campaignTasks.length})</TabsTrigger>
+              <TabsTrigger value="distribution" className="rounded-xl px-4 py-2.5">{pick("বণ্টন", "Distribution")} ({campaignDistributions.length})</TabsTrigger>
             </TabsList>
 
             <TabsContent value="overview" className="space-y-4">
@@ -780,8 +780,8 @@ export function QurbaniSuite() {
                   <CardHeader className="p-5 pb-2 md:p-6 md:pb-2">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <CardTitle>Operational progress</CardTitle>
-                        <p className="mt-1 text-sm text-muted-foreground">Registration থেকে distribution পর্যন্ত readiness</p>
+                        <CardTitle>{pick("কার্যক্রমের অগ্রগতি", "Operational progress")}</CardTitle>
+                        <p className="mt-1 text-sm text-muted-foreground">{pick("Registration থেকে distribution পর্যন্ত readiness", "Readiness from registration through distribution")}</p>
                       </div>
                       <Button variant="outline" size="sm" className="gap-2 rounded-xl" onClick={() => void exportWorkbook({ name: "Campaign Summary", rows: summaryRows })}>
                         <Download className="size-4" /> XLSX
@@ -789,36 +789,36 @@ export function QurbaniSuite() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-5 p-5 pt-4 md:p-6 md:pt-4">
-                    <ProgressLine label="শেয়ার registration" value={shareProgress} detail={numberFormatter.format(totals.shares) + " shares"} />
-                    <ProgressLine label="Participant payment" value={paymentProgress} detail={moneyFormatter.format(totals.paid)} />
-                    <ProgressLine label="Meat distribution" value={distributionProgress} detail={numberFormatter.format(totals.distributed) + " kg"} />
-                    <ProgressLine label="Task completion" value={campaignTasks.length ? ((campaignTasks.length - totals.openTasks) / campaignTasks.length) * 100 : 0} detail={numberFormatter.format(campaignTasks.length - totals.openTasks) + " completed"} />
+                    <ProgressLine label={pick("শেয়ার registration", "Share registration")} value={shareProgress} detail={numberFormatter.format(totals.shares) + " shares"} />
+                    <ProgressLine label={pick("অংশগ্রহণকারীর পরিশোধ", "Participant payment")} value={paymentProgress} detail={moneyFormatter.format(totals.paid)} />
+                    <ProgressLine label={pick("মাংস বণ্টন", "Meat distribution")} value={distributionProgress} detail={numberFormatter.format(totals.distributed) + " kg"} />
+                    <ProgressLine label={pick("কাজ সম্পন্ন", "Task completion")} value={campaignTasks.length ? ((campaignTasks.length - totals.openTasks) / campaignTasks.length) * 100 : 0} detail={pick(numberFormatter.format(campaignTasks.length - totals.openTasks) + "টি সম্পন্ন", numberFormatter.format(campaignTasks.length - totals.openTasks) + " completed")} />
                   </CardContent>
                 </Card>
                 <Card className="rounded-3xl bg-primary py-0 text-primary-foreground shadow-none">
                   <CardContent className="p-6">
                     <ReceiptText className="size-7" />
-                    <p className="mt-5 text-sm text-primary-foreground/70">Final settlement position</p>
+                    <p className="mt-5 text-sm text-primary-foreground/70">{pick("চূড়ান্ত হিসাবের অবস্থা", "Final settlement position")}</p>
                     <p className="mt-1 text-3xl font-bold">{moneyFormatter.format(totals.balance)}</p>
                     <div className="mt-5 grid grid-cols-2 gap-3">
-                      <MiniStat label="Collection" value={moneyFormatter.format(totals.collected)} />
-                      <MiniStat label="Expenses" value={moneyFormatter.format(totals.expenses)} />
-                      <MiniStat label="Refunds" value={moneyFormatter.format(totals.refunds)} />
-                      <MiniStat label="Participant due" value={moneyFormatter.format(totals.outstanding)} />
+                      <MiniStat label={pick("সংগ্রহ", "Collection")} value={moneyFormatter.format(totals.collected)} />
+                      <MiniStat label={pick("খরচ", "Expenses")} value={moneyFormatter.format(totals.expenses)} />
+                      <MiniStat label={pick("ফেরত", "Refunds")} value={moneyFormatter.format(totals.refunds)} />
+                      <MiniStat label={pick("অংশগ্রহণকারীর বকেয়া", "Participant due")} value={moneyFormatter.format(totals.outstanding)} />
                     </div>
                   </CardContent>
                 </Card>
               </div>
               <div className="grid gap-4 md:grid-cols-3">
-                <QuickCard icon={<Truck />} title="Procurement control" text={campaignAnimals.filter((item) => item.health_status === "fit").length + " fit · " + campaignAnimals.filter((item) => item.health_status === "observation").length + " under observation"} />
-                <QuickCard icon={<ClipboardCheck />} title="Volunteer control" text={totals.openTasks + " pending · " + campaignTasks.filter((item) => item.priority === "urgent" && item.status !== "completed").length + " urgent"} />
-                <QuickCard icon={<PackageCheck />} title="Distribution control" text={numberFormatter.format(totals.packages) + " packages · " + numberFormatter.format(totals.distributed) + " kg"} />
+                <QuickCard icon={<Truck />} title={pick("ক্রয় নিয়ন্ত্রণ", "Procurement control")} text={pick(campaignAnimals.filter((item) => item.health_status === "fit").length + "টি উপযুক্ত · " + campaignAnimals.filter((item) => item.health_status === "observation").length + "টি পর্যবেক্ষণে", campaignAnimals.filter((item) => item.health_status === "fit").length + " fit · " + campaignAnimals.filter((item) => item.health_status === "observation").length + " under observation")} />
+                <QuickCard icon={<ClipboardCheck />} title={pick("Volunteer নিয়ন্ত্রণ", "Volunteer control")} text={pick(totals.openTasks + "টি অপেক্ষমাণ · " + campaignTasks.filter((item) => item.priority === "urgent" && item.status !== "completed").length + "টি জরুরি", totals.openTasks + " pending · " + campaignTasks.filter((item) => item.priority === "urgent" && item.status !== "completed").length + " urgent")} />
+                <QuickCard icon={<PackageCheck />} title={pick("বণ্টন নিয়ন্ত্রণ", "Distribution control")} text={numberFormatter.format(totals.packages) + " packages · " + numberFormatter.format(totals.distributed) + " kg"} />
               </div>
             </TabsContent>
 
             <TabsContent value="participants">
-              <DataSection title="অংশগ্রহণকারী, শেয়ার ও পাওনা" description="Family member-wise allocation, due এবং payment status" canAdd={canManage} onAdd={() => openRecord("participant")} onExport={() => void exportWorkbook({ name: "Participants", rows: participantRows })}>
-                <Table><TableHeader><TableRow><TableHead>অংশগ্রহণকারী</TableHead><TableHead>Animal</TableHead><TableHead>Shares</TableHead><TableHead>Due</TableHead><TableHead>Paid</TableHead><TableHead>Status</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
+              <DataSection title={pick("অংশগ্রহণকারী, শেয়ার ও পাওনা", "Participants, shares and dues")} description={pick("সদস্যভিত্তিক বরাদ্দ, পাওনা ও পরিশোধের অবস্থা", "Member-wise allocation, dues and payment status")} canAdd={canManage} onAdd={() => openRecord("participant")} onExport={() => void exportWorkbook({ name: pick("অংশগ্রহণকারী", "Participants"), rows: participantRows })}>
+                <Table><TableHeader><TableRow><TableHead>{pick("অংশগ্রহণকারী", "Participant")}</TableHead><TableHead>{pick("পশু", "Animal")}</TableHead><TableHead>{pick("শেয়ার", "Shares")}</TableHead><TableHead>{pick("পাওনা", "Due")}</TableHead><TableHead>{pick("পরিশোধিত", "Paid")}</TableHead><TableHead>{pick("স্ট্যাটাস", "Status")}</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
                   {campaignParticipants.map((item) => <TableRow key={item.id}><TableCell><p className="font-semibold">{item.member_name}</p><p className="text-xs text-muted-foreground">{item.phone || "Phone private"}</p></TableCell><TableCell>{campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code || "Unassigned"}</TableCell><TableCell>{numberFormatter.format(numberOf(item.share_count))}</TableCell><TableCell>{moneyFormatter.format(numberOf(item.amount_due))}</TableCell><TableCell>{moneyFormatter.format(numberOf(item.amount_paid))}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><div className="flex"><StatusMenu disabled={saving} values={["pending", "confirmed", "cancelled"]} onSelect={(status) => void updateStatus("participant", item.id, status)} /><RecordActions disabled={saving} onEdit={() => openEditRecord("participant", item)} onDelete={() => void deleteRecord("participant", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell> : null}</TableRow>)}
                   <EmptyRows show={!campaignParticipants.length} columns={canManage ? 7 : 6} />
                 </TableBody></Table>
@@ -826,8 +826,8 @@ export function QurbaniSuite() {
             </TabsContent>
 
             <TabsContent value="animals">
-              <DataSection title="পশু ক্রয়, health ও costing" description="Tag, vendor, weight, veterinary check এবং lifecycle" canAdd={canManage} onAdd={() => openRecord("animal")} onExport={() => void exportWorkbook({ name: "Animals", rows: animalRows })}>
-                <Table><TableHeader><TableRow><TableHead>Tag / Type</TableHead><TableHead>Weight</TableHead><TableHead>Price + logistics</TableHead><TableHead>Vendor</TableHead><TableHead>Health</TableHead><TableHead>Status</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
+              <DataSection title={pick("পশু ক্রয়, স্বাস্থ্য ও খরচ", "Animal procurement, health and costing")} description={pick("ট্যাগ, বিক্রেতা, ওজন, পশু চিকিৎসা পরীক্ষা ও জীবনচক্র", "Tag, vendor, weight, veterinary checks and lifecycle")} canAdd={canManage} onAdd={() => openRecord("animal")} onExport={() => void exportWorkbook({ name: pick("পশু", "Animals"), rows: animalRows })}>
+                <Table><TableHeader><TableRow><TableHead>{pick("ট্যাগ / ধরন", "Tag / Type")}</TableHead><TableHead>{pick("ওজন", "Weight")}</TableHead><TableHead>{pick("মূল্য + লজিস্টিকস", "Price + logistics")}</TableHead><TableHead>{pick("বিক্রেতা", "Vendor")}</TableHead><TableHead>{pick("স্বাস্থ্য", "Health")}</TableHead><TableHead>{pick("স্ট্যাটাস", "Status")}</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
                   {campaignAnimals.map((item) => <TableRow key={item.id}><TableCell><p className="font-bold">{item.tag_code}</p><p className="text-xs text-muted-foreground">{item.animal_type} · {item.breed || "Breed not set"}</p></TableCell><TableCell>{numberFormatter.format(numberOf(item.live_weight_kg))} kg<p className="text-xs text-muted-foreground">{numberFormatter.format(numberOf(item.estimated_meat_kg))} kg yield</p></TableCell><TableCell>{moneyFormatter.format(numberOf(item.purchase_price))}<p className="text-xs text-muted-foreground">+ {moneyFormatter.format(numberOf(item.transport_cost) + numberOf(item.feed_cost))}</p></TableCell><TableCell>{item.vendor_name || "Not set"}</TableCell><TableCell><StatusBadge value={item.health_status} /></TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><div className="flex"><StatusMenu disabled={saving} values={["shortlisted", "purchased", "received", "slaughtered", "cancelled"]} onSelect={(status) => void updateStatus("animal", item.id, status)} /><RecordActions disabled={saving} onEdit={() => openEditRecord("animal", item)} onDelete={() => void deleteRecord("animal", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell> : null}</TableRow>)}
                   <EmptyRows show={!campaignAnimals.length} columns={canManage ? 7 : 6} />
                 </TableBody></Table>
@@ -835,8 +835,8 @@ export function QurbaniSuite() {
             </TabsContent>
 
             <TabsContent value="ledger">
-              <DataSection title="Collection, expense ও refund ledger" description="Immutable financial entries with category, method ও reference" canAdd={canManage} onAdd={() => openRecord("transaction")} onExport={() => void exportWorkbook({ name: "Ledger", rows: ledgerRows })}>
-                <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Category</TableHead><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Linked record</TableHead><TableHead>Reference</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
+              <DataSection title={pick("সংগ্রহ, খরচ ও ফেরতের খতিয়ান", "Collection, expense and refund ledger")} description={pick("ক্যাটাগরি, পদ্ধতি ও রেফারেন্সসহ নির্ভরযোগ্য আর্থিক এন্ট্রি", "Reliable financial entries with category, method and reference")} canAdd={canManage} onAdd={() => openRecord("transaction")} onExport={() => void exportWorkbook({ name: pick("খতিয়ান", "Ledger"), rows: ledgerRows })}>
+                <Table><TableHeader><TableRow><TableHead>{pick("তারিখ", "Date")}</TableHead><TableHead>{pick("ধরন", "Type")}</TableHead><TableHead>{pick("ক্যাটাগরি", "Category")}</TableHead><TableHead>{pick("পরিমাণ", "Amount")}</TableHead><TableHead>{pick("পদ্ধতি", "Method")}</TableHead><TableHead>{pick("সংযুক্ত রেকর্ড", "Linked record")}</TableHead><TableHead>{pick("রেফারেন্স", "Reference")}</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
                   {campaignTransactions.map((item) => <TableRow key={item.id}><TableCell>{dateFormatter.format(new Date(item.transaction_date + "T00:00:00"))}</TableCell><TableCell><StatusBadge value={item.transaction_type} /></TableCell><TableCell>{item.category.replaceAll("_", " ")}</TableCell><TableCell className="font-bold">{moneyFormatter.format(numberOf(item.amount))}</TableCell><TableCell>{item.payment_method}</TableCell><TableCell>{campaignParticipants.find((participant) => participant.id === item.participant_id)?.member_name || campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code || "General"}</TableCell><TableCell>{item.reference || "—"}</TableCell>{canManage ? <TableCell><RecordActions disabled={saving} onEdit={() => openEditRecord("transaction", item)} onDelete={() => void deleteRecord("transaction", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></TableCell> : null}</TableRow>)}
                   <EmptyRows show={!campaignTransactions.length} columns={canManage ? 8 : 7} />
                 </TableBody></Table>
@@ -844,8 +844,8 @@ export function QurbaniSuite() {
             </TabsContent>
 
             <TabsContent value="vendors">
-              <DataSection title="Vendor ও service provider control" description="Animal seller, butcher, transport, feed ও equipment providers" canAdd={canManage} onAdd={() => openRecord("vendor")} onExport={() => void exportWorkbook({ name: "Vendors", rows: vendorRows })}>
-                <Table><TableHeader><TableRow><TableHead>Vendor</TableHead><TableHead>Type</TableHead><TableHead>Contact</TableHead><TableHead>Agreed</TableHead><TableHead>Paid / Due</TableHead><TableHead>Status</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
+              <DataSection title={pick("বিক্রেতা ও সেবাদাতা নিয়ন্ত্রণ", "Vendor and service provider control")} description={pick("পশু বিক্রেতা, কসাই, পরিবহন, খাদ্য ও সরঞ্জাম সেবাদাতা", "Animal sellers, butchers, transport, feed and equipment providers")} canAdd={canManage} onAdd={() => openRecord("vendor")} onExport={() => void exportWorkbook({ name: pick("বিক্রেতা", "Vendors"), rows: vendorRows })}>
+                <Table><TableHeader><TableRow><TableHead>{pick("বিক্রেতা", "Vendor")}</TableHead><TableHead>{pick("ধরন", "Type")}</TableHead><TableHead>{pick("যোগাযোগ", "Contact")}</TableHead><TableHead>{pick("চুক্তি", "Agreed")}</TableHead><TableHead>{pick("পরিশোধ / বকেয়া", "Paid / Due")}</TableHead><TableHead>{pick("স্ট্যাটাস", "Status")}</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
                   {campaignVendors.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.name}</TableCell><TableCell>{item.vendor_type.replaceAll("_", " ")}</TableCell><TableCell>{item.phone || "Private"}<p className="max-w-52 truncate text-xs text-muted-foreground">{item.address}</p></TableCell><TableCell>{moneyFormatter.format(numberOf(item.agreed_amount))}</TableCell><TableCell>{moneyFormatter.format(numberOf(item.paid_amount))}<p className="text-xs text-muted-foreground">{moneyFormatter.format(Math.max(0, numberOf(item.agreed_amount) - numberOf(item.paid_amount)))} due</p></TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><div className="flex"><StatusMenu disabled={saving} values={["planned", "confirmed", "completed", "cancelled"]} onSelect={(status) => void updateStatus("vendor", item.id, status)} /><RecordActions disabled={saving} onEdit={() => openEditRecord("vendor", item)} onDelete={() => void deleteRecord("vendor", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell> : null}</TableRow>)}
                   <EmptyRows show={!campaignVendors.length} columns={canManage ? 7 : 6} />
                 </TableBody></Table>
@@ -853,8 +853,8 @@ export function QurbaniSuite() {
             </TabsContent>
 
             <TabsContent value="schedule">
-              <DataSection title="কোরবানির day schedule" description="Animal sequence, slot, location এবং butcher team" canAdd={canManage} onAdd={() => openRecord("schedule")} onExport={() => void exportWorkbook({ name: "Schedule", rows: scheduleRows })}>
-                <Table><TableHeader><TableRow><TableHead>Sequence</TableHead><TableHead>Animal</TableHead><TableHead>Time</TableHead><TableHead>Location</TableHead><TableHead>Team</TableHead><TableHead>Status</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
+              <DataSection title={pick("কোরবানির দিনের সময়সূচি", "Qurbani day schedule")} description={pick("পশুর ক্রম, স্লট, স্থান ও কসাই দল", "Animal sequence, slot, location and butcher team")} canAdd={canManage} onAdd={() => openRecord("schedule")} onExport={() => void exportWorkbook({ name: pick("সময়সূচি", "Schedule"), rows: scheduleRows })}>
+                <Table><TableHeader><TableRow><TableHead>{pick("ক্রম", "Sequence")}</TableHead><TableHead>{pick("পশু", "Animal")}</TableHead><TableHead>{pick("সময়", "Time")}</TableHead><TableHead>{pick("স্থান", "Location")}</TableHead><TableHead>{pick("দল", "Team")}</TableHead><TableHead>{pick("স্ট্যাটাস", "Status")}</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
                   {campaignSchedules.map((item) => <TableRow key={item.id}><TableCell className="font-bold">#{item.sequence_no}</TableCell><TableCell>{campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code || "General slot"}</TableCell><TableCell>{dateTimeFormatter.format(new Date(item.scheduled_at))}</TableCell><TableCell>{item.location || campaign.location || "Not set"}</TableCell><TableCell>{item.butcher_team || "Unassigned"}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><div className="flex"><StatusMenu disabled={saving} values={["scheduled", "in_progress", "completed", "delayed"]} onSelect={(status) => void updateStatus("schedule", item.id, status)} /><RecordActions disabled={saving} onEdit={() => openEditRecord("schedule", item)} onDelete={() => void deleteRecord("schedule", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell> : null}</TableRow>)}
                   <EmptyRows show={!campaignSchedules.length} columns={canManage ? 7 : 6} />
                 </TableBody></Table>
@@ -862,8 +862,8 @@ export function QurbaniSuite() {
             </TabsContent>
 
             <TabsContent value="tasks">
-              <DataSection title="Task ও volunteer duty board" description="Procurement, finance, logistics, slaughter, distribution ও cleanup" canAdd={canManage} onAdd={() => openRecord("task")} onExport={() => void exportWorkbook({ name: "Tasks", rows: taskRows })}>
-                <Table><TableHeader><TableRow><TableHead>Task</TableHead><TableHead>Category</TableHead><TableHead>Assigned</TableHead><TableHead>Due</TableHead><TableHead>Priority</TableHead><TableHead>Status</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
+              <DataSection title={pick("কাজ ও স্বেচ্ছাসেবক দায়িত্ব বোর্ড", "Task and volunteer duty board")} description={pick("ক্রয়, অর্থ, লজিস্টিকস, কোরবানি, বণ্টন ও পরিষ্কার", "Procurement, finance, logistics, slaughter, distribution and cleanup")} canAdd={canManage} onAdd={() => openRecord("task")} onExport={() => void exportWorkbook({ name: pick("কাজ", "Tasks"), rows: taskRows })}>
+                <Table><TableHeader><TableRow><TableHead>{pick("কাজ", "Task")}</TableHead><TableHead>{pick("ক্যাটাগরি", "Category")}</TableHead><TableHead>{pick("দায়িত্বপ্রাপ্ত", "Assigned")}</TableHead><TableHead>{pick("সময়সীমা", "Due")}</TableHead><TableHead>{pick("অগ্রাধিকার", "Priority")}</TableHead><TableHead>{pick("স্ট্যাটাস", "Status")}</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
                   {campaignTasks.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.title}</TableCell><TableCell>{item.category}</TableCell><TableCell>{item.assigned_to || "Unassigned"}</TableCell><TableCell>{item.due_at ? dateTimeFormatter.format(new Date(item.due_at)) : "No deadline"}</TableCell><TableCell><StatusBadge value={item.priority} /></TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManage ? <TableCell><div className="flex"><StatusMenu disabled={saving} values={["todo", "in_progress", "completed", "cancelled"]} onSelect={(status) => void updateStatus("task", item.id, status)} /><RecordActions disabled={saving} onEdit={() => openEditRecord("task", item)} onDelete={() => void deleteRecord("task", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell> : null}</TableRow>)}
                   <EmptyRows show={!campaignTasks.length} columns={canManage ? 7 : 6} />
                 </TableBody></Table>
@@ -871,8 +871,8 @@ export function QurbaniSuite() {
             </TabsContent>
 
             <TabsContent value="distribution">
-              <DataSection title="মাংস ও package distribution" description="Participant, আত্মীয়, দরিদ্র, worker ও family allocation" canAdd={canManage} onAdd={() => openRecord("distribution")} onExport={() => void exportWorkbook({ name: "Distribution", rows: distributionRows })}>
-                <Table><TableHeader><TableRow><TableHead>Recipient</TableHead><TableHead>Type</TableHead><TableHead>Weight</TableHead><TableHead>Packages</TableHead><TableHead>Collected</TableHead><TableHead>Notes</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
+              <DataSection title={pick("মাংস ও প্যাকেট বণ্টন", "Meat and package distribution")} description={pick("অংশগ্রহণকারী, আত্মীয়, অসহায়, কর্মী ও পরিবারভিত্তিক বরাদ্দ", "Participant, relative, needy, worker and family allocation")} canAdd={canManage} onAdd={() => openRecord("distribution")} onExport={() => void exportWorkbook({ name: pick("বণ্টন", "Distribution"), rows: distributionRows })}>
+                <Table><TableHeader><TableRow><TableHead>{pick("গ্রহীতা", "Recipient")}</TableHead><TableHead>{pick("ধরন", "Type")}</TableHead><TableHead>{pick("ওজন", "Weight")}</TableHead><TableHead>{pick("প্যাকেট", "Packages")}</TableHead><TableHead>{pick("সংগ্রহ", "Collected")}</TableHead><TableHead>{pick("নোট", "Notes")}</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
                   {campaignDistributions.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.recipient_name}</TableCell><TableCell><StatusBadge value={item.recipient_type} /></TableCell><TableCell>{numberFormatter.format(numberOf(item.weight_kg))} kg</TableCell><TableCell>{numberFormatter.format(item.package_count)}</TableCell><TableCell>{item.collected_at ? dateTimeFormatter.format(new Date(item.collected_at)) : "Pending"}</TableCell><TableCell className="max-w-72 truncate">{item.notes || "—"}</TableCell>{canManage ? <TableCell><RecordActions disabled={saving} onEdit={() => openEditRecord("distribution", item)} onDelete={() => void deleteRecord("distribution", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></TableCell> : null}</TableRow>)}
                   <EmptyRows show={!campaignDistributions.length} columns={canManage ? 7 : 6} />
                 </TableBody></Table>
@@ -885,25 +885,25 @@ export function QurbaniSuite() {
       <Dialog open={campaignOpen} onOpenChange={(open) => { setCampaignOpen(open); if (!open) { setEditingCampaign(false); setCampaignForm(defaultCampaignForm()); } }}>
         <DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>{editingCampaign ? "Qurbani campaign edit" : "নতুন Qurbani campaign"}</DialogTitle>
-            <DialogDescription>{editingCampaign ? "Master setup, budget target, dates এবং location update করুন।" : "বছরভিত্তিক সম্পূর্ণ operation-এর master setup তৈরি করুন।"}</DialogDescription>
+            <DialogTitle>{editingCampaign ? pick("কোরবানি ক্যাম্পেইন সম্পাদনা", "Edit Qurbani campaign") : pick("নতুন কোরবানি ক্যাম্পেইন", "New Qurbani campaign")}</DialogTitle>
+            <DialogDescription>{editingCampaign ? pick("মূল সেটআপ, বাজেট লক্ষ্য, তারিখ ও স্থান হালনাগাদ করুন।", "Update the master setup, budget target, dates and location.") : pick("বছরভিত্তিক সম্পূর্ণ কার্যক্রমের মূল সেটআপ তৈরি করুন।", "Create the master setup for the complete yearly operation.")}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2 sm:grid-cols-2">
-            <FormField label="Campaign name" id="campaign-title"><Input id="campaign-title" value={campaignForm.title} onChange={(event) => setCampaignForm({ ...campaignForm, title: event.target.value })} /></FormField>
-            <FormField label="Year" id="campaign-year"><Input id="campaign-year" type="number" min="2000" max="2200" value={campaignForm.year} onChange={(event) => setCampaignForm({ ...campaignForm, year: event.target.value })} /></FormField>
-            <FormField label="Hijri year" id="campaign-hijri"><Input id="campaign-hijri" value={campaignForm.hijriYear} onChange={(event) => setCampaignForm({ ...campaignForm, hijriYear: event.target.value })} /></FormField>
-            <FormField label="Status" id="campaign-status"><ValueSelect id="campaign-status" value={campaignForm.status} onChange={(value) => setCampaignForm({ ...campaignForm, status: value })} items={editingCampaign ? workflow.map((value) => [value, campaignStatusLabels[value]] as [string, string]) : [["planning", "পরিকল্পনা"], ["registration", "Registration open"]]} /></FormField>
-            <FormField label="Share price" id="campaign-share-price"><Input id="campaign-share-price" type="number" min="0" value={campaignForm.sharePrice} onChange={(event) => setCampaignForm({ ...campaignForm, sharePrice: event.target.value })} /></FormField>
-            <FormField label="Target shares" id="campaign-target"><Input id="campaign-target" type="number" min="1" step="0.01" value={campaignForm.targetShares} onChange={(event) => setCampaignForm({ ...campaignForm, targetShares: event.target.value })} /></FormField>
-            <FormField label="Registration deadline" id="campaign-deadline"><Input id="campaign-deadline" type="datetime-local" value={campaignForm.registrationDeadline} onChange={(event) => setCampaignForm({ ...campaignForm, registrationDeadline: event.target.value })} /></FormField>
-            <FormField label="Slaughter date" id="campaign-slaughter-date"><Input id="campaign-slaughter-date" type="date" value={campaignForm.slaughterDate} onChange={(event) => setCampaignForm({ ...campaignForm, slaughterDate: event.target.value })} /></FormField>
-            <div className="sm:col-span-2"><FormField label="Location" id="campaign-location"><Input id="campaign-location" value={campaignForm.location} onChange={(event) => setCampaignForm({ ...campaignForm, location: event.target.value })} /></FormField></div>
-            <div className="sm:col-span-2"><FormField label="Notes" id="campaign-notes"><Textarea id="campaign-notes" rows={4} value={campaignForm.notes} onChange={(event) => setCampaignForm({ ...campaignForm, notes: event.target.value })} /></FormField></div>
+             <FormField label={pick("ক্যাম্পেইনের নাম", "Campaign name")} id="campaign-title"><Input id="campaign-title" value={campaignForm.title} onChange={(event) => setCampaignForm({ ...campaignForm, title: event.target.value })} /></FormField>
+             <FormField label={pick("বছর", "Year")} id="campaign-year"><Input id="campaign-year" type="number" min="2000" max="2200" value={campaignForm.year} onChange={(event) => setCampaignForm({ ...campaignForm, year: event.target.value })} /></FormField>
+             <FormField label={pick("হিজরি বছর", "Hijri year")} id="campaign-hijri"><Input id="campaign-hijri" value={campaignForm.hijriYear} onChange={(event) => setCampaignForm({ ...campaignForm, hijriYear: event.target.value })} /></FormField>
+             <FormField label={pick("স্ট্যাটাস", "Status")} id="campaign-status"><ValueSelect id="campaign-status" value={campaignForm.status} onChange={(value) => setCampaignForm({ ...campaignForm, status: value })} items={editingCampaign ? workflow.map((value) => [value, campaignStatusLabels[value]] as [string, string]) : [["planning", campaignStatusLabels.planning], ["registration", campaignStatusLabels.registration]]} /></FormField>
+             <FormField label={pick("প্রতি শেয়ারের মূল্য", "Share price")} id="campaign-share-price"><Input id="campaign-share-price" type="number" min="0" value={campaignForm.sharePrice} onChange={(event) => setCampaignForm({ ...campaignForm, sharePrice: event.target.value })} /></FormField>
+             <FormField label={pick("লক্ষ্য শেয়ার", "Target shares")} id="campaign-target"><Input id="campaign-target" type="number" min="1" step="0.01" value={campaignForm.targetShares} onChange={(event) => setCampaignForm({ ...campaignForm, targetShares: event.target.value })} /></FormField>
+             <FormField label={pick("নিবন্ধনের সময়সীমা", "Registration deadline")} id="campaign-deadline"><Input id="campaign-deadline" type="datetime-local" value={campaignForm.registrationDeadline} onChange={(event) => setCampaignForm({ ...campaignForm, registrationDeadline: event.target.value })} /></FormField>
+             <FormField label={pick("কোরবানির তারিখ", "Slaughter date")} id="campaign-slaughter-date"><Input id="campaign-slaughter-date" type="date" value={campaignForm.slaughterDate} onChange={(event) => setCampaignForm({ ...campaignForm, slaughterDate: event.target.value })} /></FormField>
+             <div className="sm:col-span-2"><FormField label={pick("স্থান", "Location")} id="campaign-location"><Input id="campaign-location" value={campaignForm.location} onChange={(event) => setCampaignForm({ ...campaignForm, location: event.target.value })} /></FormField></div>
+             <div className="sm:col-span-2"><FormField label={pick("নোট", "Notes")} id="campaign-notes"><Textarea id="campaign-notes" rows={4} value={campaignForm.notes} onChange={(event) => setCampaignForm({ ...campaignForm, notes: event.target.value })} /></FormField></div>
           </div>
           <DialogFooter>
-            <Button variant="outline" className="rounded-xl" onClick={() => setCampaignOpen(false)}>বাতিল</Button>
-            <Button className="gap-2 rounded-xl" disabled={saving || campaignForm.title.trim().length < 3 || !campaignForm.year || !campaignForm.targetShares} onClick={() => void createCampaign().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Campaign save হয়নি।"))}>
-              {saving ? <LoaderCircle className="size-4 animate-spin" /> : editingCampaign ? <Pencil className="size-4" /> : <Plus className="size-4" />} {editingCampaign ? "Campaign update" : "Campaign তৈরি করুন"}
+             <Button variant="outline" className="rounded-xl" onClick={() => setCampaignOpen(false)}>{pick("বাতিল", "Cancel")}</Button>
+             <Button className="gap-2 rounded-xl" disabled={saving || campaignForm.title.trim().length < 3 || !campaignForm.year || !campaignForm.targetShares} onClick={() => void createCampaign().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("ক্যাম্পেইন সংরক্ষণ হয়নি।", "Campaign could not be saved.")))}>
+               {saving ? <LoaderCircle className="size-4 animate-spin" /> : editingCampaign ? <Pencil className="size-4" /> : <Plus className="size-4" />} {editingCampaign ? pick("ক্যাম্পেইন হালনাগাদ", "Update campaign") : pick("ক্যাম্পেইন তৈরি করুন", "Create campaign")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -912,8 +912,8 @@ export function QurbaniSuite() {
       <Dialog open={Boolean(recordKind)} onOpenChange={(open) => { if (!open) { setRecordKind(null); setEditingRecord(null); } }}>
         <DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle>{editingRecord ? `${recordKind ? kindLabels[recordKind] : "Record"} edit করুন` : `${recordKind ? kindLabels[recordKind] : "নতুন record"} যোগ করুন`}</DialogTitle>
-            <DialogDescription>{campaign?.title} campaign-এর verified operational record {editingRecord ? "update" : "তৈরি"} করুন।</DialogDescription>
+            <DialogTitle>{editingRecord ? `${recordKind ? kindLabels[recordKind] : pick("রেকর্ড", "Record")} ${pick("সম্পাদনা করুন", "edit")}` : `${pick("নতুন", "Add")} ${recordKind ? kindLabels[recordKind] : pick("রেকর্ড", "record")} ${pick("যোগ করুন", "")}`}</DialogTitle>
+            <DialogDescription>{pick(`${campaign?.title} ক্যাম্পেইনের যাচাইকৃত পরিচালন রেকর্ড ${editingRecord ? "হালনাগাদ" : "তৈরি"} করুন।`, `${editingRecord ? "Update" : "Create"} a verified operational record for the ${campaign?.title} campaign.`)}</DialogDescription>
           </DialogHeader>
           {recordKind ? (
             <RecordFields
@@ -925,9 +925,9 @@ export function QurbaniSuite() {
             />
           ) : null}
           <DialogFooter>
-            <Button variant="outline" className="rounded-xl" onClick={() => setRecordKind(null)}>বাতিল</Button>
-            <Button className="gap-2 rounded-xl" disabled={saving} onClick={() => void createRecord().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Record save হয়নি।"))}>
-              {saving ? <LoaderCircle className="size-4 animate-spin" /> : editingRecord ? <Pencil className="size-4" /> : <Plus className="size-4" />} {editingRecord ? "Record update" : "Record save করুন"}
+             <Button variant="outline" className="rounded-xl" onClick={() => setRecordKind(null)}>{pick("বাতিল", "Cancel")}</Button>
+             <Button className="gap-2 rounded-xl" disabled={saving} onClick={() => void createRecord().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("রেকর্ড সংরক্ষণ হয়নি।", "Record could not be saved.")))}>
+               {saving ? <LoaderCircle className="size-4 animate-spin" /> : editingRecord ? <Pencil className="size-4" /> : <Plus className="size-4" />} {editingRecord ? pick("রেকর্ড হালনাগাদ", "Update record") : pick("রেকর্ড সংরক্ষণ করুন", "Save record")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -953,11 +953,13 @@ function QuickCard({ icon, title, text }: { icon: ReactNode; title: string; text
 }
 
 function DataSection({ title, description, canAdd, onAdd, onExport, children }: { title: string; description: string; canAdd: boolean; onAdd: () => void; onExport: () => void; children: ReactNode }) {
-  return <Card className="gap-0 overflow-hidden rounded-3xl py-0 shadow-none"><div className="flex flex-col gap-3 border-b p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-bold">{title}</h2><p className="text-sm text-muted-foreground">{description}</p></div><div className="flex gap-2"><Button variant="outline" size="sm" className="gap-2 rounded-xl" onClick={onExport}><Download className="size-4" /> XLSX</Button>{canAdd ? <Button size="sm" className="gap-2 rounded-xl" onClick={onAdd}><Plus className="size-4" /> Add</Button> : null}</div></div><div className="overflow-x-auto">{children}</div></Card>;
+  const { pick } = useLocale();
+  return <Card className="gap-0 overflow-hidden rounded-3xl py-0 shadow-none"><div className="flex flex-col gap-3 border-b p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-bold">{title}</h2><p className="text-sm text-muted-foreground">{description}</p></div><div className="flex gap-2"><Button variant="outline" size="sm" className="gap-2 rounded-xl" onClick={onExport}><Download className="size-4" /> {pick("XLSX রপ্তানি", "Export XLSX")}</Button>{canAdd ? <Button size="sm" className="gap-2 rounded-xl" onClick={onAdd}><Plus className="size-4" /> {pick("যোগ করুন", "Add")}</Button> : null}</div></div><div className="overflow-x-auto">{children}</div></Card>;
 }
 
 function EmptyRows({ show, columns }: { show: boolean; columns: number }) {
-  return show ? <TableRow><TableCell colSpan={columns} className="h-28 text-center text-muted-foreground">এখনও কোনো record নেই। Add বাটন দিয়ে শুরু করুন।</TableCell></TableRow> : null;
+  const { pick } = useLocale();
+  return show ? <TableRow><TableCell colSpan={columns} className="h-28 text-center text-muted-foreground">{pick("এখনও কোনো রেকর্ড নেই। যোগ করুন বাটন দিয়ে শুরু করুন।", "No records yet. Use the Add button to begin.")}</TableCell></TableRow> : null;
 }
 
 function StateCard({ icon, title, text, action }: { icon: ReactNode; title: string; text: string; action?: ReactNode }) {
@@ -965,6 +967,7 @@ function StateCard({ icon, title, text, action }: { icon: ReactNode; title: stri
 }
 
 function StatusBadge({ value }: { value: string }) {
+  const { locale } = useLocale();
   const good = ["confirmed", "fit", "purchased", "received", "completed", "settled", "collection", "participant"];
   const warn = ["pending", "planning", "registration", "observation", "delayed", "in_progress", "high", "expense"];
   const bad = ["cancelled", "rejected", "urgent", "refund"];
@@ -975,19 +978,34 @@ function StatusBadge({ value }: { value: string }) {
       : bad.includes(value)
         ? "bg-red-500/12 text-red-700 dark:text-red-300"
         : "bg-primary/10 text-primary";
-  return <Badge variant="secondary" className={className}>{campaignStatusLabels[value as QurbaniCampaignStatus] ?? value.replaceAll("_", " ")}</Badge>;
+  return <Badge variant="secondary" className={className}>{statusLabel(value, locale)}</Badge>;
 }
 
 function StatusMenu({ values, onSelect, disabled }: { values: string[]; onSelect: (value: string) => void; disabled: boolean }) {
-  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">Status actions</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{values.map((value) => <DropdownMenuItem key={value} onClick={() => onSelect(value)}>{value.replaceAll("_", " ")}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>;
+  const { locale, pick } = useLocale();
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">{pick("স্ট্যাটাস পরিবর্তন", "Status actions")}</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{values.map((value) => <DropdownMenuItem key={value} onClick={() => onSelect(value)}>{statusLabel(value, locale)}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>;
 }
 
 function RecordActions({ onEdit, onDelete, disabled }: { onEdit: () => void; onDelete: () => void; disabled: boolean }) {
-  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">Record actions</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={onEdit}><Pencil /> Edit details</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}><Trash2 /> Delete permanently</DropdownMenuItem></DropdownMenuContent></DropdownMenu>;
+  const { pick } = useLocale();
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">{pick("রেকর্ডের কাজ", "Record actions")}</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={onEdit}><Pencil /> {pick("বিস্তারিত সম্পাদনা", "Edit details")}</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}><Trash2 /> {pick("স্থায়ীভাবে মুছুন", "Delete permanently")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>;
 }
 
 function CampaignStatusMenu({ onSelect, disabled }: { onSelect: (value: string) => void; disabled: boolean }) {
-  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="gap-2 rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /> Workflow status</Button></DropdownMenuTrigger><DropdownMenuContent align="end">{workflow.map((value) => <DropdownMenuItem key={value} onClick={() => onSelect(value)}>{campaignStatusLabels[value]}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>;
+  const { locale, pick } = useLocale();
+  const labels = campaignLabelsFor(locale);
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="gap-2 rounded-xl" disabled={disabled}><MoreHorizontal className="size-4" /> {pick("ওয়ার্কফ্লো স্ট্যাটাস", "Workflow status")}</Button></DropdownMenuTrigger><DropdownMenuContent align="end">{workflow.map((value) => <DropdownMenuItem key={value} onClick={() => onSelect(value)}>{labels[value]}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>;
+}
+
+const statusLabelsBn: Record<string, string> = {
+  pending: "অপেক্ষমাণ", confirmed: "নিশ্চিত", cancelled: "বাতিল", fit: "উপযুক্ত", observation: "পর্যবেক্ষণে", rejected: "প্রত্যাখ্যাত",
+  shortlisted: "বাছাইকৃত", purchased: "ক্রয় করা", received: "গ্রহণ করা", slaughtered: "কোরবানি সম্পন্ন", collection: "সংগ্রহ", expense: "খরচ", refund: "ফেরত",
+  planned: "পরিকল্পিত", completed: "সম্পন্ন", scheduled: "নির্ধারিত", in_progress: "চলমান", delayed: "বিলম্বিত", todo: "করণীয়", normal: "সাধারণ", high: "উচ্চ", urgent: "জরুরি",
+  participant: "অংশগ্রহণকারী", family: "পরিবার", relative: "আত্মীয়", needy: "অসহায়", worker: "কর্মী", other: "অন্যান্য",
+};
+
+function statusLabel(value: string, locale: AppLocale) {
+  return campaignLabelsFor(locale)[value as QurbaniCampaignStatus] ?? (locale === "bn" ? statusLabelsBn[value] : undefined) ?? value.replaceAll("_", " ");
 }
 
 function FormField({ label, id, children }: { label: string; id: string; children: ReactNode }) {
@@ -999,18 +1017,19 @@ function ValueSelect({ id, value, onChange, items }: { id: string; value: string
 }
 
 function RecordFields({ kind, form, setForm, animals, participants }: { kind: QurbaniRecordKind; form: FormState; setForm: (value: FormState) => void; animals: QurbaniAnimal[]; participants: QurbaniParticipant[] }) {
+  const { pick } = useLocale();
   const set = (key: string, value: string) => setForm({ ...form, [key]: value });
   const input = (key: string, label: string, type = "text", options?: { min?: string; step?: string }) => <FormField label={label} id={"record-" + key}><Input id={"record-" + key} type={type} min={options?.min} step={options?.step} value={form[key] ?? ""} onChange={(event) => set(key, event.target.value)} /></FormField>;
   const select = (key: string, label: string, items: Array<[string, string]>) => <FormField label={label} id={"record-" + key}><ValueSelect id={"record-" + key} value={form[key] ?? items[0]?.[0] ?? ""} onChange={(value) => set(key, value)} items={items} /></FormField>;
-  const notes = <div className="sm:col-span-2"><FormField label="Notes" id="record-notes"><Textarea id="record-notes" rows={3} value={form.notes ?? ""} onChange={(event) => set("notes", event.target.value)} /></FormField></div>;
-  const animalItems: Array<[string, string]> = [["none", "Unassigned"], ...animals.map((item) => [item.id, item.tag_code] as [string, string])];
-  const participantItems: Array<[string, string]> = [["none", "General / none"], ...participants.map((item) => [item.id, item.member_name] as [string, string])];
+  const notes = <div className="sm:col-span-2"><FormField label={pick("নোট", "Notes")} id="record-notes"><Textarea id="record-notes" rows={3} value={form.notes ?? ""} onChange={(event) => set("notes", event.target.value)} /></FormField></div>;
+  const animalItems: Array<[string, string]> = [["none", pick("বরাদ্দ হয়নি", "Unassigned")], ...animals.map((item) => [item.id, item.tag_code] as [string, string])];
+  const participantItems: Array<[string, string]> = [["none", pick("সাধারণ / কেউ নয়", "General / none")], ...participants.map((item) => [item.id, item.member_name] as [string, string])];
 
-  if (kind === "participant") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("memberName", "Participant name")}{input("phone", "Phone")}{input("shareCount", "Share count", "number", { min: "0.01", step: "0.01" })}{select("animalId", "Animal assignment", animalItems)}{input("amountDue", "Amount due (blank = auto)", "number", { min: "0" })}{input("amountPaid", "Amount paid", "number", { min: "0" })}{select("status", "Status", [["pending", "Pending"], ["confirmed", "Confirmed"], ["cancelled", "Cancelled"]])}{notes}</div>;
-  if (kind === "animal") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("tagCode", "Tag code")}{select("animalType", "Animal type", [["cow", "Cow"], ["goat", "Goat"], ["sheep", "Sheep"], ["buffalo", "Buffalo"]])}{input("breed", "Breed")}{input("color", "Color")}{input("liveWeightKg", "Live weight kg", "number", { min: "0", step: "0.01" })}{input("estimatedMeatKg", "Estimated meat kg", "number", { min: "0", step: "0.01" })}{input("purchasePrice", "Purchase price", "number", { min: "0" })}{input("vendorName", "Vendor name")}{input("transportCost", "Transport cost", "number", { min: "0" })}{input("feedCost", "Feed cost", "number", { min: "0" })}{input("purchaseDate", "Purchase date", "date")}{select("healthStatus", "Health status", [["pending", "Pending check"], ["fit", "Fit"], ["observation", "Observation"], ["rejected", "Rejected"]])}{select("status", "Procurement status", [["shortlisted", "Shortlisted"], ["purchased", "Purchased"], ["received", "Received"], ["slaughtered", "Slaughtered"], ["cancelled", "Cancelled"]])}{input("vetNotes", "Veterinary notes")}{notes}</div>;
-  if (kind === "transaction") return <div className="grid gap-4 py-2 sm:grid-cols-2">{select("transactionType", "Transaction type", [["collection", "Collection"], ["expense", "Expense"], ["refund", "Refund"]])}{select("category", "Category", [["share_payment", "Share payment"], ["animal_purchase", "Animal purchase"], ["transport", "Transport"], ["feed", "Feed"], ["butcher", "Butcher"], ["logistics", "Logistics"], ["equipment", "Equipment"], ["distribution", "Distribution"], ["misc", "Miscellaneous"]])}{input("amount", "Amount", "number", { min: "0.01" })}{select("paymentMethod", "Payment method", [["cash", "Cash"], ["bank", "Bank"], ["mobile", "Mobile banking"], ["other", "Other"]])}{input("transactionDate", "Transaction date", "date")}{input("reference", "Reference")}{select("participantId", "Participant", participantItems)}{select("animalId", "Animal", animalItems)}{notes}</div>;
-  if (kind === "vendor") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("name", "Vendor / provider name")}{select("vendorType", "Provider type", [["animal_seller", "Animal seller"], ["butcher", "Butcher"], ["transport", "Transport"], ["feed", "Feed"], ["equipment", "Equipment"], ["other", "Other"]])}{input("phone", "Phone")}{input("address", "Address")}{input("agreedAmount", "Agreed amount", "number", { min: "0" })}{input("paidAmount", "Paid amount", "number", { min: "0" })}{select("status", "Status", [["planned", "Planned"], ["confirmed", "Confirmed"], ["completed", "Completed"], ["cancelled", "Cancelled"]])}{notes}</div>;
-  if (kind === "schedule") return <div className="grid gap-4 py-2 sm:grid-cols-2">{select("animalId", "Animal", animalItems)}{input("sequenceNo", "Sequence", "number", { min: "1" })}{input("scheduledAt", "Scheduled time", "datetime-local")}{input("location", "Location")}{input("butcherTeam", "Butcher / team")}{select("status", "Status", [["scheduled", "Scheduled"], ["in_progress", "In progress"], ["completed", "Completed"], ["delayed", "Delayed"]])}{notes}</div>;
-  if (kind === "task") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("title", "Task title")}{select("category", "Category", [["procurement", "Procurement"], ["finance", "Finance"], ["logistics", "Logistics"], ["slaughter", "Slaughter"], ["distribution", "Distribution"], ["cleanup", "Cleanup"]])}{input("assignedTo", "Assigned volunteer")}{input("dueAt", "Deadline", "datetime-local")}{select("priority", "Priority", [["normal", "Normal"], ["high", "High"], ["urgent", "Urgent"]])}{select("status", "Status", [["todo", "To do"], ["in_progress", "In progress"], ["completed", "Completed"], ["cancelled", "Cancelled"]])}{notes}</div>;
-  return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("recipientName", "Recipient name")}{select("recipientType", "Recipient type", [["participant", "Participant"], ["family", "Family"], ["relative", "Relative"], ["needy", "Needy"], ["worker", "Worker"], ["other", "Other"]])}{input("weightKg", "Weight kg", "number", { min: "0", step: "0.01" })}{input("packageCount", "Package count", "number", { min: "1" })}{input("collectedAt", "Collected at", "datetime-local")}{notes}</div>;
+  if (kind === "participant") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("memberName", pick("অংশগ্রহণকারীর নাম", "Participant name"))}{input("phone", pick("ফোন", "Phone"))}{input("shareCount", pick("শেয়ার সংখ্যা", "Share count"), "number", { min: "0.01", step: "0.01" })}{select("animalId", pick("পশু বরাদ্দ", "Animal assignment"), animalItems)}{input("amountDue", pick("প্রাপ্য টাকা (ফাঁকা রাখলে স্বয়ংক্রিয়)", "Amount due (blank = auto)"), "number", { min: "0" })}{input("amountPaid", pick("পরিশোধিত টাকা", "Amount paid"), "number", { min: "0" })}{select("status", pick("স্ট্যাটাস", "Status"), [["pending", pick("অপেক্ষমাণ", "Pending")], ["confirmed", pick("নিশ্চিত", "Confirmed")], ["cancelled", pick("বাতিল", "Cancelled")]])}{notes}</div>;
+  if (kind === "animal") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("tagCode", pick("ট্যাগ কোড", "Tag code"))}{select("animalType", pick("পশুর ধরন", "Animal type"), [["cow", pick("গরু", "Cow")], ["goat", pick("ছাগল", "Goat")], ["sheep", pick("ভেড়া", "Sheep")], ["buffalo", pick("মহিষ", "Buffalo")]])}{input("breed", pick("জাত", "Breed"))}{input("color", pick("রং", "Color"))}{input("liveWeightKg", pick("জীবিত ওজন (কেজি)", "Live weight kg"), "number", { min: "0", step: "0.01" })}{input("estimatedMeatKg", pick("আনুমানিক মাংস (কেজি)", "Estimated meat kg"), "number", { min: "0", step: "0.01" })}{input("purchasePrice", pick("ক্রয়মূল্য", "Purchase price"), "number", { min: "0" })}{input("vendorName", pick("বিক্রেতার নাম", "Vendor name"))}{input("transportCost", pick("পরিবহন খরচ", "Transport cost"), "number", { min: "0" })}{input("feedCost", pick("খাদ্য খরচ", "Feed cost"), "number", { min: "0" })}{input("purchaseDate", pick("ক্রয়ের তারিখ", "Purchase date"), "date")}{select("healthStatus", pick("স্বাস্থ্য অবস্থা", "Health status"), [["pending", pick("পরীক্ষা বাকি", "Pending check")], ["fit", pick("উপযুক্ত", "Fit")], ["observation", pick("পর্যবেক্ষণে", "Observation")], ["rejected", pick("প্রত্যাখ্যাত", "Rejected")]])}{select("status", pick("ক্রয় স্ট্যাটাস", "Procurement status"), [["shortlisted", pick("বাছাইকৃত", "Shortlisted")], ["purchased", pick("ক্রয় করা", "Purchased")], ["received", pick("গ্রহণ করা", "Received")], ["slaughtered", pick("কোরবানি সম্পন্ন", "Slaughtered")], ["cancelled", pick("বাতিল", "Cancelled")]])}{input("vetNotes", pick("পশু চিকিৎসকের নোট", "Veterinary notes"))}{notes}</div>;
+  if (kind === "transaction") return <div className="grid gap-4 py-2 sm:grid-cols-2">{select("transactionType", pick("লেনদেনের ধরন", "Transaction type"), [["collection", pick("সংগ্রহ", "Collection")], ["expense", pick("খরচ", "Expense")], ["refund", pick("ফেরত", "Refund")]])}{select("category", pick("ক্যাটাগরি", "Category"), [["share_payment", pick("শেয়ার পরিশোধ", "Share payment")], ["animal_purchase", pick("পশু ক্রয়", "Animal purchase")], ["transport", pick("পরিবহন", "Transport")], ["feed", pick("খাদ্য", "Feed")], ["butcher", pick("কসাই", "Butcher")], ["logistics", pick("লজিস্টিকস", "Logistics")], ["equipment", pick("সরঞ্জাম", "Equipment")], ["distribution", pick("বণ্টন", "Distribution")], ["misc", pick("বিবিধ", "Miscellaneous")]])}{input("amount", pick("পরিমাণ", "Amount"), "number", { min: "0.01" })}{select("paymentMethod", pick("পরিশোধ পদ্ধতি", "Payment method"), [["cash", pick("নগদ", "Cash")], ["bank", pick("ব্যাংক", "Bank")], ["mobile", pick("মোবাইল ব্যাংকিং", "Mobile banking")], ["other", pick("অন্যান্য", "Other")]])}{input("transactionDate", pick("লেনদেনের তারিখ", "Transaction date"), "date")}{input("reference", pick("রেফারেন্স", "Reference"))}{select("participantId", pick("অংশগ্রহণকারী", "Participant"), participantItems)}{select("animalId", pick("পশু", "Animal"), animalItems)}{notes}</div>;
+  if (kind === "vendor") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("name", pick("বিক্রেতা / সেবাদাতার নাম", "Vendor / provider name"))}{select("vendorType", pick("সেবাদাতার ধরন", "Provider type"), [["animal_seller", pick("পশু বিক্রেতা", "Animal seller")], ["butcher", pick("কসাই", "Butcher")], ["transport", pick("পরিবহন", "Transport")], ["feed", pick("খাদ্য", "Feed")], ["equipment", pick("সরঞ্জাম", "Equipment")], ["other", pick("অন্যান্য", "Other")]])}{input("phone", pick("ফোন", "Phone"))}{input("address", pick("ঠিকানা", "Address"))}{input("agreedAmount", pick("চুক্তির পরিমাণ", "Agreed amount"), "number", { min: "0" })}{input("paidAmount", pick("পরিশোধিত", "Paid amount"), "number", { min: "0" })}{select("status", pick("স্ট্যাটাস", "Status"), [["planned", pick("পরিকল্পিত", "Planned")], ["confirmed", pick("নিশ্চিত", "Confirmed")], ["completed", pick("সম্পন্ন", "Completed")], ["cancelled", pick("বাতিল", "Cancelled")]])}{notes}</div>;
+  if (kind === "schedule") return <div className="grid gap-4 py-2 sm:grid-cols-2">{select("animalId", pick("পশু", "Animal"), animalItems)}{input("sequenceNo", pick("ক্রম", "Sequence"), "number", { min: "1" })}{input("scheduledAt", pick("নির্ধারিত সময়", "Scheduled time"), "datetime-local")}{input("location", pick("স্থান", "Location"))}{input("butcherTeam", pick("কসাই / দল", "Butcher / team"))}{select("status", pick("স্ট্যাটাস", "Status"), [["scheduled", pick("নির্ধারিত", "Scheduled")], ["in_progress", pick("চলমান", "In progress")], ["completed", pick("সম্পন্ন", "Completed")], ["delayed", pick("বিলম্বিত", "Delayed")]])}{notes}</div>;
+  if (kind === "task") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("title", pick("কাজের শিরোনাম", "Task title"))}{select("category", pick("ক্যাটাগরি", "Category"), [["procurement", pick("ক্রয়", "Procurement")], ["finance", pick("অর্থ", "Finance")], ["logistics", pick("লজিস্টিকস", "Logistics")], ["slaughter", pick("কোরবানি", "Slaughter")], ["distribution", pick("বণ্টন", "Distribution")], ["cleanup", pick("পরিষ্কার", "Cleanup")]])}{input("assignedTo", pick("দায়িত্বপ্রাপ্ত স্বেচ্ছাসেবক", "Assigned volunteer"))}{input("dueAt", pick("সময়সীমা", "Deadline"), "datetime-local")}{select("priority", pick("অগ্রাধিকার", "Priority"), [["normal", pick("সাধারণ", "Normal")], ["high", pick("উচ্চ", "High")], ["urgent", pick("জরুরি", "Urgent")]])}{select("status", pick("স্ট্যাটাস", "Status"), [["todo", pick("করণীয়", "To do")], ["in_progress", pick("চলমান", "In progress")], ["completed", pick("সম্পন্ন", "Completed")], ["cancelled", pick("বাতিল", "Cancelled")]])}{notes}</div>;
+  return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("recipientName", pick("গ্রহীতার নাম", "Recipient name"))}{select("recipientType", pick("গ্রহীতার ধরন", "Recipient type"), [["participant", pick("অংশগ্রহণকারী", "Participant")], ["family", pick("পরিবার", "Family")], ["relative", pick("আত্মীয়", "Relative")], ["needy", pick("অসহায়", "Needy")], ["worker", pick("কর্মী", "Worker")], ["other", pick("অন্যান্য", "Other")]])}{input("weightKg", pick("ওজন (কেজি)", "Weight kg"), "number", { min: "0", step: "0.01" })}{input("packageCount", pick("প্যাকেট সংখ্যা", "Package count"), "number", { min: "1" })}{input("collectedAt", pick("সংগ্রহের সময়", "Collected at"), "datetime-local")}{notes}</div>;
 }
