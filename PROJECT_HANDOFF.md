@@ -7,7 +7,7 @@ This file is the authoritative handoff for continuing the project from another C
 ## Immediate continuation status
 
 - Local Magazine and Family Tree relationship updates are implemented and committed.
-- A shared BN/EN locale provider, database-persisted per-user language preference, bilingual theme controls, and bilingual global confirmation/result modals are implemented locally. The bilingual pass now covers onboarding, member approvals, the primary member-directory view, family-tree controls and relationship-to-me labels, notice ticker/primary notice views, Magazine, Events, core Qurbani, Personal Finance, Family Chat, the primary Health/SOS workflow, and the primary Welfare Fund dashboard/contribution workflow. Qurbani, Finance, Chat, and Health XLSX headings/sheet names follow the selected language. This work depends on `supabase/migrations/20260929_user_locale_preference.sql`, which must be applied before deployment.
+- A shared BN/EN locale provider, database-persisted per-user language preference, bilingual theme controls, and bilingual global confirmation/result modals are implemented locally. The bilingual pass now covers onboarding, member approvals, the primary member-directory view, family-tree controls and relationship-to-me labels, notice ticker/primary notice views, Magazine, Events, core Qurbani, Personal Finance, Family Chat, the primary Health/SOS workflow, primary Welfare Fund dashboard/contributions, the primary Shared Household dashboard, and the primary Admin Control Center. Qurbani, Finance, Chat, and Health XLSX headings/sheet names follow the selected language. This work depends on `supabase/migrations/20260929_user_locale_preference.sql`, which must be applied before deployment.
 - `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` were run again successfully after the latest continuation request.
 - The user applied all SQL files in `supabase/migrations` on 2026-09-29. A direct Supabase REST check for `public.family_magazine_articles` then returned HTTP `200`, confirming that the Magazine migration is ready.
 - The Codex/ChatGPT account used on 2026-09-29 could not access the existing Sites project ID (`Sites project not found`). The original owning account must either deploy the update or add the new account as an editor/collaborator; do not create a duplicate Site.
@@ -63,6 +63,8 @@ The following work is implemented, verified, and committed locally, but is inten
    - Family Chat: channel navigation/creation, group/direct conversation states, live status, notifications, message composer, privacy copy, feedback, date/time formatting, and XLSX workbooks use the selected locale.
    - Health/SOS: primary dashboard, reminders, metrics, care and health-log tables, SOS cards/actions, localized date/time/status display, feedback, and XLSX workbooks use the selected locale. Some secondary health profile/upload/SOS form labels remain mixed and are listed below.
    - Welfare Fund: locale-aware currency/date formatting, header, metrics, navigation, contribution ledger, and contribution approval/refund actions use the selected language. Remaining Welfare assistance/expense/pledge/document forms are listed below.
+   - Shared Household: the main header, household filter, KPI cards, module tabs, currency/date formatters, and primary save/upload/load feedback now follow the selected locale. Secondary forms, card actions, statuses, table headings, and workbook headings remain mixed.
+   - Admin Control Center: access/loading states, main header, KPI cards, role/audit navigation, member/audit filters, table headings, counts, and locale-aware timestamps now follow the selected locale. Role/status option labels and some row-level feedback remain mixed.
 
 The user confirmed and the API check verified that `supabase/migrations/20260928_family_magazine.sql` is applied. This batch is database-ready for deployment.
 
@@ -327,8 +329,8 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 ### Priority 2 — complete bilingual support
 
 - Shared BN/EN locale context and per-user database persistence are implemented.
-- Core bilingual coverage is implemented for onboarding, member approval, the primary directory screen, family tree (including computed relationship names), the notice ticker/primary notice screen, Magazine, Events, core Qurbani, Personal Finance, Family Chat, primary Health/SOS, theme controls, and global confirmation/result dialogs.
-- Finish remaining secondary mixed labels/server-returned messages in Directory, Notice Center, Events, Qurbani, Finance, Health profile/upload/SOS forms, and Welfare assistance/expense/pledge/document flows, then extend the same approach through Household, Archives, Governance, and Admin.
+- Core bilingual coverage is implemented for onboarding, member approval, the primary directory screen, family tree (including computed relationship names), the notice ticker/primary notice screen, Magazine, Events, core Qurbani, Personal Finance, Family Chat, primary Health/SOS, primary Welfare, primary Household, primary Admin, theme controls, and global confirmation/result dialogs.
+- Finish remaining secondary mixed labels/server-returned messages in Directory, Notice Center, Events, Qurbani, Finance, Health profile/upload/SOS forms, Welfare assistance/expense/pledge/document flows, Household forms/cards/actions/exports, and Admin row-level actions; then extend the same approach through Archives and Governance.
 - Translate remaining server-returned validation text plus module-specific exports, dates, currencies, statuses, empty states, and secondary dialogs in modules not yet covered.
 - Add a missing-translation check to CI/tests.
 
@@ -382,7 +384,7 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 2. Obtain editor access to the existing Sites project or use its original owning account for deployment.
 3. Publish the next private Sites version using the existing Sites project ID.
 4. Smoke-test the new routes against the live deployment.
-5. Continue the system-wide i18n pass from remaining secondary Directory/Notice/Event/Qurbani/Finance/Health strings, then Welfare, Household, Archives, Governance, and Admin.
+5. Continue the system-wide i18n pass through Archives and Governance, then finish remaining secondary Directory/Notice/Event/Qurbani/Finance/Health/Welfare/Household/Admin strings and localized exports.
 6. Continue with notifications, stronger encryption/security, reports, and then SaaS billing/custom domains.
 
 ## 13. Verification checklist for every future batch
