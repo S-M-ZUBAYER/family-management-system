@@ -1,6 +1,6 @@
 # Family Management System — Project Handoff
 
-Last updated: 2026-09-28 (Asia/Dhaka)
+Last updated: 2026-09-29 (Asia/Dhaka)
 
 This file is the authoritative handoff for continuing the project from another Codex account. Read it completely before changing or deploying anything.
 
@@ -9,6 +9,8 @@ This file is the authoritative handoff for continuing the project from another C
 - Local Magazine and Family Tree relationship updates are implemented and committed.
 - `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` were run again successfully after the latest continuation request.
 - A direct Supabase REST check returned `PGRST205` for `public.family_magazine_articles`, confirming that the Magazine migration has **not** yet been applied to the connected Supabase project.
+- This was rechecked on 2026-09-29 and the table was still unavailable (`PGRST205`).
+- The Codex/ChatGPT account used on 2026-09-29 could not access the existing Sites project ID (`Sites project not found`). The original owning account must either deploy the update or add the new account as an editor/collaborator; do not create a duplicate Site.
 - The user must sign in to Supabase in their browser, or manually run `supabase/migrations/20260928_family_magazine.sql` in Supabase SQL Editor.
 - Do not deploy the Magazine code until the migration is confirmed.
 - The stable production site remains version 30 at `https://family-management-system.hitht.chatgpt.site`.
