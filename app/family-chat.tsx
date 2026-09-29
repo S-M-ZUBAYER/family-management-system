@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useActionFeedback } from "@/components/action-modal-provider";
+import { useLocale } from "@/components/locale-provider";
 
 import {
   useCallback,
@@ -135,15 +136,6 @@ type ChatPayload = {
   error?: string;
 };
 
-const messageTime = new Intl.DateTimeFormat("bn-BD", {
-  hour: "numeric",
-  minute: "2-digit",
-});
-const messageDate = new Intl.DateTimeFormat("bn-BD", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
 const reactionOptions = ["❤️", "👍", "😂", "🤲", "🎉"];
 
 function mergeById<T extends { id: string }>(current: T[], incoming: T[]) {
@@ -173,6 +165,9 @@ function attachmentIcon(mimeType: string) {
 }
 
 export function FamilyChat() {
+  const { locale, pick } = useLocale();
+  const messageTime = new Intl.DateTimeFormat(locale === "bn" ? "bn-BD" : "en-BD", { hour: "numeric", minute: "2-digit" });
+  const messageDate = new Intl.DateTimeFormat(locale === "bn" ? "bn-BD" : "en-BD", { day: "numeric", month: "short", year: "numeric" });
   const [family, setFamily] = useState<ChatPayload["family"]>();
   const [viewer, setViewer] = useState<ChatPayload["viewer"]>();
   const [members, setMembers] = useState<ChatMember[]>([]);
@@ -255,11 +250,11 @@ export function FamilyChat() {
         return nextChannels.find((channel) => channel.channelType === "general")?.id ?? nextChannels[0]?.id ?? null;
       });
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "Family chat পাওয়া যায়নি।");
+      setFeedback(error instanceof Error ? error.message : pick("ফ্যামিলি চ্যাট পাওয়া যায়নি।", "Family chat could not be loaded."));
     } finally {
       setLoading(false);
     }
-  }, [setFeedback]);
+  }, [pick, setFeedback]);
 
   const markRead = useCallback(async (channelId: string, lastMessageId: string) => {
     try {
@@ -291,11 +286,11 @@ export function FamilyChat() {
         && Notification.permission === "granted"
       ) {
         new Notification(selected?.name ?? "Family chat", {
-          body: `${newestIncoming.author_name}: ${newestIncoming.body ?? "নতুন attachment"}`,
+          body: `${newestIncoming.author_name}: ${newestIncoming.body ?? pick("নতুন সংযুক্তি", "New attachment")}`,
         });
       }
     }
-  }, [markRead, selected?.name, selectedId]);
+  }, [markRead, pick, selected?.name, selectedId]);
 
   const loadMessages = useCallback(async (channelId: string, silent = false) => {
     if (!silent) setMessagesLoading(true);
@@ -305,11 +300,11 @@ export function FamilyChat() {
       if (!response.ok) throw new Error(payload.error ?? "Messages পাওয়া যায়নি।");
       applyFeed(payload, true);
     } catch (error) {
-      if (!silent) setFeedback(error instanceof Error ? error.message : "Messages পাওয়া যায়নি।");
+      if (!silent) setFeedback(error instanceof Error ? error.message : pick("বার্তাগুলো পাওয়া যায়নি।", "Messages could not be loaded."));
     } finally {
       if (!silent) setMessagesLoading(false);
     }
-  }, [applyFeed, setFeedback]);
+  }, [applyFeed, pick, setFeedback]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -381,15 +376,15 @@ export function FamilyChat() {
         }),
       });
       const payload = (await response.json()) as { channelId?: string; existing?: boolean; error?: string };
-      if (!response.ok || !payload.channelId) throw new Error(payload.error ?? "Channel তৈরি হয়নি।");
+      if (!response.ok || !payload.channelId) throw new Error(payload.error ?? pick("চ্যানেল তৈরি হয়নি।", "Channel could not be created."));
       setCreateOpen(false);
       setCreateName("");
       setCreateDescription("");
       setCreateMemberIds([]);
       await loadMetadata(payload.channelId);
-      setFeedback(payload.existing ? "আগের private conversation খোলা হয়েছে।" : "নতুন chat channel তৈরি হয়েছে।");
+      setFeedback(payload.existing ? pick("আগের ব্যক্তিগত কথোপকথন খোলা হয়েছে।", "The existing private conversation was opened.") : pick("নতুন চ্যাট চ্যানেল তৈরি হয়েছে।", "A new chat channel was created."));
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "Channel তৈরি হয়নি।");
+      setFeedback(error instanceof Error ? error.message : pick("চ্যানেল তৈরি হয়নি।", "Channel could not be created."));
     } finally {
       setWorking(false);
     }
@@ -408,7 +403,7 @@ export function FamilyChat() {
         if (replyingTo) body.set("replyToId", replyingTo.id);
         const response = await fetch("/api/chat/upload", { method: "POST", body });
         const payload = (await response.json()) as { message?: ChatMessage; attachment?: ChatAttachment; error?: string };
-        if (!response.ok || !payload.message || !payload.attachment) throw new Error(payload.error ?? "Attachment পাঠানো যায়নি।");
+        if (!response.ok || !payload.message || !payload.attachment) throw new Error(payload.error ?? pick("সংযুক্তি পাঠানো যায়নি।", "The attachment could not be sent."));
         setMessages((current) => mergeById(current, [payload.message!]));
         setAttachments((current) => mergeById(current, [payload.attachment!]));
       } else {
@@ -423,7 +418,7 @@ export function FamilyChat() {
           }),
         });
         const payload = (await response.json()) as { message?: ChatMessage; error?: string };
-        if (!response.ok || !payload.message) throw new Error(payload.error ?? "Message পাঠানো যায়নি।");
+        if (!response.ok || !payload.message) throw new Error(payload.error ?? pick("বার্তা পাঠানো যায়নি।", "The message could not be sent."));
         setMessages((current) => mergeById(current, [payload.message!]));
       }
       setDraft("");
@@ -432,7 +427,7 @@ export function FamilyChat() {
       if (fileInputRef.current) fileInputRef.current.value = "";
       await loadMetadata(selected.id);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "Message পাঠানো যায়নি।");
+      setFeedback(error instanceof Error ? error.message : pick("বার্তা পাঠানো যায়নি।", "The message could not be sent."));
     } finally {
       setWorking(false);
     }
@@ -447,10 +442,10 @@ export function FamilyChat() {
         body: JSON.stringify({ action: "toggle_reaction", channelId: selected.id, messageId, emoji }),
       });
       const payload = (await response.json()) as { active?: boolean; error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Reaction update হয়নি।");
+      if (!response.ok) throw new Error(payload.error ?? pick("প্রতিক্রিয়া হালনাগাদ হয়নি।", "The reaction could not be updated."));
       await loadMessages(selected.id, true);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "Reaction update হয়নি।");
+      setFeedback(error instanceof Error ? error.message : pick("প্রতিক্রিয়া হালনাগাদ হয়নি।", "The reaction could not be updated."));
     }
   }
 
@@ -463,12 +458,12 @@ export function FamilyChat() {
         body: JSON.stringify({ action: "update_notification", channelId: selected.id, level }),
       });
       const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Notification update হয়নি।");
+      if (!response.ok) throw new Error(payload.error ?? pick("নোটিফিকেশন হালনাগাদ হয়নি।", "Notifications could not be updated."));
       setChannels((current) => current.map((channel) => channel.id === selected.id
         ? { ...channel, notificationLevel: level }
         : channel));
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "Notification update হয়নি।");
+      setFeedback(error instanceof Error ? error.message : pick("নোটিফিকেশন হালনাগাদ হয়নি।", "Notifications could not be updated."));
     }
   }
 
@@ -504,7 +499,7 @@ export function FamilyChat() {
       recorder.start();
       setRecording(true);
     } catch {
-      setFeedback("Microphone permission পাওয়া যায়নি। চাইলে audio file attach করতে পারেন।");
+      setFeedback(pick("মাইক্রোফোনের অনুমতি পাওয়া যায়নি। চাইলে অডিও ফাইল সংযুক্ত করতে পারেন।", "Microphone permission was not granted. You can attach an audio file instead."));
     }
   }
 
@@ -539,24 +534,24 @@ export function FamilyChat() {
             [reaction.emoji]: (summary[reaction.emoji] ?? 0) + 1,
           }), {});
         return {
-          "ক্রমিক": index + 1,
-          "সময়": new Date(message.created_at).toLocaleString("bn-BD"),
-          "প্রেরক": message.author_name,
-          "ধরন": message.message_type,
-          "বার্তা": message.body ?? "",
-          "Reply to": reply ? `${reply.author_name}: ${reply.body ?? "Attachment"}` : "",
-          "Attachment": messageAttachments.map((item) => item.file_name).join(", "),
-          "Reactions": Object.entries(reactionSummary).map(([emoji, count]) => `${emoji} ${count}`).join(" · "),
+          [pick("ক্রমিক", "SL")]: index + 1,
+          [pick("সময়", "Time")]: new Date(message.created_at).toLocaleString(locale === "bn" ? "bn-BD" : "en-BD"),
+          [pick("প্রেরক", "Sender")]: message.author_name,
+          [pick("ধরন", "Type")]: message.message_type,
+          [pick("বার্তা", "Message")]: message.body ?? "",
+          [pick("যার উত্তর", "Reply to")]: reply ? `${reply.author_name}: ${reply.body ?? pick("সংযুক্তি", "Attachment")}` : "",
+          [pick("সংযুক্তি", "Attachment")]: messageAttachments.map((item) => item.file_name).join(", "),
+          [pick("প্রতিক্রিয়া", "Reactions")]: Object.entries(reactionSummary).map(([emoji, count]) => `${emoji} ${count}`).join(" · "),
         };
       });
       const memberRows = selectedMembers.map((member, index) => ({
-        "ক্রমিক": index + 1,
-        "সদস্য": member.name,
-        "ভূমিকা": member.role,
+        [pick("ক্রমিক", "SL")]: index + 1,
+        [pick("সদস্য", "Member")]: member.name,
+        [pick("ভূমিকা", "Role")]: member.role,
       }));
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(messageRows), "Messages");
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(memberRows), "Members");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(messageRows), pick("বার্তা", "Messages"));
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(memberRows), pick("সদস্য", "Members"));
       const fileName = selected.name.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "family-chat";
       XLSX.writeFile(workbook, `${fileName}-chat.xlsx`);
     } finally {
@@ -603,7 +598,7 @@ export function FamilyChat() {
       <main className="grid min-h-[calc(100vh-4rem)] place-items-center p-6">
         <div className="text-center">
           <LoaderCircle className="mx-auto size-7 animate-spin text-primary" />
-          <p className="mt-3 text-sm text-muted-foreground">Family chat প্রস্তুত হচ্ছে…</p>
+          <p className="mt-3 text-sm text-muted-foreground">{pick("ফ্যামিলি চ্যাট প্রস্তুত হচ্ছে…", "Family chat is getting ready…")}</p>
         </div>
       </main>
     );
@@ -615,9 +610,9 @@ export function FamilyChat() {
         <Card className="rounded-3xl border-dashed">
           <CardContent className="p-8 text-center">
             <Users className="mx-auto size-10 text-primary" />
-            <h1 className="mt-4 text-2xl font-bold">Family access সক্রিয় নয়</h1>
-            <p className="mt-2 text-muted-foreground">Join code দিয়ে আবেদন করুন। Admin approval-এর পর private chat ব্যবহার করা যাবে।</p>
-            <Button asChild className="mt-5 rounded-xl"><a href="/setup">Family onboarding</a></Button>
+            <h1 className="mt-4 text-2xl font-bold">{pick("পরিবারে প্রবেশাধিকার সক্রিয় নয়", "Family access is not active")}</h1>
+            <p className="mt-2 text-muted-foreground">{pick("যোগদানের কোড দিয়ে আবেদন করুন। অ্যাডমিনের অনুমোদনের পর ব্যক্তিগত চ্যাট ব্যবহার করা যাবে।", "Apply with a join code. Private chat will be available after admin approval.")}</p>
+            <Button asChild className="mt-5 rounded-xl"><a href="/setup">{pick("পরিবারে যোগদান", "Family onboarding")}</a></Button>
           </CardContent>
         </Card>
       </main>
@@ -630,31 +625,31 @@ export function FamilyChat() {
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-primary">
             <span className={cn("size-2 rounded-full", live ? "bg-emerald-500" : "bg-amber-500")} />
-            {live ? "লাইভ সংযোগ চালু" : "লাইভ সংযোগ পুনরায় হচ্ছে"}
+            {live ? pick("লাইভ সংযোগ চালু", "Live connection active") : pick("লাইভ সংযোগ পুনরায় হচ্ছে", "Reconnecting live feed")}
           </div>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">Family Chat</h1>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">{pick("ফ্যামিলি চ্যাট", "Family Chat")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {family?.name_bn ?? "পরিবার"} · নিরাপদ group ও private conversation
+            {locale === "en" ? family?.name_en || family?.name_bn || "Family" : family?.name_bn ?? "পরিবার"} · {pick("নিরাপদ গ্রুপ ও ব্যক্তিগত কথোপকথন", "Secure group and private conversations")}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           {notificationPermission !== "granted" && notificationPermission !== "unsupported" ? (
             <Button variant="outline" className="rounded-xl" onClick={() => void requestNotifications()}>
-              <Bell className="size-4" /> Notification চালু করুন
+              <Bell className="size-4" /> {pick("নোটিফিকেশন চালু করুন", "Enable notifications")}
             </Button>
           ) : null}
           <Button variant="outline" className="rounded-xl" onClick={() => void exportXlsx()} disabled={!selected || exporting}>
-            {exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} XLSX
+            {exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} {pick("XLSX রপ্তানি", "Export XLSX")}
           </Button>
           <Button className="rounded-xl" onClick={() => setCreateOpen(true)} disabled={migrationRequired}>
-            <Plus className="size-4" /> নতুন chat
+            <Plus className="size-4" /> {pick("নতুন চ্যাট", "New chat")}
           </Button>
         </div>
       </section>
 
       {migrationRequired ? (
         <div className="mb-4 rounded-2xl border border-amber-300/70 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-100">
-          Chat database এখনো তৈরি হয়নি। Supabase SQL Editor-এ <b>supabase/migrations/20260927_family_chat.sql</b> চালালে General chat, direct message ও live history সক্রিয় হবে।
+          {pick("চ্যাট ডাটাবেস এখনো তৈরি হয়নি। Supabase SQL Editor-এ ", "The chat database has not been created. Run ")}<b>supabase/migrations/20260927_family_chat.sql</b>{pick(" চালালে সাধারণ চ্যাট, সরাসরি বার্তা ও লাইভ ইতিহাস সক্রিয় হবে।", " in the Supabase SQL Editor to enable general chat, direct messages, and live history.")}
         </div>
       ) : null}
       {feedback ? (
@@ -669,7 +664,7 @@ export function FamilyChat() {
           <div className="p-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Chat খুঁজুন" className="rounded-xl pl-9" />
+              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={pick("চ্যাট খুঁজুন", "Search chats")} className="rounded-xl pl-9" />
             </div>
             <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
               {(["all", "group", "direct"] as const).map((filter) => (
@@ -682,7 +677,7 @@ export function FamilyChat() {
                     channelFilter === filter ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {filter === "all" ? "সব" : filter === "group" ? "Group" : "Direct"}
+                  {filter === "all" ? pick("সব", "All") : filter === "group" ? pick("গ্রুপ", "Groups") : pick("সরাসরি", "Direct")}
                 </button>
               ))}
             </div>
@@ -712,7 +707,7 @@ export function FamilyChat() {
                       {channel.unreadCount ? <Badge className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">{channel.unreadCount}</Badge> : null}
                     </div>
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {channel.description ?? `${channel.memberCount} জন সদস্য`}
+                      {channel.description ?? pick(`${channel.memberCount} জন সদস্য`, `${channel.memberCount} members`)}
                     </p>
                   </div>
                 </button>
@@ -720,7 +715,7 @@ export function FamilyChat() {
             })}
             {!visibleChannels.length ? (
               <div className="min-w-[250px] p-5 text-center text-sm text-muted-foreground lg:min-w-0">
-                {migrationRequired ? "Migration চালানো বাকি।" : "কোনো chat পাওয়া যায়নি।"}
+                {migrationRequired ? pick("মাইগ্রেশন চালানো বাকি।", "Migration is still required.") : pick("কোনো চ্যাট পাওয়া যায়নি।", "No chats found.")}
               </div>
             ) : null}
           </div>
@@ -736,18 +731,18 @@ export function FamilyChat() {
                 <div className="min-w-0 flex-1">
                   <h2 className="truncate font-bold">{selected.name}</h2>
                   <p className="truncate text-xs text-muted-foreground">
-                    {selected.memberCount} জন · {selected.visibility === "family" ? "পরিবারের সবাই" : selected.visibility === "admins" ? "Admin only" : "Private group"}
+                    {pick(`${selected.memberCount} জন`, `${selected.memberCount} members`)} · {selected.visibility === "family" ? pick("পরিবারের সবাই", "Everyone in the family") : selected.visibility === "admins" ? pick("শুধু অ্যাডমিন", "Admins only") : pick("ব্যক্তিগত গ্রুপ", "Private group")}
                   </p>
                 </div>
                 <Select value={selected.notificationLevel} onValueChange={(value) => void updateNotification(value as ChatChannel["notificationLevel"])}>
-                  <SelectTrigger className="w-10 rounded-xl px-0 sm:w-[132px] sm:px-3" aria-label="Channel notifications">
+                  <SelectTrigger className="w-10 rounded-xl px-0 sm:w-[132px] sm:px-3" aria-label={pick("চ্যানেল নোটিফিকেশন", "Channel notifications")}>
                     <span className="sm:hidden">{selected.notificationLevel === "muted" ? <BellOff className="mx-auto size-4" /> : <Bell className="mx-auto size-4" />}</span>
                     <span className="hidden sm:inline"><SelectValue /></span>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">সব notification</SelectItem>
-                    <SelectItem value="mentions">শুধু mention</SelectItem>
-                    <SelectItem value="muted">Muted</SelectItem>
+                    <SelectItem value="all">{pick("সব নোটিফিকেশন", "All notifications")}</SelectItem>
+                    <SelectItem value="mentions">{pick("শুধু উল্লেখ", "Mentions only")}</SelectItem>
+                    <SelectItem value="muted">{pick("নীরব", "Muted")}</SelectItem>
                   </SelectContent>
                 </Select>
               </header>
@@ -759,8 +754,8 @@ export function FamilyChat() {
                   <div className="grid h-full place-items-center text-center">
                     <div>
                       <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary"><MessageCircleMore /></div>
-                      <h3 className="mt-4 font-bold">এই chat এখনো শান্ত</h3>
-                      <p className="mt-1 text-sm text-muted-foreground">প্রথম বার্তাটি পাঠিয়ে আলোচনা শুরু করুন।</p>
+                      <h3 className="mt-4 font-bold">{pick("এই চ্যাট এখনো শান্ত", "This chat is quiet")}</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">{pick("প্রথম বার্তাটি পাঠিয়ে আলোচনা শুরু করুন।", "Send the first message to start the conversation.")}</p>
                     </div>
                   </div>
                 ) : (
@@ -790,7 +785,7 @@ export function FamilyChat() {
                             </Avatar>
                             <div className={cn("max-w-[82%] md:max-w-[72%]", message.is_mine && "items-end")}>
                               <div className={cn("mb-1 flex items-center gap-2 px-1", message.is_mine && "justify-end")}>
-                                <span className="text-[11px] font-semibold text-muted-foreground">{message.is_mine ? "আপনি" : message.author_name}</span>
+                                <span className="text-[11px] font-semibold text-muted-foreground">{message.is_mine ? pick("আপনি", "You") : message.author_name}</span>
                                 <span className="text-[10px] text-muted-foreground/70">{messageTime.format(new Date(message.created_at))}</span>
                               </div>
                               <div className={cn(
@@ -800,7 +795,7 @@ export function FamilyChat() {
                                 {reply ? (
                                   <div className={cn("mb-2 rounded-lg border-l-2 px-2 py-1 text-xs", message.is_mine ? "border-primary-foreground/50 bg-primary-foreground/10" : "border-primary bg-muted") }>
                                     <p className="font-semibold">{reply.author_name}</p>
-                                    <p className="line-clamp-1 opacity-80">{reply.body ?? "Attachment"}</p>
+                                    <p className="line-clamp-1 opacity-80">{reply.body ?? pick("সংযুক্তি", "Attachment")}</p>
                                   </div>
                                 ) : null}
                                 {message.body ? <p className="whitespace-pre-wrap break-words">{message.body}</p> : null}
@@ -812,7 +807,7 @@ export function FamilyChat() {
                                       {attachment.mime_type.startsWith("image/") ? (
                                         <a href={source} target="_blank" rel="noreferrer"><img src={source} alt={attachment.file_name} className="max-h-72 w-full object-cover" /></a>
                                       ) : attachment.mime_type.startsWith("audio/") ? (
-                                        <div className="p-3"><audio controls preload="metadata" className="h-9 max-w-full" src={source}>Audio playback unavailable.</audio></div>
+                                         <div className="p-3"><audio controls preload="metadata" className="h-9 max-w-full" src={source}>{pick("অডিও চালানো যাচ্ছে না।", "Audio playback unavailable.")}</audio></div>
                                       ) : (
                                         <a href={source} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3">
                                           <AttachmentIcon className="size-5 shrink-0" />
@@ -861,7 +856,7 @@ export function FamilyChat() {
                   {replyingTo ? (
                     <div className="mb-2 flex items-center gap-3 rounded-xl border-l-4 border-primary bg-muted/60 px-3 py-2 text-xs">
                       <Reply className="size-3.5" />
-                      <div className="min-w-0 flex-1"><b>{replyingTo.author_name}</b><p className="truncate text-muted-foreground">{replyingTo.body ?? "Attachment"}</p></div>
+                       <div className="min-w-0 flex-1"><b>{replyingTo.author_name}</b><p className="truncate text-muted-foreground">{replyingTo.body ?? pick("সংযুক্তি", "Attachment")}</p></div>
                       <Button size="icon-xs" variant="ghost" onClick={() => setReplyingTo(null)}><X /></Button>
                     </div>
                   ) : null}
@@ -874,7 +869,7 @@ export function FamilyChat() {
                   ) : null}
                   <div className="flex items-end gap-2 rounded-2xl border bg-background p-2 shadow-sm focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10">
                     <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileInput} accept="image/*,audio/*,video/mp4,video/webm,.pdf,.doc,.docx,.xls,.xlsx" />
-                    <Button type="button" size="icon" variant="ghost" className="shrink-0 rounded-xl" onClick={() => fileInputRef.current?.click()} aria-label="Attach file"><Paperclip /></Button>
+                     <Button type="button" size="icon" variant="ghost" className="shrink-0 rounded-xl" onClick={() => fileInputRef.current?.click()} aria-label={pick("ফাইল সংযুক্ত করুন", "Attach file")}><Paperclip /></Button>
                     <Textarea
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
@@ -884,23 +879,23 @@ export function FamilyChat() {
                           void sendMessage();
                         }
                       }}
-                      placeholder={dragActive ? "File এখানে ছাড়ুন" : "বার্তা লিখুন…  Shift+Enter নতুন লাইন"}
+                       placeholder={dragActive ? pick("ফাইল এখানে ছাড়ুন", "Drop the file here") : pick("বার্তা লিখুন…  Shift+Enter নতুন লাইন", "Write a message… Shift+Enter for a new line")}
                       className="max-h-32 min-h-10 resize-none border-0 bg-transparent px-1 py-2 shadow-none focus-visible:ring-0"
                     />
-                    <Button type="button" size="icon" variant={recording ? "destructive" : "ghost"} className="shrink-0 rounded-xl" onClick={() => void startRecording()} aria-label={recording ? "Stop recording" : "Record voice note"}>
+                     <Button type="button" size="icon" variant={recording ? "destructive" : "ghost"} className="shrink-0 rounded-xl" onClick={() => void startRecording()} aria-label={recording ? pick("রেকর্ডিং বন্ধ করুন", "Stop recording") : pick("ভয়েস নোট রেকর্ড করুন", "Record voice note")}>
                       {recording ? <Square className="size-4 fill-current" /> : <Mic />}
                     </Button>
-                    <Button type="button" size="icon" className="shrink-0 rounded-xl" onClick={() => void sendMessage()} disabled={working || (!draft.trim() && !pendingFile)} aria-label="Send message">
+                     <Button type="button" size="icon" className="shrink-0 rounded-xl" onClick={() => void sendMessage()} disabled={working || (!draft.trim() && !pendingFile)} aria-label={pick("বার্তা পাঠান", "Send message")}>
                       {working ? <LoaderCircle className="animate-spin" /> : <SendHorizontal />}
                     </Button>
                   </div>
-                  <p className="mt-1.5 px-2 text-[10px] text-muted-foreground">Private files family permission ছাড়া খোলা যাবে না। Voice note পাঠাতে microphone permission লাগবে।</p>
+                   <p className="mt-1.5 px-2 text-[10px] text-muted-foreground">{pick("ব্যক্তিগত ফাইল পরিবারের অনুমতি ছাড়া খোলা যাবে না। ভয়েস নোট পাঠাতে মাইক্রোফোনের অনুমতি লাগবে।", "Private files require family permission. Microphone permission is required to send a voice note.")}</p>
                 </div>
               </footer>
             </>
           ) : (
             <div className="grid flex-1 place-items-center p-8 text-center">
-              <div><MessageCircleMore className="mx-auto size-11 text-primary" /><h2 className="mt-4 text-xl font-bold">একটি chat নির্বাচন করুন</h2><p className="mt-1 text-sm text-muted-foreground">General group অথবা private conversation খুলুন।</p></div>
+               <div><MessageCircleMore className="mx-auto size-11 text-primary" /><h2 className="mt-4 text-xl font-bold">{pick("একটি চ্যাট নির্বাচন করুন", "Select a chat")}</h2><p className="mt-1 text-sm text-muted-foreground">{pick("সাধারণ গ্রুপ অথবা ব্যক্তিগত কথোপকথন খুলুন।", "Open a general group or a private conversation.")}</p></div>
             </div>
           )}
         </section>
@@ -913,24 +908,24 @@ export function FamilyChat() {
                   {selected.channelType === "direct" ? <UserRound className="size-7" /> : <Hash className="size-7" />}
                 </div>
                 <h3 className="mt-3 font-bold">{selected.name}</h3>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">{selected.description ?? "Family conversation"}</p>
-                <div className="mt-3 flex justify-center gap-2"><Badge variant="secondary">{selected.memberCount} সদস্য</Badge><Badge variant="outline">{live ? "Live" : "Syncing"}</Badge></div>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{selected.description ?? pick("পারিবারিক কথোপকথন", "Family conversation")}</p>
+                <div className="mt-3 flex justify-center gap-2"><Badge variant="secondary">{pick(`${selected.memberCount} সদস্য`, `${selected.memberCount} members`)}</Badge><Badge variant="outline">{live ? pick("লাইভ", "Live") : pick("সিঙ্ক হচ্ছে", "Syncing")}</Badge></div>
               </div>
               <Separator className="my-5" />
-              <div className="flex items-center justify-between"><p className="text-sm font-bold">সদস্য</p><span className="text-xs text-muted-foreground">{selectedMembers.length}</span></div>
+              <div className="flex items-center justify-between"><p className="text-sm font-bold">{pick("সদস্য", "Members")}</p><span className="text-xs text-muted-foreground">{selectedMembers.length}</span></div>
               <div className="mt-3 space-y-2">
                 {selectedMembers.slice(0, 12).map((member) => (
                   <div key={member.authUserId} className="flex items-center gap-3 rounded-xl p-2 hover:bg-muted">
                     <Avatar className="size-8"><AvatarFallback className="text-[10px] font-bold">{member.initials}</AvatarFallback></Avatar>
-                    <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{member.authUserId === viewer?.authUserId ? `${member.name} (আপনি)` : member.name}</p><p className="text-[10px] capitalize text-muted-foreground">{member.role.replace("_", " ")}</p></div>
+                    <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{member.authUserId === viewer?.authUserId ? `${member.name} (${pick("আপনি", "You")})` : member.name}</p><p className="text-[10px] capitalize text-muted-foreground">{member.role.replace("_", " ")}</p></div>
                   </div>
                 ))}
               </div>
-              {selectedMembers.length > 12 ? <p className="mt-2 text-center text-xs text-muted-foreground">আরও {selectedMembers.length - 12} জন</p> : null}
+              {selectedMembers.length > 12 ? <p className="mt-2 text-center text-xs text-muted-foreground">{pick(`আরও ${selectedMembers.length - 12} জন`, `${selectedMembers.length - 12} more`)}</p> : null}
               <Separator className="my-5" />
               <div className="rounded-2xl border bg-card p-4">
-                <p className="text-xs font-bold">Privacy</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">Messages, reactions ও files শুধু এই পরিবারের অনুমোদিত সদস্যরা দেখতে পারবেন।</p>
+                <p className="text-xs font-bold">{pick("গোপনীয়তা", "Privacy")}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{pick("বার্তা, প্রতিক্রিয়া ও ফাইল শুধু এই পরিবারের অনুমোদিত সদস্যরা দেখতে পারবেন।", "Messages, reactions, and files are visible only to approved members of this family.")}</p>
               </div>
             </div>
           ) : null}
@@ -940,29 +935,29 @@ export function FamilyChat() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>নতুন chat তৈরি করুন</DialogTitle>
-            <DialogDescription>Group, Admin room অথবা one-to-one direct conversation খুলুন।</DialogDescription>
+            <DialogTitle>{pick("নতুন চ্যাট তৈরি করুন", "Create a new chat")}</DialogTitle>
+            <DialogDescription>{pick("গ্রুপ, অ্যাডমিন রুম অথবা একজনের সঙ্গে সরাসরি কথোপকথন খুলুন।", "Open a group, admin room, or one-to-one direct conversation.")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-2">
               {(["custom", "admin", "direct"] as const).map((type) => (
                 <button key={type} type="button" onClick={() => { setCreateType(type); setCreateMemberIds([]); }} className={cn("rounded-xl border p-3 text-xs font-semibold", createType === type && "border-primary bg-primary/10 text-primary")}>
-                  {type === "custom" ? "Group" : type === "admin" ? "Admin room" : "Direct"}
+                  {type === "custom" ? pick("গ্রুপ", "Group") : type === "admin" ? pick("অ্যাডমিন রুম", "Admin room") : pick("সরাসরি", "Direct")}
                 </button>
               ))}
             </div>
             {createType !== "direct" ? (
               <>
-                <div className="space-y-2"><Label htmlFor="chat-name">Channel name</Label><Input id="chat-name" value={createName} onChange={(event) => setCreateName(event.target.value)} placeholder="যেমন: Cousins Corner" className="rounded-xl" /></div>
-                <div className="space-y-2"><Label htmlFor="chat-description">বিবরণ</Label><Textarea id="chat-description" value={createDescription} onChange={(event) => setCreateDescription(event.target.value)} placeholder="এই group-এর উদ্দেশ্য" className="rounded-xl" /></div>
+                <div className="space-y-2"><Label htmlFor="chat-name">{pick("চ্যানেলের নাম", "Channel name")}</Label><Input id="chat-name" value={createName} onChange={(event) => setCreateName(event.target.value)} placeholder={pick("যেমন: কাজিনদের আড্ডা", "For example: Cousins Corner")} className="rounded-xl" /></div>
+                <div className="space-y-2"><Label htmlFor="chat-description">{pick("বিবরণ", "Description")}</Label><Textarea id="chat-description" value={createDescription} onChange={(event) => setCreateDescription(event.target.value)} placeholder={pick("এই গ্রুপের উদ্দেশ্য", "Purpose of this group")} className="rounded-xl" /></div>
                 {createType === "custom" ? (
-                  <div className="space-y-2"><Label>কে দেখতে পারবে?</Label><Select value={createVisibility} onValueChange={(value) => setCreateVisibility(value as "family" | "invite_only")}><SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="family">পরিবারের সবাই</SelectItem><SelectItem value="invite_only">শুধু নির্বাচিত সদস্য</SelectItem></SelectContent></Select></div>
+                  <div className="space-y-2"><Label>{pick("কে দেখতে পারবে?", "Who can view it?")}</Label><Select value={createVisibility} onValueChange={(value) => setCreateVisibility(value as "family" | "invite_only")}><SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="family">{pick("পরিবারের সবাই", "Everyone in the family")}</SelectItem><SelectItem value="invite_only">{pick("শুধু নির্বাচিত সদস্য", "Selected members only")}</SelectItem></SelectContent></Select></div>
                 ) : null}
               </>
             ) : null}
             {(createType === "direct" || (createType === "custom" && createVisibility === "invite_only")) ? (
               <div className="space-y-2">
-                <Label>{createType === "direct" ? "কাকে message করবেন?" : "Group members"}</Label>
+                <Label>{createType === "direct" ? pick("কাকে বার্তা পাঠাবেন?", "Who do you want to message?") : pick("গ্রুপের সদস্য", "Group members")}</Label>
                 <div className="max-h-56 space-y-1 overflow-y-auto rounded-2xl border p-2">
                   {members.filter((member) => member.authUserId !== viewer?.authUserId).map((member) => {
                     const checked = createMemberIds.includes(member.authUserId);
@@ -979,9 +974,9 @@ export function FamilyChat() {
             ) : null}
           </div>
           <DialogFooter>
-            <Button variant="outline" className="rounded-xl" onClick={() => setCreateOpen(false)}>বাতিল</Button>
+            <Button variant="outline" className="rounded-xl" onClick={() => setCreateOpen(false)}>{pick("বাতিল", "Cancel")}</Button>
             <Button className="rounded-xl" onClick={() => void createChannel()} disabled={working || (createType === "direct" ? !createMemberIds.length : createName.trim().length < 2)}>
-              {working ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />} তৈরি করুন
+              {working ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />} {pick("তৈরি করুন", "Create")}
             </Button>
           </DialogFooter>
         </DialogContent>

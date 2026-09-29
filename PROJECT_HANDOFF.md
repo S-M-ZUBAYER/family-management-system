@@ -7,7 +7,7 @@ This file is the authoritative handoff for continuing the project from another C
 ## Immediate continuation status
 
 - Local Magazine and Family Tree relationship updates are implemented and committed.
-- A shared BN/EN locale provider, database-persisted per-user language preference, bilingual theme controls, and bilingual global confirmation/result modals are implemented locally. The bilingual pass now covers onboarding, member approvals, the primary member-directory view, family-tree controls and relationship-to-me labels, notice ticker/primary notice views, Magazine, Events, the core Qurbani A-to-Z workflow, and Personal Finance. Qurbani and Finance XLSX headings/sheet names follow the selected language. This work depends on `supabase/migrations/20260929_user_locale_preference.sql`, which must be applied before deployment.
+- A shared BN/EN locale provider, database-persisted per-user language preference, bilingual theme controls, and bilingual global confirmation/result modals are implemented locally. The bilingual pass now covers onboarding, member approvals, the primary member-directory view, family-tree controls and relationship-to-me labels, notice ticker/primary notice views, Magazine, Events, core Qurbani, Personal Finance, Family Chat, and the primary Health/SOS workflow. Qurbani, Finance, Chat, and Health XLSX headings/sheet names follow the selected language. This work depends on `supabase/migrations/20260929_user_locale_preference.sql`, which must be applied before deployment.
 - `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` were run again successfully after the latest continuation request.
 - The user applied all SQL files in `supabase/migrations` on 2026-09-29. A direct Supabase REST check for `public.family_magazine_articles` then returned HTTP `200`, confirming that the Magazine migration is ready.
 - The Codex/ChatGPT account used on 2026-09-29 could not access the existing Sites project ID (`Sites project not found`). The original owning account must either deploy the update or add the new account as an editor/collaborator; do not create a duplicate Site.
@@ -23,7 +23,7 @@ C:\Personal project\family-management-system
 
 First read C:\Personal project\family-management-system\PROJECT_HANDOFF.md completely. Then run git status --short and git log -1 --oneline, and inspect package.json, .env.example, .openai/hosting.json, supabase/schema.sql, and all migrations. Do not expose, print, copy, or commit .env.local or any Supabase secret. Preserve existing work and keep the deployed site owner-private/custom unless I explicitly ask to change sharing.
 
-The stable live site is currently version 30 at https://family-management-system.hitht.chatgpt.site. The latest local code contains a verified Family Magazine module, improved family-tree relationship labels, and expanded bilingual coverage through Events, Qurbani, and Personal Finance. The Magazine migration is applied. Before deployment, run supabase/migrations/20260929_user_locale_preference.sql in Supabase SQL Editor. Then run npm.cmd run lint, npm.cmd run security:audit, and npm.cmd run build; deploy to the existing Sites project appgprj_6ab4e57009088191814056c14e820221 while preserving owner-private/custom access; then smoke-test /magazine, /family-tree, /events, /qurbani, /finance, language switching, preference persistence, XLSX exports, and confirmation/result modals.
+The stable live site is currently version 30 at https://family-management-system.hitht.chatgpt.site. The latest local code contains a verified Family Magazine module, improved family-tree relationship labels, and expanded bilingual coverage through Events, Qurbani, Personal Finance, Family Chat, and primary Health/SOS. The Magazine migration is applied. Before deployment, run supabase/migrations/20260929_user_locale_preference.sql in Supabase SQL Editor. Then run npm.cmd run lint, npm.cmd run security:audit, and npm.cmd run build; deploy to the existing Sites project appgprj_6ab4e57009088191814056c14e820221 while preserving owner-private/custom access; then smoke-test /magazine, /family-tree, /events, /qurbani, /finance, /chat, /health, language switching, preference persistence, XLSX exports, and confirmation/result modals.
 
 Continue the remaining roadmap one module at a time. Every mutating action must show a confirmation modal first and a success/error/info modal afterward, with a close X/button. Every major management section must support XLSX export. Every API and database operation must preserve family_id tenant isolation. New membership must remain pending until that family's owner/family_admin approves it. Personal-finance data must remain private to its user. Keep audit logging and safe-delete/finalized-record restrictions.
 ```
@@ -60,6 +60,8 @@ The following work is implemented, verified, and committed locally, but is inten
    - Events: planning, create/edit, filters, RSVP, discussion, gallery, management actions, date/currency formatting, and primary empty/access states use the selected locale.
    - Qurbani: yearly campaign setup, status workflow, participants/shares, animals, ledger, vendors, schedule, volunteer tasks, distribution, record forms/actions, and localized XLSX workbooks use the selected locale.
    - Personal Finance: private dashboard, accounts, transactions, budgets, debts, bills, goals, forms/actions, date/currency formatting, and localized XLSX workbooks use the selected locale.
+   - Family Chat: channel navigation/creation, group/direct conversation states, live status, notifications, message composer, privacy copy, feedback, date/time formatting, and XLSX workbooks use the selected locale.
+   - Health/SOS: primary dashboard, reminders, metrics, care and health-log tables, SOS cards/actions, localized date/time/status display, feedback, and XLSX workbooks use the selected locale. Some secondary health profile/upload/SOS form labels remain mixed and are listed below.
 
 The user confirmed and the API check verified that `supabase/migrations/20260928_family_magazine.sql` is applied. This batch is database-ready for deployment.
 
@@ -197,7 +199,7 @@ Permission helper functions must be used rather than duplicating role logic ad h
 |---|---|---|
 | Digital Family Magazine | `/magazine` | Code and database migration complete; lint/audit/build passed; deployment pending |
 | Relationship-to-me labels | `/family-tree` | Code complete and verified locally; deployment pending |
-| Bilingual foundation | Global shell and core flows | Shared locale context, persisted member preference, bilingual theme/global action dialogs, onboarding, member approval, primary directory view, family tree, notice ticker/primary notice views, Magazine, Events, core Qurbani, and Personal Finance complete locally; new migration and deployment pending |
+| Bilingual foundation | Global shell and core flows | Shared locale context, persisted member preference, bilingual theme/global action dialogs, onboarding, member approval, primary directory view, family tree, notice ticker/primary notice views, Magazine, Events, core Qurbani, Personal Finance, Family Chat, and primary Health/SOS complete locally; new migration and deployment pending |
 
 ### Shared interaction behavior
 
@@ -324,8 +326,8 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 ### Priority 2 — complete bilingual support
 
 - Shared BN/EN locale context and per-user database persistence are implemented.
-- Core bilingual coverage is implemented for onboarding, member approval, the primary directory screen, family tree (including computed relationship names), the notice ticker/primary notice screen, Magazine, Events, core Qurbani, Personal Finance, theme controls, and global confirmation/result dialogs.
-- Finish the remaining secondary mixed labels/server-returned messages in Directory, Notice Center, Events, Qurbani, and Finance, then extend the same approach through Chat, Health, Welfare, Household, Archives, Governance, and Admin.
+- Core bilingual coverage is implemented for onboarding, member approval, the primary directory screen, family tree (including computed relationship names), the notice ticker/primary notice screen, Magazine, Events, core Qurbani, Personal Finance, Family Chat, primary Health/SOS, theme controls, and global confirmation/result dialogs.
+- Finish the remaining secondary mixed labels/server-returned messages in Directory, Notice Center, Events, Qurbani, Finance, and Health profile/upload/SOS forms, then extend the same approach through Welfare, Household, Archives, Governance, and Admin.
 - Translate remaining server-returned validation text plus module-specific exports, dates, currencies, statuses, empty states, and secondary dialogs in modules not yet covered.
 - Add a missing-translation check to CI/tests.
 
@@ -379,7 +381,7 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 2. Obtain editor access to the existing Sites project or use its original owning account for deployment.
 3. Publish the next private Sites version using the existing Sites project ID.
 4. Smoke-test the new routes against the live deployment.
-5. Continue the system-wide i18n pass from remaining secondary Directory/Notice/Event/Qurbani/Finance strings, then Chat, Health, Welfare, Household, Archives, Governance, and Admin.
+5. Continue the system-wide i18n pass from remaining secondary Directory/Notice/Event/Qurbani/Finance/Health strings, then Welfare, Household, Archives, Governance, and Admin.
 6. Continue with notifications, stronger encryption/security, reports, and then SaaS billing/custom domains.
 
 ## 13. Verification checklist for every future batch
