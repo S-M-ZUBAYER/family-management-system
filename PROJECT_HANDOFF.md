@@ -8,11 +8,9 @@ This file is the authoritative handoff for continuing the project from another C
 
 - Local Magazine and Family Tree relationship updates are implemented and committed.
 - `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` were run again successfully after the latest continuation request.
-- A direct Supabase REST check returned `PGRST205` for `public.family_magazine_articles`, confirming that the Magazine migration has **not** yet been applied to the connected Supabase project.
-- This was rechecked on 2026-09-29 and the table was still unavailable (`PGRST205`).
+- The user applied all SQL files in `supabase/migrations` on 2026-09-29. A direct Supabase REST check for `public.family_magazine_articles` then returned HTTP `200`, confirming that the Magazine migration is ready.
 - The Codex/ChatGPT account used on 2026-09-29 could not access the existing Sites project ID (`Sites project not found`). The original owning account must either deploy the update or add the new account as an editor/collaborator; do not create a duplicate Site.
-- The user must sign in to Supabase in their browser, or manually run `supabase/migrations/20260928_family_magazine.sql` in Supabase SQL Editor.
-- Do not deploy the Magazine code until the migration is confirmed.
+- After migration confirmation, `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` all passed again. Deployment is blocked only by Sites project access.
 - The stable production site remains version 30 at `https://family-management-system.hitht.chatgpt.site`.
 - The next account must run `git status --short` and `git log -1 --oneline` first; the working tree should be clean at handoff.
 
@@ -58,7 +56,7 @@ The following work is implemented, verified, and committed locally, but is inten
    - Computes and displays relationships such as father, mother, son, daughter, sibling, grandparent, grandchild, uncle/aunt, cousin, spouse, and in-law.
    - Relationship details are shown on cards and in the member detail modal.
 
-Before deploying this batch, run `supabase/migrations/20260928_family_magazine.sql` in Supabase SQL Editor and obtain confirmation from the user.
+The user confirmed and the API check verified that `supabase/migrations/20260928_family_magazine.sql` is applied. This batch is database-ready for deployment.
 
 ### Last verification result
 
@@ -311,10 +309,9 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 
 ### Priority 1 — publish the verified local batch
 
-1. Confirm the user has run `20260928_family_magazine.sql` in Supabase.
-2. Re-run lint, tenant security audit, and production build.
-3. Deploy the next owner-private Sites version.
-4. Smoke-test Magazine create/edit/publish/feature/comment/react/upload/export and Family Tree relationship labels.
+1. Obtain access to the existing Sites project from the original owning account; do not create a duplicate deployment unless the user explicitly chooses a new URL/project.
+2. Deploy the next owner-private Sites version from the verified local commit.
+3. Smoke-test Magazine create/edit/publish/feature/comment/react/upload/export and Family Tree relationship labels.
 
 ### Priority 2 — complete bilingual support
 
@@ -371,13 +368,11 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 ## 12. Recommended next sequence
 
 1. Verify the checkout is clean with `git status --short` and read the latest commit with `git log -1 --oneline`.
-2. Ask the user to run the Magazine migration and respond `Magazine migration ready`.
-3. Verify the environment without printing secrets.
-4. Run `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build`.
-5. Publish the next private Sites version using the existing Sites project ID.
-6. Smoke-test the new routes against the live deployment.
-7. Start system-wide i18n as the next development phase.
-8. Continue with notifications, stronger encryption/security, reports, and then SaaS billing/custom domains.
+2. Obtain editor access to the existing Sites project or use its original owning account for deployment.
+3. Publish the next private Sites version using the existing Sites project ID.
+4. Smoke-test the new routes against the live deployment.
+5. Start system-wide i18n as the next development phase.
+6. Continue with notifications, stronger encryption/security, reports, and then SaaS billing/custom domains.
 
 ## 13. Verification checklist for every future batch
 
