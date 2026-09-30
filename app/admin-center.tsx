@@ -65,23 +65,28 @@ type AdminPayload = {
   error?: string;
 };
 
-const roleLabels: Record<FamilyRole, string> = {
+const roleLabelsEn: Record<FamilyRole, string> = {
   owner: "Owner",
   family_admin: "Family Admin",
   manager: "Manager",
   member: "Member",
 };
 
-const statusLabels: Record<MembershipStatus, string> = {
+const roleLabelsBn: Record<FamilyRole, string> = { owner: "মালিক", family_admin: "ফ্যামিলি অ্যাডমিন", manager: "ম্যানেজার", member: "সদস্য" };
+
+const statusLabelsEn: Record<MembershipStatus, string> = {
   active: "Active",
   suspended: "Suspended",
   left: "Left family",
 };
+const statusLabelsBn: Record<MembershipStatus, string> = { active: "সক্রিয়", suspended: "স্থগিত", left: "পরিবার ছেড়েছেন" };
 
 export function AdminCenter() {
   const { locale, pick } = useLocale();
   const dateFormatter = useMemo(() => new Intl.DateTimeFormat(locale === "bn" ? "bn-BD" : "en-BD", { dateStyle: "medium", timeStyle: "short" }), [locale]);
   const numberLocale = locale === "bn" ? "bn-BD" : "en-BD";
+  const roleLabels = useMemo(() => locale === "bn" ? roleLabelsBn : roleLabelsEn, [locale]);
+  const statusLabels = useMemo(() => locale === "bn" ? statusLabelsBn : statusLabelsEn, [locale]);
   const [payload, setPayload] = useState<AdminPayload>({});
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -118,7 +123,7 @@ export function AdminCenter() {
       roleLabels[item.role],
       statusLabels[item.status],
     ].filter(Boolean).join(" ").toLowerCase().includes(needle));
-  }, [payload.memberships, query]);
+  }, [payload.memberships, query, roleLabels, statusLabels]);
 
   const visibleAuditLogs = useMemo(() => {
     const needle = auditQuery.trim().toLowerCase();
@@ -142,9 +147,9 @@ export function AdminCenter() {
         body: JSON.stringify({ action: "update_membership", membershipId: item.id, ...draft }),
       });
       const result = await response.json() as { membership?: Membership; error?: string; message?: string };
-      if (!response.ok || !result.membership) throw new Error(result.error ?? "Member access update হয়নি।");
+      if (!response.ok || !result.membership) throw new Error(result.error ?? pick("সদস্যের অ্যাক্সেস হালনাগাদ হয়নি।", "Could not update member access."));
       await load();
-      setFeedback(result.message ?? "Member role ও access update হয়েছে।");
+      setFeedback(result.message ?? pick("সদস্যের ভূমিকা ও অ্যাক্সেস হালনাগাদ হয়েছে।", "Member role and access updated."));
     } finally {
       setSavingId(null);
     }
@@ -217,7 +222,7 @@ export function AdminCenter() {
           <Card className="gap-0 overflow-hidden rounded-3xl border-border/75 py-0 shadow-none">
             <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between md:p-5"><div className="relative w-full md:max-w-md"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={pick("সদস্য, ভূমিকা, ইমেইল বা অবস্থা", "Search member, role, email or status")} className="rounded-xl pl-10" /></div><Badge variant="secondary">{visibleMemberships.length.toLocaleString(numberLocale)} {pick("অ্যাকাউন্ট", "accounts")}</Badge></div>
             <div className="overflow-x-auto"><Table><TableHeader><TableRow className="bg-muted/35"><TableHead className="pl-5">{pick("সদস্য", "Member")}</TableHead><TableHead>{pick("যোগাযোগ", "Contact")}</TableHead><TableHead>{pick("ভূমিকা", "Role")}</TableHead><TableHead>{pick("অ্যাক্সেস", "Access")}</TableHead><TableHead>{pick("শেষ আপডেট", "Last update")}</TableHead><TableHead className="pr-5 text-right">{pick("অ্যাকশন", "Action")}</TableHead></TableRow></TableHeader><TableBody>
-              {visibleMemberships.map((item) => { const draft = drafts[item.id] ?? { role: item.role, status: item.status }; const isSelf = item.auth_user_id === payload.viewer?.userId; const changed = draft.role !== item.role || draft.status !== item.status; return <TableRow key={item.id}><TableCell className="pl-5"><p className="font-semibold">{item.profile?.name_bn ?? "Profile unavailable"}</p><p className="text-xs text-muted-foreground">{item.profile?.name_en || item.profile?.relationship_text || "—"}</p></TableCell><TableCell><p>{item.profile?.phone || "—"}</p><p className="text-xs text-muted-foreground">{item.profile?.email || ""}</p></TableCell><TableCell><Select value={draft.role} disabled={!payload.permissions?.canManageRoles || isSelf} onValueChange={(role) => setDrafts((current) => ({ ...current, [item.id]: { ...draft, role: role as FamilyRole } }))}><SelectTrigger className="w-40 rounded-xl"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(roleLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></TableCell><TableCell><Select value={draft.status} disabled={!payload.permissions?.canManageRoles || isSelf} onValueChange={(status) => setDrafts((current) => ({ ...current, [item.id]: { ...draft, status: status as MembershipStatus } }))}><SelectTrigger className="w-40 rounded-xl"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(statusLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></TableCell><TableCell className="text-sm text-muted-foreground">{dateFormatter.format(new Date(item.updated_at))}</TableCell><TableCell className="pr-5 text-right"><Button size="sm" className="gap-2 rounded-xl" disabled={!payload.permissions?.canManageRoles || isSelf || !changed || savingId === item.id} onClick={() => void saveMembership(item).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Member access update হয়নি।"))}>{savingId === item.id ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />} Save</Button></TableCell></TableRow>; })}
+              {visibleMemberships.map((item) => { const draft = drafts[item.id] ?? { role: item.role, status: item.status }; const isSelf = item.auth_user_id === payload.viewer?.userId; const changed = draft.role !== item.role || draft.status !== item.status; return <TableRow key={item.id}><TableCell className="pl-5"><p className="font-semibold">{item.profile?.name_bn ?? pick("প্রোফাইল পাওয়া যায়নি", "Profile unavailable")}</p><p className="text-xs text-muted-foreground">{item.profile?.name_en || item.profile?.relationship_text || "—"}</p></TableCell><TableCell><p>{item.profile?.phone || "—"}</p><p className="text-xs text-muted-foreground">{item.profile?.email || ""}</p></TableCell><TableCell><Select value={draft.role} disabled={!payload.permissions?.canManageRoles || isSelf} onValueChange={(role) => setDrafts((current) => ({ ...current, [item.id]: { ...draft, role: role as FamilyRole } }))}><SelectTrigger className="w-40 rounded-xl"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(roleLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></TableCell><TableCell><Select value={draft.status} disabled={!payload.permissions?.canManageRoles || isSelf} onValueChange={(status) => setDrafts((current) => ({ ...current, [item.id]: { ...draft, status: status as MembershipStatus } }))}><SelectTrigger className="w-40 rounded-xl"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(statusLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></TableCell><TableCell className="text-sm text-muted-foreground">{dateFormatter.format(new Date(item.updated_at))}</TableCell><TableCell className="pr-5 text-right"><Button size="sm" className="gap-2 rounded-xl" disabled={!payload.permissions?.canManageRoles || isSelf || !changed || savingId === item.id} onClick={() => void saveMembership(item).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("সদস্যের অ্যাক্সেস হালনাগাদ হয়নি।", "Could not update member access.")))}>{savingId === item.id ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />} {pick("সংরক্ষণ", "Save")}</Button></TableCell></TableRow>; })}
               {!visibleMemberships.length ? <TableRow><TableCell colSpan={6} className="h-40 text-center text-muted-foreground">{pick("কোনো মিল পাওয়া অ্যাকাউন্ট নেই।", "No matching account found.")}</TableCell></TableRow> : null}
             </TableBody></Table></div>
             {!payload.permissions?.canManageRoles ? <div className="border-t bg-muted/25 p-4 text-sm text-muted-foreground"><Label>{pick("শুধু দেখার অ্যাক্সেস", "Read-only access")}</Label><p className="mt-1">{pick("Family Admin অডিট দেখতে পারবেন; ভূমিকা বা অ্যাক্সেস অবস্থা শুধু Owner পরিবর্তন করবেন।", "Family Admins can view audits; only the Owner can change roles or access status.")}</p></div> : null}
