@@ -150,7 +150,7 @@ export function MemberDirectory() {
         setMembers([]);
         return;
       }
-      if (!response.ok) throw new Error(payload.error ?? "Family directory পাওয়া যায়নি।");
+      if (!response.ok) throw new Error(payload.error ?? pick("ফ্যামিলি ডিরেক্টরি পাওয়া যায়নি।", "Could not load the family directory."));
       setFamily(payload.family);
       setMembers(payload.members ?? []);
       setRelationships(payload.relationships ?? []);
@@ -158,11 +158,11 @@ export function MemberDirectory() {
       setCanManage(Boolean(payload.permissions?.canManage));
       setSetupRequired(false);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "Family directory পাওয়া যায়নি।");
+      setFeedback(error instanceof Error ? error.message : pick("ফ্যামিলি ডিরেক্টরি পাওয়া যায়নি।", "Could not load the family directory."));
     } finally {
       setLoading(false);
     }
-  }, [setFeedback]);
+  }, [pick, setFeedback]);
 
   useEffect(() => {
     void Promise.resolve().then(() => loadMembers());
@@ -203,18 +203,18 @@ export function MemberDirectory() {
         error?: string;
       };
       if (!response.ok || !payload.member) {
-        throw new Error(payload.error ?? "Member profile save হয়নি।");
+        throw new Error(payload.error ?? pick("সদস্য প্রোফাইল সেভ হয়নি।", "The member profile could not be saved."));
       }
       setMembers((current) => [...current, payload.member!]);
       setForm(emptyForm);
       setDialogOpen(false);
-      setFeedback(payload.warning ?? "নতুন member profile সংরক্ষিত হয়েছে।");
+      setFeedback(payload.warning ?? pick("নতুন সদস্য প্রোফাইল সংরক্ষিত হয়েছে।", "The new member profile was saved."));
       if (!payload.warning) await loadMembers();
       return { memberId: payload.member.id, name: payload.member.name_en ?? payload.member.name_bn };
     } finally {
       setSaving(false);
     }
-  }, [loadMembers, setFeedback]);
+  }, [loadMembers, pick, setFeedback]);
 
   async function updateMember(input: MemberForm) {
     if (!editingMember) return;
@@ -227,7 +227,7 @@ export function MemberDirectory() {
       });
       if (response.status === 499) return;
       const payload = await response.json() as { member?: FamilyMember; error?: string };
-      if (!response.ok || !payload.member) throw new Error(payload.error ?? "Member profile update হয়নি।");
+      if (!response.ok || !payload.member) throw new Error(payload.error ?? pick("সদস্য প্রোফাইল আপডেট হয়নি।", "The member profile could not be updated."));
       setMembers((current) => current.map((item) => item.id === payload.member?.id ? payload.member : item));
       setDialogOpen(false);
       setEditingMember(null);
@@ -267,7 +267,7 @@ export function MemberDirectory() {
 
   async function createRelationship() {
     if (relationshipForm.fromMemberId === "none" || relationshipForm.toMemberId === "none") {
-      setFeedback("দুইজন সদস্য নির্বাচন করুন।");
+      setFeedback(pick("দুইজন সদস্য নির্বাচন করুন।", "Select two members."));
       return;
     }
     setSaving(true);
@@ -279,7 +279,7 @@ export function MemberDirectory() {
       });
       if (response.status === 499) return;
       const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Relationship save হয়নি।");
+      if (!response.ok) throw new Error(payload.error ?? pick("সম্পর্ক সেভ হয়নি।", "The relationship could not be saved."));
       setRelationshipOpen(false);
       setRelationshipForm({ fromMemberId: "none", toMemberId: "none", relationshipType: "parent" });
       await loadMembers();
@@ -296,7 +296,7 @@ export function MemberDirectory() {
     });
     if (response.status === 499) return;
     const payload = await response.json() as { error?: string };
-    if (!response.ok) throw new Error(payload.error ?? "Relationship সরানো যায়নি।");
+    if (!response.ok) throw new Error(payload.error ?? pick("সম্পর্ক সরানো যায়নি।", "The relationship could not be removed."));
     setRelationships((current) => current.filter((item) => item.id !== relationshipId));
   }
 
@@ -310,7 +310,7 @@ export function MemberDirectory() {
       const response = await fetch("/api/members/photo", { method: "POST", body });
       if (response.status === 499) return;
       const payload = await response.json() as { fileId?: string; error?: string };
-      if (!response.ok || !payload.fileId) throw new Error(payload.error ?? "Profile photo upload হয়নি।");
+      if (!response.ok || !payload.fileId) throw new Error(payload.error ?? pick("প্রোফাইল ছবি আপলোড হয়নি।", "The profile photo could not be uploaded."));
       setMembers((current) => current.map((member) => member.id === editingMember.id ? { ...member, profile_photo_file_id: payload.fileId } : member));
       setEditingMember((current) => current ? { ...current, profile_photo_file_id: payload.fileId } : current);
       setPhotoFile(null);
@@ -324,26 +324,26 @@ export function MemberDirectory() {
     try {
       const XLSX = await import("xlsx");
       const rows = visibleMembers.map((member, index) => ({
-        "ক্রমিক": index + 1,
-        "নাম (বাংলা)": member.name_bn,
-        "Name (English)": member.name_en ?? "",
-        "সম্পর্ক": member.relationship_text ?? "",
-        "লিঙ্গ": member.gender ?? "",
-        "জন্মতারিখ": member.date_of_birth ?? "",
-        "রক্তের গ্রুপ": member.blood_group ?? "",
-        "পেশা": member.occupation ?? "",
-        "শহর": member.city ?? "",
-        "দেশ": member.country ?? "",
-        "ফোন": member.phone ?? "",
-        "ইমেইল": member.email ?? "",
-        "অবস্থা": member.profile_status,
+        [pick("ক্রমিক", "Serial")]: index + 1,
+        [pick("নাম (বাংলা)", "Name (Bangla)")]: member.name_bn,
+        [pick("নাম (ইংরেজি)", "Name (English)")]: member.name_en ?? "",
+        [pick("সম্পর্ক", "Relationship")]: member.relationship_text ?? "",
+        [pick("লিঙ্গ", "Gender")]: member.gender ?? "",
+        [pick("জন্মতারিখ", "Date of birth")]: member.date_of_birth ?? "",
+        [pick("রক্তের গ্রুপ", "Blood group")]: member.blood_group ?? "",
+        [pick("পেশা", "Occupation")]: member.occupation ?? "",
+        [pick("শহর", "City")]: member.city ?? "",
+        [pick("দেশ", "Country")]: member.country ?? "",
+        [pick("ফোন", "Phone")]: member.phone ?? "",
+        [pick("ইমেইল", "Email")]: member.email ?? "",
+        [pick("অবস্থা", "Status")]: member.profile_status,
       }));
       const worksheet = XLSX.utils.json_to_sheet(rows);
       worksheet["!cols"] = [8, 24, 24, 24, 12, 15, 14, 22, 18, 18, 18, 28, 14].map(
         (width) => ({ wch: width }),
       );
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Family Members");
+      XLSX.utils.book_append_sheet(workbook, worksheet, pick("পরিবারের সদস্য", "Family Members"));
       XLSX.writeFile(
         workbook,
         `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-members.xlsx`,
@@ -535,43 +535,43 @@ export function MemberDirectory() {
       <Card className="gap-0 overflow-hidden rounded-3xl border-border/75 py-0 shadow-none">
         <div className="flex items-center justify-between gap-3 border-b p-5"><div><h2 className="font-bold">{pick("পারিবারিক সম্পর্ক", "Family relationships")}</h2><p className="mt-1 text-sm text-muted-foreground">{pick("Parent, spouse এবং guardian connection Family Tree-তে ব্যবহার হয়।", "Parent, spouse, and guardian connections are used in the Family Tree.")}</p></div>{canManage ? <Button variant="outline" className="gap-2 rounded-xl" disabled={members.length < 2} onClick={() => setRelationshipOpen(true)}><Link2 className="size-4" /> {pick("নতুন connection", "New connection")}</Button> : null}</div>
         <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-3">
-          {relationships.map((item) => <div key={item.id} className="flex items-center gap-3 rounded-2xl border p-4"><div className="min-w-0 flex-1"><p className="truncate font-semibold">{memberById.get(item.from_member_id)?.name_bn ?? "Unknown"}</p><p className="my-1 text-xs font-bold uppercase tracking-wide text-primary">{item.relationship_type} →</p><p className="truncate font-semibold">{memberById.get(item.to_member_id)?.name_bn ?? "Unknown"}</p></div>{canManage ? <Button size="icon-sm" variant="ghost" className="text-destructive hover:text-destructive" aria-label="Remove relationship" onClick={() => void deleteRelationship(item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Relationship সরানো যায়নি।"))}><Trash2 /></Button> : null}</div>)}
+          {relationships.map((item) => { const from = memberById.get(item.from_member_id); const to = memberById.get(item.to_member_id); return <div key={item.id} className="flex items-center gap-3 rounded-2xl border p-4"><div className="min-w-0 flex-1"><p className="truncate font-semibold">{from ? (locale === "en" ? from.name_en || from.name_bn : from.name_bn) : pick("অজানা", "Unknown")}</p><p className="my-1 text-xs font-bold uppercase tracking-wide text-primary">{locale === "bn" ? ({ parent: "অভিভাবক → সন্তান", spouse: "জীবনসঙ্গী ↔ জীবনসঙ্গী", guardian: "আইনি অভিভাবক → সদস্য" }[item.relationship_type] ?? item.relationship_type) : ({ parent: "parent → child", spouse: "spouse ↔ spouse", guardian: "guardian → member" }[item.relationship_type] ?? item.relationship_type.replaceAll("_", " "))}</p><p className="truncate font-semibold">{to ? (locale === "en" ? to.name_en || to.name_bn : to.name_bn) : pick("অজানা", "Unknown")}</p></div>{canManage ? <Button size="icon-sm" variant="ghost" className="text-destructive hover:text-destructive" aria-label={pick("সম্পর্ক সরান", "Remove relationship")} onClick={() => void deleteRelationship(item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("সম্পর্ক সরানো যায়নি।", "The relationship could not be removed.")))}><Trash2 /></Button> : null}</div>; })}
           {!relationships.length ? <div className="col-span-full rounded-2xl border border-dashed p-7 text-center text-sm text-muted-foreground">{pick("এখনও কোনো relationship connection নেই।", "There are no relationship connections yet.")}</div> : null}
         </div>
       </Card>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditingMember(null); setForm(emptyForm); } }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-3xl">
-          <DialogHeader><DialogTitle>{editingMember ? "Member profile edit" : "নতুন member profile"}</DialogTitle><DialogDescription>{editingMember ? "সদস্যের directory information ও profile status update করুন।" : "প্রাথমিক profile ও প্রথম family connection একসাথে যোগ করুন।"}</DialogDescription></DialogHeader>
-          {editingMember ? <div className="flex flex-col gap-4 rounded-2xl border bg-muted/30 p-4 sm:flex-row sm:items-center"><Avatar className="size-20">{editingMember.profile_photo_file_id ? <AvatarImage src={`/api/archive-file/${editingMember.profile_photo_file_id}`} alt={editingMember.name_bn} className="object-cover" /> : null}<AvatarFallback className="bg-primary/10 text-xl font-bold text-primary">{editingMember.name_bn.slice(0, 2)}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><Label htmlFor="member-photo">Profile photo</Label><Input id="member-photo" type="file" accept="image/jpeg,image/png,image/webp" className="mt-2" onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)} /><p className="mt-1 text-xs text-muted-foreground">JPG, PNG বা WebP · সর্বোচ্চ ৫ MB</p></div><Button type="button" variant="outline" className="gap-2 rounded-xl" disabled={!photoFile || photoUploading} onClick={() => void uploadProfilePhoto().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Profile photo upload হয়নি।"))}>{photoUploading ? <LoaderCircle className="size-4 animate-spin" /> : <Upload className="size-4" />} Upload</Button></div> : null}
+          <DialogHeader><DialogTitle>{editingMember ? pick("সদস্য প্রোফাইল সম্পাদনা", "Edit member profile") : pick("নতুন সদস্য প্রোফাইল", "New member profile")}</DialogTitle><DialogDescription>{editingMember ? pick("সদস্যের ডিরেক্টরি তথ্য ও প্রোফাইল অবস্থা আপডেট করুন।", "Update the member's directory information and profile status.") : pick("প্রাথমিক প্রোফাইল ও প্রথম পারিবারিক সংযোগ একসাথে যোগ করুন।", "Add the initial profile and first family connection together.")}</DialogDescription></DialogHeader>
+          {editingMember ? <div className="flex flex-col gap-4 rounded-2xl border bg-muted/30 p-4 sm:flex-row sm:items-center"><Avatar className="size-20">{editingMember.profile_photo_file_id ? <AvatarImage src={`/api/archive-file/${editingMember.profile_photo_file_id}`} alt={editingMember.name_bn} className="object-cover" /> : null}<AvatarFallback className="bg-primary/10 text-xl font-bold text-primary">{editingMember.name_bn.slice(0, 2)}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><Label htmlFor="member-photo">{pick("প্রোফাইল ছবি", "Profile photo")}</Label><Input id="member-photo" type="file" accept="image/jpeg,image/png,image/webp" className="mt-2" onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)} /><p className="mt-1 text-xs text-muted-foreground">{pick("JPG, PNG বা WebP · সর্বোচ্চ ৫ MB", "JPG, PNG or WebP · maximum 5 MB")}</p></div><Button type="button" variant="outline" className="gap-2 rounded-xl" disabled={!photoFile || photoUploading} onClick={() => void uploadProfilePhoto().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("প্রোফাইল ছবি আপলোড হয়নি।", "The profile photo could not be uploaded.")))}>{photoUploading ? <LoaderCircle className="size-4 animate-spin" /> : <Upload className="size-4" />} {pick("আপলোড", "Upload")}</Button></div> : null}
           <div className="grid gap-4 py-2 sm:grid-cols-2">
-            <Field label="নাম (বাংলা)" id="nameBn"><Input id="nameBn" value={form.nameBn} onChange={(event) => setForm({ ...form, nameBn: event.target.value })} /></Field>
-            <Field label="Name (English)" id="nameEn"><Input id="nameEn" value={form.nameEn} onChange={(event) => setForm({ ...form, nameEn: event.target.value })} /></Field>
-            <Field label="পারিবারিক সম্পর্ক" id="relationship"><Input id="relationship" placeholder="যেমন: বড় ছেলে, নাতনি" value={form.relationship} onChange={(event) => setForm({ ...form, relationship: event.target.value })} /></Field>
-            <Field label="Gender" id="gender"><Select value={form.gender || "none"} onValueChange={(value) => setForm({ ...form, gender: value === "none" ? "" : value })}><SelectTrigger id="gender" className="h-10 w-full rounded-xl"><SelectValue placeholder="নির্বাচন করুন" /></SelectTrigger><SelectContent><SelectItem value="none">উল্লেখ নয়</SelectItem><SelectItem value="male">পুরুষ</SelectItem><SelectItem value="female">নারী</SelectItem><SelectItem value="other">অন্যান্য</SelectItem></SelectContent></Select></Field>
-            <Field label="জন্মতারিখ" id="dateOfBirth"><Input id="dateOfBirth" type="date" value={form.dateOfBirth} onChange={(event) => setForm({ ...form, dateOfBirth: event.target.value })} /></Field>
-            <Field label="রক্তের গ্রুপ" id="bloodGroup"><Input id="bloodGroup" placeholder="যেমন: B+" value={form.bloodGroup} onChange={(event) => setForm({ ...form, bloodGroup: event.target.value })} /></Field>
-            <Field label="পেশা" id="occupation"><Input id="occupation" value={form.occupation} onChange={(event) => setForm({ ...form, occupation: event.target.value })} /></Field>
-            {!editingMember ? <><Field label="Connection type" id="relationshipType"><Select value={form.relationshipType} onValueChange={(value) => setForm({ ...form, relationshipType: value as MemberForm["relationshipType"] })}><SelectTrigger id="relationshipType" className="h-10 w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="parent">Parent → নতুন সদস্য</SelectItem><SelectItem value="spouse">Spouse ↔ নতুন সদস্য</SelectItem><SelectItem value="guardian">Guardian → নতুন সদস্য</SelectItem></SelectContent></Select></Field><Field label="Related member" id="parentId"><Select value={form.parentId} onValueChange={(value) => setForm({ ...form, parentId: value })}><SelectTrigger id="parentId" className="h-10 w-full rounded-xl"><SelectValue placeholder="নির্বাচন করুন" /></SelectTrigger><SelectContent><SelectItem value="none">এখন যোগ নয়</SelectItem>{members.map((member) => <SelectItem key={member.id} value={member.id}>{member.name_bn}</SelectItem>)}</SelectContent></Select></Field></> : null}
-            <Field label="শহর" id="city"><Input id="city" value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} /></Field>
-            <Field label="দেশ" id="country"><Input id="country" value={form.country} onChange={(event) => setForm({ ...form, country: event.target.value })} /></Field>
-            <Field label="ফোন" id="phone"><Input id="phone" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></Field>
-            <Field label="ইমেইল" id="email"><Input id="email" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></Field>
-            {editingMember ? <Field label="Profile status" id="profileStatus"><Select value={form.profileStatus} onValueChange={(value) => setForm({ ...form, profileStatus: value })}><SelectTrigger id="profileStatus" className="h-10 w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem><SelectItem value="deceased">Deceased</SelectItem><SelectItem value="archived">Archived</SelectItem></SelectContent></Select></Field> : null}
+            <Field label={pick("নাম (বাংলা)", "Name (Bangla)")} id="nameBn"><Input id="nameBn" value={form.nameBn} onChange={(event) => setForm({ ...form, nameBn: event.target.value })} /></Field>
+            <Field label={pick("নাম (ইংরেজি)", "Name (English)")} id="nameEn"><Input id="nameEn" value={form.nameEn} onChange={(event) => setForm({ ...form, nameEn: event.target.value })} /></Field>
+            <Field label={pick("পারিবারিক সম্পর্ক", "Family relationship")} id="relationship"><Input id="relationship" placeholder={pick("যেমন: বড় ছেলে, নাতনি", "For example: eldest son, granddaughter")} value={form.relationship} onChange={(event) => setForm({ ...form, relationship: event.target.value })} /></Field>
+            <Field label={pick("লিঙ্গ", "Gender")} id="gender"><Select value={form.gender || "none"} onValueChange={(value) => setForm({ ...form, gender: value === "none" ? "" : value })}><SelectTrigger id="gender" className="h-10 w-full rounded-xl"><SelectValue placeholder={pick("নির্বাচন করুন", "Select")} /></SelectTrigger><SelectContent><SelectItem value="none">{pick("উল্লেখ নয়", "Not specified")}</SelectItem><SelectItem value="male">{pick("পুরুষ", "Male")}</SelectItem><SelectItem value="female">{pick("নারী", "Female")}</SelectItem><SelectItem value="other">{pick("অন্যান্য", "Other")}</SelectItem></SelectContent></Select></Field>
+            <Field label={pick("জন্মতারিখ", "Date of birth")} id="dateOfBirth"><Input id="dateOfBirth" type="date" value={form.dateOfBirth} onChange={(event) => setForm({ ...form, dateOfBirth: event.target.value })} /></Field>
+            <Field label={pick("রক্তের গ্রুপ", "Blood group")} id="bloodGroup"><Input id="bloodGroup" placeholder={pick("যেমন: B+", "For example: B+")} value={form.bloodGroup} onChange={(event) => setForm({ ...form, bloodGroup: event.target.value })} /></Field>
+            <Field label={pick("পেশা", "Occupation")} id="occupation"><Input id="occupation" value={form.occupation} onChange={(event) => setForm({ ...form, occupation: event.target.value })} /></Field>
+            {!editingMember ? <><Field label={pick("সংযোগের ধরন", "Connection type")} id="relationshipType"><Select value={form.relationshipType} onValueChange={(value) => setForm({ ...form, relationshipType: value as MemberForm["relationshipType"] })}><SelectTrigger id="relationshipType" className="h-10 w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="parent">{pick("অভিভাবক → নতুন সদস্য", "Parent → new member")}</SelectItem><SelectItem value="spouse">{pick("জীবনসঙ্গী ↔ নতুন সদস্য", "Spouse ↔ new member")}</SelectItem><SelectItem value="guardian">{pick("আইনি অভিভাবক → নতুন সদস্য", "Guardian → new member")}</SelectItem></SelectContent></Select></Field><Field label={pick("সম্পর্কিত সদস্য", "Related member")} id="parentId"><Select value={form.parentId} onValueChange={(value) => setForm({ ...form, parentId: value })}><SelectTrigger id="parentId" className="h-10 w-full rounded-xl"><SelectValue placeholder={pick("নির্বাচন করুন", "Select")} /></SelectTrigger><SelectContent><SelectItem value="none">{pick("এখন যোগ নয়", "Do not connect now")}</SelectItem>{members.map((member) => <SelectItem key={member.id} value={member.id}>{locale === "en" ? member.name_en || member.name_bn : member.name_bn}</SelectItem>)}</SelectContent></Select></Field></> : null}
+            <Field label={pick("শহর", "City")} id="city"><Input id="city" value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} /></Field>
+            <Field label={pick("দেশ", "Country")} id="country"><Input id="country" value={form.country} onChange={(event) => setForm({ ...form, country: event.target.value })} /></Field>
+            <Field label={pick("ফোন", "Phone")} id="phone"><Input id="phone" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></Field>
+            <Field label={pick("ইমেইল", "Email")} id="email"><Input id="email" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></Field>
+            {editingMember ? <Field label={pick("প্রোফাইল অবস্থা", "Profile status")} id="profileStatus"><Select value={form.profileStatus} onValueChange={(value) => setForm({ ...form, profileStatus: value })}><SelectTrigger id="profileStatus" className="h-10 w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">{pick("সক্রিয়", "Active")}</SelectItem><SelectItem value="inactive">{pick("নিষ্ক্রিয়", "Inactive")}</SelectItem><SelectItem value="deceased">{pick("প্রয়াত", "Deceased")}</SelectItem><SelectItem value="archived">{pick("আর্কাইভ", "Archived")}</SelectItem></SelectContent></Select></Field> : null}
           </div>
-          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setDialogOpen(false)}>বাতিল</Button><Button className="gap-2 rounded-xl" disabled={saving || form.nameBn.trim().length < 2} onClick={() => void (editingMember ? updateMember(form) : createMember(form)).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Member save হয়নি।"))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingMember ? <Pencil className="size-4" /> : <UserRoundPlus className="size-4" />} {editingMember ? "Profile update" : "Profile সংরক্ষণ"}</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setDialogOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="gap-2 rounded-xl" disabled={saving || form.nameBn.trim().length < 2} onClick={() => void (editingMember ? updateMember(form) : createMember(form)).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("সদস্য সেভ হয়নি।", "The member could not be saved.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingMember ? <Pencil className="size-4" /> : <UserRoundPlus className="size-4" />} {editingMember ? pick("প্রোফাইল আপডেট", "Update profile") : pick("প্রোফাইল সংরক্ষণ", "Save profile")}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={relationshipOpen} onOpenChange={setRelationshipOpen}>
         <DialogContent className="rounded-3xl sm:max-w-lg">
-          <DialogHeader><DialogTitle>Family relationship যোগ করুন</DialogTitle><DialogDescription>Connection-এর direction অনুযায়ী প্রথম ও দ্বিতীয় সদস্য নির্বাচন করুন।</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{pick("পারিবারিক সম্পর্ক যোগ করুন", "Add family relationship")}</DialogTitle><DialogDescription>{pick("সংযোগের দিক অনুযায়ী প্রথম ও দ্বিতীয় সদস্য নির্বাচন করুন।", "Select the first and second members according to the connection direction.")}</DialogDescription></DialogHeader>
           <div className="grid gap-4 py-2">
-            <Field label="Relationship type" id="newRelationshipType"><Select value={relationshipForm.relationshipType} onValueChange={(value) => setRelationshipForm((current) => ({ ...current, relationshipType: value as typeof current.relationshipType }))}><SelectTrigger id="newRelationshipType" className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="parent">প্রথম সদস্য parent → দ্বিতীয় সদস্য child</SelectItem><SelectItem value="spouse">Spouse relationship</SelectItem><SelectItem value="guardian">প্রথম সদস্য guardian → দ্বিতীয় সদস্য</SelectItem></SelectContent></Select></Field>
-            <Field label="প্রথম সদস্য" id="fromMemberId"><Select value={relationshipForm.fromMemberId} onValueChange={(value) => setRelationshipForm((current) => ({ ...current, fromMemberId: value }))}><SelectTrigger id="fromMemberId" className="w-full rounded-xl"><SelectValue placeholder="সদস্য নির্বাচন" /></SelectTrigger><SelectContent><SelectItem value="none">নির্বাচন করুন</SelectItem>{members.map((member) => <SelectItem key={member.id} value={member.id} disabled={member.id === relationshipForm.toMemberId}>{member.name_bn}</SelectItem>)}</SelectContent></Select></Field>
-            <Field label="দ্বিতীয় সদস্য" id="toMemberId"><Select value={relationshipForm.toMemberId} onValueChange={(value) => setRelationshipForm((current) => ({ ...current, toMemberId: value }))}><SelectTrigger id="toMemberId" className="w-full rounded-xl"><SelectValue placeholder="সদস্য নির্বাচন" /></SelectTrigger><SelectContent><SelectItem value="none">নির্বাচন করুন</SelectItem>{members.map((member) => <SelectItem key={member.id} value={member.id} disabled={member.id === relationshipForm.fromMemberId}>{member.name_bn}</SelectItem>)}</SelectContent></Select></Field>
+            <Field label={pick("সম্পর্কের ধরন", "Relationship type")} id="newRelationshipType"><Select value={relationshipForm.relationshipType} onValueChange={(value) => setRelationshipForm((current) => ({ ...current, relationshipType: value as typeof current.relationshipType }))}><SelectTrigger id="newRelationshipType" className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="parent">{pick("প্রথম সদস্য অভিভাবক → দ্বিতীয় সদস্য সন্তান", "First member parent → second member child")}</SelectItem><SelectItem value="spouse">{pick("জীবনসঙ্গীর সম্পর্ক", "Spouse relationship")}</SelectItem><SelectItem value="guardian">{pick("প্রথম সদস্য আইনি অভিভাবক → দ্বিতীয় সদস্য", "First member guardian → second member")}</SelectItem></SelectContent></Select></Field>
+            <Field label={pick("প্রথম সদস্য", "First member")} id="fromMemberId"><Select value={relationshipForm.fromMemberId} onValueChange={(value) => setRelationshipForm((current) => ({ ...current, fromMemberId: value }))}><SelectTrigger id="fromMemberId" className="w-full rounded-xl"><SelectValue placeholder={pick("সদস্য নির্বাচন", "Select member")} /></SelectTrigger><SelectContent><SelectItem value="none">{pick("নির্বাচন করুন", "Select")}</SelectItem>{members.map((member) => <SelectItem key={member.id} value={member.id} disabled={member.id === relationshipForm.toMemberId}>{locale === "en" ? member.name_en || member.name_bn : member.name_bn}</SelectItem>)}</SelectContent></Select></Field>
+            <Field label={pick("দ্বিতীয় সদস্য", "Second member")} id="toMemberId"><Select value={relationshipForm.toMemberId} onValueChange={(value) => setRelationshipForm((current) => ({ ...current, toMemberId: value }))}><SelectTrigger id="toMemberId" className="w-full rounded-xl"><SelectValue placeholder={pick("সদস্য নির্বাচন", "Select member")} /></SelectTrigger><SelectContent><SelectItem value="none">{pick("নির্বাচন করুন", "Select")}</SelectItem>{members.map((member) => <SelectItem key={member.id} value={member.id} disabled={member.id === relationshipForm.fromMemberId}>{locale === "en" ? member.name_en || member.name_bn : member.name_bn}</SelectItem>)}</SelectContent></Select></Field>
           </div>
-          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setRelationshipOpen(false)}>বাতিল</Button><Button className="gap-2 rounded-xl" disabled={saving || relationshipForm.fromMemberId === "none" || relationshipForm.toMemberId === "none"} onClick={() => void createRelationship().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Relationship save হয়নি।"))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />} Connection সংরক্ষণ</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setRelationshipOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="gap-2 rounded-xl" disabled={saving || relationshipForm.fromMemberId === "none" || relationshipForm.toMemberId === "none"} onClick={() => void createRelationship().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("সম্পর্ক সেভ হয়নি।", "The relationship could not be saved.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />} {pick("সংযোগ সংরক্ষণ", "Save connection")}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </main>
