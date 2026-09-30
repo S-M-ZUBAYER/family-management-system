@@ -1,6 +1,6 @@
 # Family Management System — Project Handoff
 
-Last updated: 2026-09-29 (Asia/Dhaka)
+Last updated: 2026-09-30 (Asia/Dhaka)
 
 This file is the authoritative handoff for continuing the project from another Codex account. Read it completely before changing or deploying anything.
 
@@ -62,8 +62,8 @@ The following work is implemented, verified, and committed locally, but is inten
    - Personal Finance: private dashboard, accounts, transactions, budgets, debts, bills, goals, forms/actions, date/currency formatting, and localized XLSX workbooks use the selected locale.
    - Family Chat: channel navigation/creation, group/direct conversation states, live status, notifications, message composer, privacy copy, feedback, date/time formatting, and XLSX workbooks use the selected locale.
    - Health/SOS: primary dashboard, reminders, metrics, care and health-log tables, SOS cards/actions, localized date/time/status display, feedback, and XLSX workbooks use the selected locale. Some secondary health profile/upload/SOS form labels remain mixed and are listed below.
-   - Welfare Fund: locale-aware currency/date formatting, header, metrics, navigation, contribution ledger, contribution approval/refund actions, fund/contribution/expense/assistance/pledge form labels and options, status badges, and dropdown workflow actions use the selected language. Upload dialog, card body labels, tables, and XLSX headings still contain mixed secondary text.
-   - Shared Household: main header/filter/KPIs/tabs, create/edit and document-upload dialogs, record forms and select options, section headings, empty states, status badges, dropdown actions, currency/date formatters, primary feedback, and XLSX sheet/column headings now follow the selected locale. Some card body labels, inline buttons/prompts, table headings, and row-level feedback remain mixed.
+   - Welfare Fund: locale-aware currency/date formatting, header, metrics, navigation, contribution/expense/assistance/pledge workflows, create/edit and upload dialogs, fund/request cards, tables, empty/access states, status/actions, and XLSX sheet/column headings now follow the selected language. Some API-returned messages and stored free-text values can still appear in their original language.
+   - Shared Household: main header/filter/KPIs/tabs, create/edit and document-upload dialogs, record forms and select options, section headings, empty/access states, status/actions, shopping/task/maintenance card labels, utility table headings, inline workflow prompts, currency/date formatters, and XLSX sheet/column headings now follow the selected locale. Some stored category/type values and API-returned row feedback remain mixed.
    - Admin Control Center: access/loading states, main header, KPI cards, role/audit navigation, member/audit filters, table headings, counts, locale-aware timestamps, and XLSX sheet/column headings now follow the selected locale. Role/status option labels and some row-level feedback remain mixed.
    - Family Archives: primary header/actions, metrics, navigation tabs, load/save/upload/status feedback, collection/story/asset/capsule and upload-metadata forms/dialogs, section headings, empty states, status badges, dropdown actions, and XLSX sheet/column headings now follow the selected locale. Some table/card body labels and inline buttons remain mixed.
    - Family Governance: primary header/actions, metrics, navigation tabs, poll/decision forms and dialogs, section headings, rules, empty states, status badges, dropdown actions, load/export feedback, and XLSX sheet/column headings now follow the selected locale. Some poll/decision card body labels and inline buttons remain mixed.
