@@ -90,6 +90,11 @@ const actionLabels: Record<string, string> = {
   update_sos: "SOS status পরিবর্তন",
   update_membership: "member role ও access পরিবর্তন",
   update_locale: "ভাষার পছন্দ পরিবর্তন",
+  create_notification: "ফ্যামিলি নোটিফিকেশন প্রকাশ",
+  save_preferences: "নোটিফিকেশন পছন্দ সংরক্ষণ",
+  mark_read: "নোটিফিকেশনটি পড়া হয়েছে হিসেবে চিহ্নিত",
+  mark_unread: "নোটিফিকেশনটি না-পড়া হিসেবে চিহ্নিত",
+  restore: "নোটিফিকেশনটি ফিরিয়ে আনা",
 };
 
 const actionLabelsEn: Record<string, string> = {
@@ -133,6 +138,11 @@ const actionLabelsEn: Record<string, string> = {
   update_sos: "change the SOS status",
   update_membership: "change member role and access",
   update_locale: "change the language preference",
+  create_notification: "publish a family notification",
+  save_preferences: "save notification preferences",
+  mark_read: "mark the notification as read",
+  mark_unread: "mark the notification as unread",
+  restore: "restore the notification",
 };
 
 const destructiveWords = [
@@ -167,6 +177,7 @@ function endpointLabel(pathname: string, locale: AppLocale) {
     ["household", "বাসা ব্যবস্থাপনার রেকর্ড", "household record"], ["archives", "আর্কাইভ রেকর্ড", "archive record"],
     ["governance", "ভোট বা সিদ্ধান্তের রেকর্ড", "governance record"], ["workspace", "পরিবারের preference", "family preference"],
     ["admin", "অ্যাডমিন সেটিং", "admin setting"], ["chat", "চ্যাট action", "chat action"],
+    ["notifications", "নোটিফিকেশন", "notification"],
     ["setup/family", "ফ্যামিলি workspace", "family workspace"],
   ];
   const match = labels.find(([part]) => pathname.includes(part));
