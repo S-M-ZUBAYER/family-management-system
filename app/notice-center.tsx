@@ -163,18 +163,18 @@ export function NoticeCenter() {
         setNotices([]);
         return;
       }
-      if (!response.ok) throw new Error(payload.error ?? "Notice board পাওয়া যায়নি।");
+      if (!response.ok) throw new Error(payload.error ?? pick("নোটিশ বোর্ড পাওয়া যায়নি।", "Could not load the notice board."));
       setFamily(payload.family);
       setNotices(payload.notices ?? []);
       setMigrationRequired(Boolean(payload.migrationRequired));
       setCanManage(Boolean(payload.permissions?.canManage));
       setSetupRequired(false);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "Notice board পাওয়া যায়নি।");
+      setFeedback(error instanceof Error ? error.message : pick("নোটিশ বোর্ড পাওয়া যায়নি।", "Could not load the notice board."));
     } finally {
       setLoading(false);
     }
-  }, [setFeedback]);
+  }, [pick, setFeedback]);
 
   async function updateNoticeDetails(id: string, input: NoticeForm) {
     setSaving(true);
@@ -185,13 +185,13 @@ export function NoticeCenter() {
         body: JSON.stringify({ action: "edit", data: input }),
       });
       const payload = await response.json() as { notice?: FamilyNotice; error?: string; message?: string };
-      if (!response.ok || !payload.notice) throw new Error(payload.error ?? "Notice update হয়নি।");
+      if (!response.ok || !payload.notice) throw new Error(payload.error ?? pick("নোটিশ আপডেট হয়নি।", "The notice could not be updated."));
       setNotices((current) => current.map((notice) => notice.id === id ? payload.notice! : notice));
       setSelected((current) => current?.id === id ? payload.notice! : current);
       setCreateOpen(false);
       setEditingNotice(null);
       setForm(emptyForm);
-      setFeedback(payload.message ?? "Notice details update হয়েছে।");
+      setFeedback(payload.message ?? pick("নোটিশের বিস্তারিত আপডেট হয়েছে।", "Notice details updated."));
     } finally {
       setSaving(false);
     }
@@ -227,10 +227,10 @@ export function NoticeCenter() {
     try {
       const response = await fetch(`/api/notices/${id}`, { method: "DELETE" });
       const payload = await response.json() as { error?: string; message?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Notice delete হয়নি।");
+      if (!response.ok) throw new Error(payload.error ?? pick("নোটিশ মোছা যায়নি।", "The notice could not be deleted."));
       setNotices((current) => current.filter((notice) => notice.id !== id));
       setSelected((current) => current?.id === id ? null : current);
-      setFeedback(payload.message ?? "Notice delete হয়েছে।");
+      setFeedback(payload.message ?? pick("নোটিশ মুছে ফেলা হয়েছে।", "Notice deleted."));
     } finally {
       setUpdatingId(null);
     }
@@ -274,16 +274,16 @@ export function NoticeCenter() {
         body: JSON.stringify(input),
       });
       const payload = (await response.json()) as { notice?: FamilyNotice; error?: string };
-      if (!response.ok || !payload.notice) throw new Error(payload.error ?? "Notice save হয়নি।");
+      if (!response.ok || !payload.notice) throw new Error(payload.error ?? pick("নোটিশ সেভ হয়নি।", "The notice could not be saved."));
       setNotices((current) => [payload.notice!, ...current]);
       setForm(emptyForm);
       setCreateOpen(false);
-      setFeedback(payload.notice.status === "published" ? "Notice প্রকাশিত হয়েছে।" : "Notice খসড়া হিসেবে সংরক্ষিত হয়েছে।");
+      setFeedback(payload.notice.status === "published" ? pick("নোটিশ প্রকাশিত হয়েছে।", "Notice published.") : pick("নোটিশ খসড়া হিসেবে সংরক্ষিত হয়েছে।", "Notice saved as a draft."));
       return { id: payload.notice.id, status: payload.notice.status, title: payload.notice.title_bn };
     } finally {
       setSaving(false);
     }
-  }, [setFeedback]);
+  }, [pick, setFeedback]);
 
   async function updateNotice(id: string, action: "publish" | "draft" | "archive" | "pin" | "unpin") {
     setUpdatingId(id);
@@ -295,10 +295,10 @@ export function NoticeCenter() {
         body: JSON.stringify({ action }),
       });
       const payload = (await response.json()) as { notice?: FamilyNotice; error?: string };
-      if (!response.ok || !payload.notice) throw new Error(payload.error ?? "Notice update হয়নি।");
+      if (!response.ok || !payload.notice) throw new Error(payload.error ?? pick("নোটিশ আপডেট হয়নি।", "The notice could not be updated."));
       setNotices((current) => current.map((notice) => notice.id === id ? payload.notice! : notice));
       setSelected((current) => current?.id === id ? payload.notice! : current);
-      setFeedback("Notice status update হয়েছে।");
+      setFeedback(pick("নোটিশের অবস্থা আপডেট হয়েছে।", "Notice status updated."));
       return { id, action, status: payload.notice.status, isPinned: payload.notice.is_pinned };
     } finally {
       setUpdatingId(null);
@@ -310,21 +310,21 @@ export function NoticeCenter() {
     try {
       const XLSX = await import("xlsx");
       const worksheet = XLSX.utils.json_to_sheet(visibleNotices.map((notice, index) => ({
-        "ক্রমিক": index + 1,
-        "শিরোনাম": notice.title_bn,
-        "Title (English)": notice.title_en ?? "",
-        "বিস্তারিত": notice.body_bn,
-        "ক্যাটাগরি": categoryLabels[notice.category],
-        "অগ্রাধিকার": priorityLabels[notice.priority],
-        "অবস্থা": statusLabels[notice.status],
-        "পিন করা": notice.is_pinned ? "হ্যাঁ" : "না",
-        "প্রকাশের সময়": notice.publish_at ? dateFormatter.format(new Date(notice.publish_at)) : "",
-        "মেয়াদ শেষ": notice.expires_at ? dateFormatter.format(new Date(notice.expires_at)) : "",
-        "তৈরির সময়": dateFormatter.format(new Date(notice.created_at)),
+        [pick("ক্রমিক", "Serial")]: index + 1,
+        [pick("শিরোনাম", "Title")]: notice.title_bn,
+        [pick("শিরোনাম (ইংরেজি)", "Title (English)")]: notice.title_en ?? "",
+        [pick("বিস্তারিত", "Details")]: notice.body_bn,
+        [pick("ক্যাটাগরি", "Category")]: categoryLabels[notice.category],
+        [pick("অগ্রাধিকার", "Priority")]: priorityLabels[notice.priority],
+        [pick("অবস্থা", "Status")]: statusLabels[notice.status],
+        [pick("পিন করা", "Pinned")]: notice.is_pinned ? pick("হ্যাঁ", "Yes") : pick("না", "No"),
+        [pick("প্রকাশের সময়", "Publish time")]: notice.publish_at ? dateFormatter.format(new Date(notice.publish_at)) : "",
+        [pick("মেয়াদ শেষ", "Expiry")]: notice.expires_at ? dateFormatter.format(new Date(notice.expires_at)) : "",
+        [pick("তৈরির সময়", "Created at")]: dateFormatter.format(new Date(notice.created_at)),
       })));
       worksheet["!cols"] = [8, 34, 30, 60, 20, 18, 16, 12, 24, 24, 24].map((wch) => ({ wch }));
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Family Notices");
+      XLSX.utils.book_append_sheet(workbook, worksheet, pick("পারিবারিক নোটিশ", "Family Notices"));
       XLSX.writeFile(workbook, `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-notices.xlsx`);
     } finally {
       setExporting(false);
@@ -422,14 +422,14 @@ export function NoticeCenter() {
 
       <Card className="gap-0 overflow-hidden rounded-3xl border-border/75 py-0 shadow-none">
         <div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between md:p-5"><div className="relative w-full md:max-w-md"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={pick("নোটিশের শিরোনাম বা বিষয় খুঁজুন", "Search notice title or topic")} className="h-10 rounded-xl pl-10" /></div><Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-full rounded-xl md:w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">{pick("সক্রিয়", "Active")}</SelectItem><SelectItem value="all">{pick("সব নোটিশ", "All notices")}</SelectItem><SelectItem value="published">{pick("প্রকাশিত", "Published")}</SelectItem><SelectItem value="draft">{pick("খসড়া", "Draft")}</SelectItem><SelectItem value="archived">{pick("আর্কাইভ", "Archived")}</SelectItem></SelectContent></Select></div>
-        {loading ? <div className="flex min-h-80 items-center justify-center gap-3 text-muted-foreground"><LoaderCircle className="size-5 animate-spin" /> Notice load হচ্ছে</div> : visibleNotices.length ? <div className="grid gap-4 p-4 md:grid-cols-2 md:p-5 xl:grid-cols-3">{visibleNotices.map((notice) => <article key={notice.id} className={`relative rounded-2xl border bg-card p-5 transition hover:border-primary/30 hover:shadow-sm ${notice.priority === "urgent" ? "border-destructive/35" : notice.is_pinned ? "border-primary/35" : "border-border/75"}`}>
-          <div className="flex items-start justify-between gap-3"><div className="flex flex-wrap gap-2"><Badge variant={notice.priority === "urgent" ? "destructive" : "secondary"}>{priorityLabels[notice.priority]}</Badge><Badge variant="outline">{categoryLabels[notice.category]}</Badge>{notice.is_pinned ? <Badge variant="outline" className="gap-1 text-primary"><Pin className="size-3" /> পিন</Badge> : null}</div>{canManage ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="-mr-2 -mt-2 rounded-xl" disabled={updatingId === notice.id}><Ellipsis className="size-4" /><span className="sr-only">Notice actions</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-48"><DropdownMenuItem onClick={() => openEditNotice(notice)}><Pencil /> Edit details</DropdownMenuItem>{notice.status !== "published" ? <DropdownMenuItem onClick={() => void updateNotice(notice.id, "publish").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Notice update হয়নি।"))}><CheckCircle2 /> প্রকাশ করুন</DropdownMenuItem> : <DropdownMenuItem onClick={() => void updateNotice(notice.id, "draft").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Notice update হয়নি।"))}><Clock3 /> খসড়া করুন</DropdownMenuItem>}<DropdownMenuItem onClick={() => void updateNotice(notice.id, notice.is_pinned ? "unpin" : "pin").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Notice update হয়নি।"))}>{notice.is_pinned ? <PinOff /> : <Pin />} {notice.is_pinned ? "Unpin" : "Pin"}</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onClick={() => void updateNotice(notice.id, "archive").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Notice update হয়নি।"))}><Archive /> আর্কাইভ</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void deleteNotice(notice.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Notice delete হয়নি।"))}><Trash2 /> Delete permanently</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}</div>
+        {loading ? <div className="flex min-h-80 items-center justify-center gap-3 text-muted-foreground"><LoaderCircle className="size-5 animate-spin" /> {pick("নোটিশ লোড হচ্ছে", "Loading notices")}</div> : visibleNotices.length ? <div className="grid gap-4 p-4 md:grid-cols-2 md:p-5 xl:grid-cols-3">{visibleNotices.map((notice) => <article key={notice.id} className={`relative rounded-2xl border bg-card p-5 transition hover:border-primary/30 hover:shadow-sm ${notice.priority === "urgent" ? "border-destructive/35" : notice.is_pinned ? "border-primary/35" : "border-border/75"}`}>
+          <div className="flex items-start justify-between gap-3"><div className="flex flex-wrap gap-2"><Badge variant={notice.priority === "urgent" ? "destructive" : "secondary"}>{priorityLabels[notice.priority]}</Badge><Badge variant="outline">{categoryLabels[notice.category]}</Badge>{notice.is_pinned ? <Badge variant="outline" className="gap-1 text-primary"><Pin className="size-3" /> {pick("পিন", "Pinned")}</Badge> : null}</div>{canManage ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="-mr-2 -mt-2 rounded-xl" disabled={updatingId === notice.id}><Ellipsis className="size-4" /><span className="sr-only">{pick("নোটিশের কাজ", "Notice actions")}</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-48"><DropdownMenuItem onClick={() => openEditNotice(notice)}><Pencil /> {pick("বিস্তারিত সম্পাদনা", "Edit details")}</DropdownMenuItem>{notice.status !== "published" ? <DropdownMenuItem onClick={() => void updateNotice(notice.id, "publish").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("নোটিশ আপডেট হয়নি।", "The notice could not be updated.")))}><CheckCircle2 /> {pick("প্রকাশ করুন", "Publish")}</DropdownMenuItem> : <DropdownMenuItem onClick={() => void updateNotice(notice.id, "draft").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("নোটিশ আপডেট হয়নি।", "The notice could not be updated.")))}><Clock3 /> {pick("খসড়া করুন", "Move to draft")}</DropdownMenuItem>}<DropdownMenuItem onClick={() => void updateNotice(notice.id, notice.is_pinned ? "unpin" : "pin").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("নোটিশ আপডেট হয়নি।", "The notice could not be updated.")))}>{notice.is_pinned ? <PinOff /> : <Pin />} {notice.is_pinned ? pick("পিন সরান", "Unpin") : pick("পিন করুন", "Pin")}</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onClick={() => void updateNotice(notice.id, "archive").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("নোটিশ আপডেট হয়নি।", "The notice could not be updated.")))}><Archive /> {pick("আর্কাইভ", "Archive")}</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void deleteNotice(notice.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("নোটিশ মোছা যায়নি।", "The notice could not be deleted.")))}><Trash2 /> {pick("স্থায়ীভাবে মুছুন", "Delete permanently")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}</div>
           <button type="button" className="mt-4 block w-full text-left" onClick={() => setSelected(notice)}><h2 className="text-lg font-bold leading-snug">{locale === "en" ? notice.title_en || notice.title_bn : notice.title_bn}</h2>{locale === "bn" && notice.title_en ? <p className="mt-1 text-sm text-muted-foreground">{notice.title_en}</p> : null}<p className="mt-3 line-clamp-3 text-sm leading-6 text-muted-foreground">{locale === "en" ? notice.body_en || notice.body_bn : notice.body_bn}</p></button>
           <div className="mt-5 flex items-center justify-between gap-3 border-t pt-4 text-xs text-muted-foreground"><Badge variant="outline">{statusLabels[notice.status]}</Badge><span>{notice.publish_at ? dateFormatter.format(new Date(notice.publish_at)) : dateFormatter.format(new Date(notice.created_at))}</span></div>
         </article>)}</div> : <div className="flex min-h-80 flex-col items-center justify-center px-6 text-center"><Megaphone className="size-11 text-muted-foreground/45" /><h2 className="mt-4 text-xl font-bold">{pick("এই তালিকায় কোনো নোটিশ নেই", "There are no notices in this list")}</h2><p className="mt-1 text-sm text-muted-foreground">{pick("Filter বদলান অথবা নতুন পারিবারিক নোটিশ তৈরি করুন।", "Change the filter or create a new family notice.")}</p>{canManage && !migrationRequired ? <Button className="mt-5 gap-2 rounded-xl" onClick={openCreateNotice}><Plus className="size-4" /> {pick("প্রথম নোটিশ তৈরি করুন", "Create first notice")}</Button> : null}</div>}
       </Card>
 
-      <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) { setEditingNotice(null); setForm(emptyForm); } }}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-3xl"><DialogHeader><DialogTitle>{editingNotice ? "নোটিশ edit করুন" : "নতুন পারিবারিক নোটিশ"}</DialogTitle><DialogDescription>{editingNotice ? "শিরোনাম, বিস্তারিত, সময় ও publishing settings update করুন।" : "প্রকাশের সময়, priority এবং মেয়াদ ঠিক করে সদস্যদের জন্য notice তৈরি করুন।"}</DialogDescription></DialogHeader><div className="grid gap-4 py-2 sm:grid-cols-2"><Field label="শিরোনাম (বাংলা)" id="notice-title-bn"><Input id="notice-title-bn" value={form.titleBn} onChange={(event) => setForm({ ...form, titleBn: event.target.value })} /></Field><Field label="Title (English)" id="notice-title-en"><Input id="notice-title-en" value={form.titleEn} onChange={(event) => setForm({ ...form, titleEn: event.target.value })} /></Field><div className="sm:col-span-2"><Field label="বিস্তারিত (বাংলা)" id="notice-body-bn"><Textarea id="notice-body-bn" rows={5} value={form.bodyBn} onChange={(event) => setForm({ ...form, bodyBn: event.target.value })} /></Field></div><div className="sm:col-span-2"><Field label="Details (English)" id="notice-body-en"><Textarea id="notice-body-en" rows={3} value={form.bodyEn} onChange={(event) => setForm({ ...form, bodyEn: event.target.value })} /></Field></div><Field label="ক্যাটাগরি" id="notice-category"><Select value={form.category} onValueChange={(value) => setForm({ ...form, category: value as FamilyNotice["category"] })}><SelectTrigger id="notice-category" className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(categoryLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field><Field label="অগ্রাধিকার" id="notice-priority"><Select value={form.priority} onValueChange={(value) => setForm({ ...form, priority: value as FamilyNotice["priority"] })}><SelectTrigger id="notice-priority" className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="normal">সাধারণ</SelectItem><SelectItem value="high">গুরুত্বপূর্ণ</SelectItem><SelectItem value="urgent">অতি জরুরি</SelectItem></SelectContent></Select></Field><Field label="অবস্থা" id="notice-status"><Select value={form.status} onValueChange={(value) => setForm({ ...form, status: value as NoticeForm["status"] })}><SelectTrigger id="notice-status" className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="published">এখন প্রকাশ</SelectItem><SelectItem value="draft">খসড়া</SelectItem></SelectContent></Select></Field><Field label="প্রকাশের সময় (ঐচ্ছিক)" id="notice-publish"><Input id="notice-publish" type="datetime-local" value={form.publishAt} onChange={(event) => setForm({ ...form, publishAt: event.target.value })} /></Field><Field label="মেয়াদ শেষ (ঐচ্ছিক)" id="notice-expiry"><Input id="notice-expiry" type="datetime-local" value={form.expiresAt} onChange={(event) => setForm({ ...form, expiresAt: event.target.value })} /></Field><div className="flex items-center justify-between rounded-2xl border p-4"><div><Label htmlFor="notice-pin">গুরুত্বপূর্ণ হিসেবে পিন</Label><p className="mt-1 text-xs text-muted-foreground">Ticker ও তালিকার উপরে থাকবে</p></div><Switch id="notice-pin" checked={form.isPinned} onCheckedChange={(checked) => setForm({ ...form, isPinned: checked })} /></div></div><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setCreateOpen(false)}>বাতিল</Button><Button className="gap-2 rounded-xl" disabled={saving || form.titleBn.trim().length < 3 || form.bodyBn.trim().length < 5} onClick={() => void (editingNotice ? updateNoticeDetails(editingNotice.id, form) : createNotice(form)).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Notice save হয়নি।"))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingNotice ? <Pencil className="size-4" /> : <Megaphone className="size-4" />} {editingNotice ? "Update notice" : form.status === "published" ? "প্রকাশ করুন" : "খসড়া সংরক্ষণ"}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) { setEditingNotice(null); setForm(emptyForm); } }}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-3xl"><DialogHeader><DialogTitle>{editingNotice ? pick("নোটিশ সম্পাদনা করুন", "Edit notice") : pick("নতুন পারিবারিক নোটিশ", "New family notice")}</DialogTitle><DialogDescription>{editingNotice ? pick("শিরোনাম, বিস্তারিত, সময় ও প্রকাশের সেটিংস আপডেট করুন।", "Update the title, details, schedule and publishing settings.") : pick("প্রকাশের সময়, অগ্রাধিকার ও মেয়াদ ঠিক করে সদস্যদের জন্য নোটিশ তৈরি করুন।", "Create a notice for members with a publish time, priority and expiry.")}</DialogDescription></DialogHeader><div className="grid gap-4 py-2 sm:grid-cols-2"><Field label={pick("শিরোনাম (বাংলা)", "Title (Bangla)")} id="notice-title-bn"><Input id="notice-title-bn" value={form.titleBn} onChange={(event) => setForm({ ...form, titleBn: event.target.value })} /></Field><Field label={pick("শিরোনাম (ইংরেজি)", "Title (English)")} id="notice-title-en"><Input id="notice-title-en" value={form.titleEn} onChange={(event) => setForm({ ...form, titleEn: event.target.value })} /></Field><div className="sm:col-span-2"><Field label={pick("বিস্তারিত (বাংলা)", "Details (Bangla)")} id="notice-body-bn"><Textarea id="notice-body-bn" rows={5} value={form.bodyBn} onChange={(event) => setForm({ ...form, bodyBn: event.target.value })} /></Field></div><div className="sm:col-span-2"><Field label={pick("বিস্তারিত (ইংরেজি)", "Details (English)")} id="notice-body-en"><Textarea id="notice-body-en" rows={3} value={form.bodyEn} onChange={(event) => setForm({ ...form, bodyEn: event.target.value })} /></Field></div><Field label={pick("ক্যাটাগরি", "Category")} id="notice-category"><Select value={form.category} onValueChange={(value) => setForm({ ...form, category: value as FamilyNotice["category"] })}><SelectTrigger id="notice-category" className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(categoryLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field><Field label={pick("অগ্রাধিকার", "Priority")} id="notice-priority"><Select value={form.priority} onValueChange={(value) => setForm({ ...form, priority: value as FamilyNotice["priority"] })}><SelectTrigger id="notice-priority" className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="normal">{priorityLabels.normal}</SelectItem><SelectItem value="high">{priorityLabels.high}</SelectItem><SelectItem value="urgent">{priorityLabels.urgent}</SelectItem></SelectContent></Select></Field><Field label={pick("অবস্থা", "Status")} id="notice-status"><Select value={form.status} onValueChange={(value) => setForm({ ...form, status: value as NoticeForm["status"] })}><SelectTrigger id="notice-status" className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="published">{pick("এখন প্রকাশ", "Publish now")}</SelectItem><SelectItem value="draft">{pick("খসড়া", "Draft")}</SelectItem></SelectContent></Select></Field><Field label={pick("প্রকাশের সময় (ঐচ্ছিক)", "Publish time (optional)")} id="notice-publish"><Input id="notice-publish" type="datetime-local" value={form.publishAt} onChange={(event) => setForm({ ...form, publishAt: event.target.value })} /></Field><Field label={pick("মেয়াদ শেষ (ঐচ্ছিক)", "Expiry (optional)")} id="notice-expiry"><Input id="notice-expiry" type="datetime-local" value={form.expiresAt} onChange={(event) => setForm({ ...form, expiresAt: event.target.value })} /></Field><div className="flex items-center justify-between rounded-2xl border p-4"><div><Label htmlFor="notice-pin">{pick("গুরুত্বপূর্ণ হিসেবে পিন", "Pin as important")}</Label><p className="mt-1 text-xs text-muted-foreground">{pick("টিকার ও তালিকার উপরে থাকবে", "Shown at the top of the ticker and list")}</p></div><Switch id="notice-pin" checked={form.isPinned} onCheckedChange={(checked) => setForm({ ...form, isPinned: checked })} /></div></div><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setCreateOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="gap-2 rounded-xl" disabled={saving || form.titleBn.trim().length < 3 || form.bodyBn.trim().length < 5} onClick={() => void (editingNotice ? updateNoticeDetails(editingNotice.id, form) : createNotice(form)).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("নোটিশ সেভ হয়নি।", "The notice could not be saved.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingNotice ? <Pencil className="size-4" /> : <Megaphone className="size-4" />} {editingNotice ? pick("নোটিশ আপডেট", "Update notice") : form.status === "published" ? pick("প্রকাশ করুন", "Publish") : pick("খসড়া সংরক্ষণ", "Save draft")}</Button></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-2xl"><DialogHeader><div className="flex flex-wrap gap-2 pb-2">{selected ? <><Badge variant={selected.priority === "urgent" ? "destructive" : "secondary"}>{priorityLabels[selected.priority]}</Badge><Badge variant="outline">{categoryLabels[selected.category]}</Badge></> : null}</div><DialogTitle className="text-2xl leading-snug">{locale === "en" ? selected?.title_en || selected?.title_bn : selected?.title_bn}</DialogTitle><DialogDescription>{locale === "bn" ? selected?.title_en || (selected?.publish_at ? dateFormatter.format(new Date(selected.publish_at)) : "ফ্যামিলি নোটিশ") : selected?.publish_at ? dateFormatter.format(new Date(selected.publish_at)) : "Family notice"}</DialogDescription></DialogHeader>{selected ? <div className="space-y-5"><p className="whitespace-pre-wrap text-base leading-7">{locale === "en" ? selected.body_en || selected.body_bn : selected.body_bn}</p>{locale === "bn" && selected.body_en ? <div className="rounded-2xl bg-muted/45 p-5"><p className="whitespace-pre-wrap leading-7 text-muted-foreground">{selected.body_en}</p></div> : null}{selected.expires_at ? <p className="text-sm text-muted-foreground">{pick("মেয়াদ শেষ", "Expires")}: {dateFormatter.format(new Date(selected.expires_at))}</p> : null}</div> : null}</DialogContent></Dialog>
     </main>
