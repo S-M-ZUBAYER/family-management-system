@@ -1,6 +1,6 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageWelfare, getActiveFamilyMembership } from "@/lib/family-access";
-import { supabaseRest } from "@/lib/supabase-rest";
+import { SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 import { welfareErrorResponse } from "../route";
 
 const actions = ["create_fund", "create_contribution", "create_expense", "create_request", "create_pledge", "update_status"] as const;
@@ -23,8 +23,9 @@ function choice<T extends string>(value: unknown, values: readonly T[], fallback
   return candidate && values.includes(candidate as T) ? candidate as T : fallback;
 }
 
-async function fundExists(familyId: string, fundId: string) {
+async function fundExists(familyId: string, fundId: string, activeOnly = false) {
   const query = new URLSearchParams({ select: "id", id: `eq.${fundId}`, family_id: `eq.${familyId}`, limit: "1" });
+  if (activeOnly) query.set("status", "eq.active");
   return Boolean((await supabaseRest<Array<{ id: string }>>(`welfare_funds?${query}`))[0]);
 }
 
@@ -78,7 +79,7 @@ export async function POST(request: Request) {
     } else if (body.action === "create_contribution") {
       const fundId = text(data.fundId, 80);
       const contributionAmount = amount(data.amount);
-      if (!fundId || !uuidPattern.test(fundId) || !(await fundExists(membership.family_id, fundId)) || contributionAmount === undefined || contributionAmount <= 0) return Response.json({ error: "Fund ও positive contribution amount প্রয়োজন।" }, { status: 400 });
+      if (!fundId || !uuidPattern.test(fundId) || !(await fundExists(membership.family_id, fundId, true)) || contributionAmount === undefined || contributionAmount <= 0) return Response.json({ error: "Active fund ও positive contribution amount প্রয়োজন।" }, { status: 400 });
       table = "welfare_contributions";
       record = {
         family_id: membership.family_id,
@@ -101,7 +102,7 @@ export async function POST(request: Request) {
       const fundId = text(data.fundId, 80);
       const title = text(data.title, 180);
       const expenseAmount = amount(data.amount);
-      if (!fundId || !uuidPattern.test(fundId) || !(await fundExists(membership.family_id, fundId)) || !title || expenseAmount === undefined || expenseAmount <= 0) return Response.json({ error: "Fund, expense title ও positive amount প্রয়োজন।" }, { status: 400 });
+      if (!fundId || !uuidPattern.test(fundId) || !(await fundExists(membership.family_id, fundId, true)) || !title || expenseAmount === undefined || expenseAmount <= 0) return Response.json({ error: "Active fund, expense title ও positive amount প্রয়োজন।" }, { status: 400 });
       table = "welfare_expenses";
       record = {
         family_id: membership.family_id,
@@ -122,7 +123,7 @@ export async function POST(request: Request) {
       const description = text(data.description, 5000);
       const requestedAmount = amount(data.requestedAmount);
       const fundId = text(data.fundId, 80);
-      if (!title || !description || requestedAmount === undefined || requestedAmount <= 0 || (fundId && (!uuidPattern.test(fundId) || !(await fundExists(membership.family_id, fundId))))) return Response.json({ error: "শিরোনাম, প্রয়োজনের বিবরণ ও positive amount দিন।" }, { status: 400 });
+      if (!title || !description || requestedAmount === undefined || requestedAmount <= 0 || (fundId && (!uuidPattern.test(fundId) || !(await fundExists(membership.family_id, fundId, true))))) return Response.json({ error: "শিরোনাম, প্রয়োজনের বিবরণ, active fund ও positive amount দিন।" }, { status: 400 });
       table = "welfare_requests";
       record = {
         family_id: membership.family_id,
@@ -140,7 +141,7 @@ export async function POST(request: Request) {
     } else if (body.action === "create_pledge") {
       const fundId = text(data.fundId, 80);
       const pledgeAmount = amount(data.amount);
-      if (!fundId || !uuidPattern.test(fundId) || !(await fundExists(membership.family_id, fundId)) || pledgeAmount === undefined || pledgeAmount <= 0) return Response.json({ error: "Fund ও positive pledge amount প্রয়োজন।" }, { status: 400 });
+      if (!fundId || !uuidPattern.test(fundId) || !(await fundExists(membership.family_id, fundId, true)) || pledgeAmount === undefined || pledgeAmount <= 0) return Response.json({ error: "Active fund ও positive pledge amount প্রয়োজন।" }, { status: 400 });
       table = "welfare_pledges";
       record = {
         family_id: membership.family_id,
@@ -183,6 +184,12 @@ export async function PATCH(request: Request) {
     if (lockedStatuses[kind].includes(String(existing.status))) return Response.json({ error: "This reviewed or finalized record cannot be edited." }, { status: 409 });
     if (!canManage && ((kind === "contribution" && existing.status !== "pending") || (kind === "request" && !["submitted", "under_review"].includes(String(existing.status))))) return Response.json({ error: "Review/approval-এর পর এই financial record edit করা যাবে না।" }, { status: 409 });
     const changes = await welfareChanges(kind, body.data ?? {}, membership.family_id, canManage, user.displayName); if (changes instanceof Response) return changes;
+    if (kind === "fund" && Number(changes.opening_balance) !== Number(existing.opening_balance)) {
+      return Response.json({ error: "Opening balance is fixed after fund creation. Record a contribution or expense for later corrections." }, { status: 409 });
+    }
+    if (kind !== "fund" && typeof changes.fund_id === "string" && changes.fund_id !== existing.fund_id && !(await fundExists(membership.family_id, changes.fund_id, true))) {
+      return Response.json({ error: "Choose an active fund before moving this record." }, { status: 409 });
+    }
     changes.updated_at = new Date().toISOString();
     const filter = new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}` });
     const [updated] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${filter}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
@@ -284,14 +291,26 @@ async function updateStatus(data: Record<string, unknown>, familyId: string, use
     if (Number(existing.amount) > available) return Response.json({ error: `Fund balance পর্যাপ্ত নয়। Available: ${available.toFixed(2)}` }, { status: 409 });
   }
   if (entity === "request" && status === "disbursed") {
-    const available = await availableFundBalance(familyId, String(existing.fund_id));
-    if (Number(changes.approved_amount) > available) return Response.json({ error: `Fund balance পর্যাপ্ত নয়। Available: ${available.toFixed(2)}` }, { status: 409 });
-    const duplicateQuery = new URLSearchParams({ select: "id", family_id: `eq.${familyId}`, linked_request_id: `eq.${id}`, limit: "1" });
-    const duplicate = (await supabaseRest<Array<{ id: string }>>(`welfare_expenses?${duplicateQuery}`))[0];
-    if (!duplicate) await supabaseRest("welfare_expenses", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: familyId, fund_id: existing.fund_id, linked_request_id: id, title: `সহায়তা: ${existing.title}`, beneficiary_name: existing.requester_name, category: requestExpenseCategory(String(existing.request_type)), amount: changes.approved_amount, expense_date: now.slice(0, 10), payment_method: choice(data.paymentMethod, ["cash", "bank", "mobile", "card", "other"] as const, "cash"), reference: text(data.reference, 180), notes: text(data.adminNote, 3000), status: "paid", requested_by_user_id: userId, approved_by_user_id: userId, approved_by_name: userName, approved_at: now, paid_at: now }) });
+    const duplicateQuery = new URLSearchParams({ select: "id,fund_id,amount,status", family_id: `eq.${familyId}`, linked_request_id: `eq.${id}`, limit: "1" });
+    const duplicate = (await supabaseRest<Array<{ id: string; fund_id: string; amount: number | string; status: string }>>(`welfare_expenses?${duplicateQuery}`))[0];
+    if (duplicate) {
+      if (duplicate.fund_id !== existing.fund_id || Number(duplicate.amount) !== Number(changes.approved_amount) || duplicate.status !== "paid") {
+        return Response.json({ error: "The linked disbursement conflicts with this request. An admin must review the ledger." }, { status: 409 });
+      }
+    } else {
+      const available = await availableFundBalance(familyId, String(existing.fund_id));
+      if (Number(changes.approved_amount) > available) return Response.json({ error: `Fund balance পর্যাপ্ত নয়। Available: ${available.toFixed(2)}` }, { status: 409 });
+      try {
+        await supabaseRest("welfare_expenses", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: familyId, fund_id: existing.fund_id, linked_request_id: id, title: `সহায়তা: ${existing.title}`, beneficiary_name: existing.requester_name, category: requestExpenseCategory(String(existing.request_type)), amount: changes.approved_amount, expense_date: now.slice(0, 10), payment_method: choice(data.paymentMethod, ["cash", "bank", "mobile", "card", "other"] as const, "cash"), reference: text(data.reference, 180), notes: text(data.adminNote, 3000), status: "paid", requested_by_user_id: userId, approved_by_user_id: userId, approved_by_name: userName, approved_at: now, paid_at: now }) });
+      } catch (error) {
+        if (error instanceof SupabaseRequestError && error.status === 409) return Response.json({ error: "This request may already have been disbursed. Reload the ledger before trying again." }, { status: 409 });
+        throw error;
+      }
+    }
   }
-  const filter = new URLSearchParams({ id: `eq.${id}`, family_id: `eq.${familyId}` });
+  const filter = new URLSearchParams({ id: `eq.${id}`, family_id: `eq.${familyId}`, status: `eq.${String(existing.status)}` });
   const [updated] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${filter}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
+  if (!updated) return Response.json({ error: "This record changed while you were reviewing it. Reload and try again." }, { status: 409 });
   await audit(familyId, userId, `welfare_${entity}_${status}`, table, id);
   return Response.json({ record: updated });
 }

@@ -1094,6 +1094,7 @@ create table if not exists public.welfare_expenses (
 );
 create index if not exists welfare_expenses_family_date_idx on public.welfare_expenses(family_id, status, expense_date desc);
 create index if not exists welfare_expenses_fund_idx on public.welfare_expenses(fund_id, status, expense_date desc);
+create unique index if not exists welfare_expenses_one_per_request_idx on public.welfare_expenses(family_id, linked_request_id) where linked_request_id is not null;
 
 create table if not exists public.welfare_pledges (
   id uuid primary key default gen_random_uuid(),

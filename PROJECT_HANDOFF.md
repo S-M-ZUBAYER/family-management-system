@@ -9,14 +9,15 @@ This file is the authoritative handoff for continuing the project from another C
 - Local Magazine and Family Tree relationship updates are implemented and committed.
 - A shared BN/EN locale provider, database-persisted per-user language preference, bilingual theme controls, and bilingual global confirmation/result modals are implemented locally. The bilingual pass covers the core modules and localized XLSX exports. A read-only Supabase REST probe on 2026-09-30 returned HTTP `200` for `family_memberships.preferred_locale`, confirming that `20260929_user_locale_preference.sql` is applied.
 - `npm.cmd run i18n:audit`, `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` were run again successfully after the latest continuation request.
-- Read-only Supabase REST checks previously returned HTTP `200` for Magazine, Shared Household, Qurbani, and the locale-preference column. Contact & Support, Notification Center, and Privacy Center are the currently pending schema changes.
+- Read-only Supabase REST checks previously returned HTTP `200` for Magazine, Shared Household, Qurbani, and the locale-preference column. Contact & Support, Notification Center, Privacy Center, and the new Welfare disbursement guard are the currently unverified schema changes.
 - The current Codex/ChatGPT account still cannot access the existing Sites project ID (`Sites project not found`). The original owning account must either deploy the update or add this account as an editor/collaborator; do not create a duplicate Site.
-- Deployment is blocked by the Contact & Support, Notification Center, and Privacy Center migrations plus missing access to the existing Sites project. A 2026-09-30 Contact-table probe returned HTTP `401`, so it did not prove whether that migration is applied; verify with the Supabase SQL Editor.
+- Deployment is blocked by the unverified Contact & Support, Notification Center, Privacy Center, and Welfare guard migrations plus missing access to the existing Sites project. A 2026-09-30 Contact-table probe returned HTTP `401`, so it did not prove whether that migration is applied; verify with the Supabase SQL Editor.
 - The stable production site remains version 30 at `https://family-management-system.hitht.chatgpt.site`.
 - A local privacy-hardening batch now blocks admin-only/hidden profiles for regular directory viewers, masks contacts for unlinked profiles, fails closed when consent lookup fails, and prevents profile photos from bypassing directory visibility through the Archive API or direct file URL. No new SQL migration is needed for this batch.
 - Notification Center now applies each member's saved in-app category preferences to the server response, while urgent/system alerts remain visible. Future scheduled items no longer crowd out current items; notification action links are restricted to safe same-site paths. No new SQL migration is needed for this follow-up.
 - Dashboard follow-up: pending applicant names/counts are now returned only to that family's owner/admin; regular members do not see approval shortcuts. The dashboard's remaining visible BN/EN labels and its XLSX headings were localized, and dashboard approval rows now open the review page. Member-request and family-tree XLSX headings/sheet names follow the selected language. No new SQL migration is needed.
 - Welfare Fund follow-up: approval/rejection/disbursement details now use an in-page dialog instead of browser prompts; the existing global confirmation/result modals still guard mutations. Welfare fallback messages and XLSX status/category values follow the selected language. The API rejects invalid status transitions and edit/delete attempts on reviewed or finalized welfare records. No new SQL migration is needed.
+- Welfare integrity follow-up: only active funds accept new entries, a fund's opening balance is fixed after creation, and a disbursement retry can reconcile an already-linked paid expense. `20260930_welfare_disbursement_guard.sql` adds a unique index so concurrent attempts cannot create a second expense for one request; apply and verify it before deployment.
 - The next account must run `git status --short` and `git log -1 --oneline` first; the working tree should be clean at handoff.
 
 ## Copy-paste prompt for the next Codex account
@@ -27,7 +28,7 @@ C:\Personal project\family-management-system
 
 First read C:\Personal project\family-management-system\PROJECT_HANDOFF.md completely. Then run git status --short and git log -1 --oneline, and inspect package.json, .env.example, .openai/hosting.json, supabase/schema.sql, and all migrations. Do not expose, print, copy, or commit .env.local or any Supabase secret. Preserve existing work and keep the deployed site owner-private/custom unless I explicitly ask to change sharing.
 
-The stable live site is currently version 30 at https://family-management-system.hitht.chatgpt.site. The latest local code contains the verified Magazine, relationship mapper, expanded bilingual coverage, Contact & Support, Notification & Reminder Center, and Privacy & Data Rights Center modules. The Magazine and locale migrations are applied. Before deployment, run supabase/migrations/20260930_family_contact_support.sql, supabase/migrations/20260930_family_notifications.sql, and supabase/migrations/20260930_family_privacy_center.sql in Supabase SQL Editor. Then run npm.cmd run i18n:audit, npm.cmd run lint, npm.cmd run security:audit, and npm.cmd run build; deploy to the existing Sites project appgprj_6ab4e57009088191814056c14e820221 while preserving owner-private/custom access; then smoke-test /contact, /notifications, /privacy, and all previously listed critical routes, language persistence, XLSX exports, and confirmation/result modals.
+The stable live site is currently version 30 at https://family-management-system.hitht.chatgpt.site. The latest local code contains the verified Magazine, relationship mapper, expanded bilingual coverage, Contact & Support, Notification & Reminder Center, Privacy & Data Rights Center, and Welfare integrity guards. The Magazine and locale migrations are applied. Before deployment, verify/apply supabase/migrations/20260930_family_contact_support.sql, supabase/migrations/20260930_family_notifications.sql, supabase/migrations/20260930_family_privacy_center.sql, and supabase/migrations/20260930_welfare_disbursement_guard.sql in filename order in Supabase SQL Editor. Then run npm.cmd run i18n:audit, npm.cmd run lint, npm.cmd run security:audit, and npm.cmd run build; deploy to the existing Sites project appgprj_6ab4e57009088191814056c14e820221 while preserving owner-private/custom access; then smoke-test /contact, /notifications, /privacy, /welfare, and all previously listed critical routes, language persistence, XLSX exports, and confirmation/result modals.
 
 Continue the remaining roadmap one module at a time. Every mutating action must show a confirmation modal first and a success/error/info modal afterward, with a close X/button. Every major management section must support XLSX export. Every API and database operation must preserve family_id tenant isolation. New membership must remain pending until that family's owner/family_admin approves it. Personal-finance data must remain private to its user. Keep audit logging and safe-delete/finalized-record restrictions.
 ```
@@ -286,9 +287,10 @@ Run only migrations that have not already been applied, in filename order. Read-
 supabase/migrations/20260930_family_contact_support.sql
 supabase/migrations/20260930_family_notifications.sql
 supabase/migrations/20260930_family_privacy_center.sql
+supabase/migrations/20260930_welfare_disbursement_guard.sql
 ```
 
-Do not rerun destructive SQL. The scripts are designed around `create table if not exists`/safe additions, but still inspect a migration before applying it to production.
+Do not rerun destructive SQL. Inspect each migration before applying it to production. The Welfare unique-index migration will fail if historical duplicate expenses already share a linked request; review those records manually instead of deleting financial history blindly.
 
 ### Migration history
 
@@ -308,6 +310,7 @@ Do not rerun destructive SQL. The scripts are designed around `create table if n
 14. `20260930_family_contact_support.sql` — Contact & Support queue; must be applied before deploying this module
 15. `20260930_family_notifications.sql` — family notifications, per-user state, and preferences; must be applied before deploying this module
 16. `20260930_family_privacy_center.sql` — privacy policy, member consent controls, and data-rights request workflow; must be applied before deploying this module
+17. `20260930_welfare_disbursement_guard.sql` — one linked paid expense per assistance request; must be applied before relying on the concurrent-disbursement guard
 
 ### Main table groups
 
@@ -364,7 +367,7 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 
 ### Priority 1 — publish the verified local batch
 
-1. Run `20260930_family_contact_support.sql`, `20260930_family_notifications.sql`, and `20260930_family_privacy_center.sql` in the connected Supabase project.
+1. Verify/apply `20260930_family_contact_support.sql`, `20260930_family_notifications.sql`, `20260930_family_privacy_center.sql`, and `20260930_welfare_disbursement_guard.sql` in filename order in the connected Supabase project.
 2. Obtain access to the existing Sites project from the original owning account; do not create a duplicate deployment unless the user explicitly chooses a new URL/project.
 3. Deploy the next owner-private Sites version from the verified local commit.
 4. Smoke-test Contact & Support, Notifications, Privacy/Directory consent enforcement, Magazine, Family Tree relationship labels, Events, Qurbani, Personal Finance, language switching/persistence, localized XLSX exports, and bilingual confirmation/result modals.
@@ -395,6 +398,7 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 - Add 2FA/OTP and, if required, Google/phone sign-in beyond the hosting identity.
 - Add automatic data-export packages, administrator-approved deletion execution, retention cleanup jobs, and documented incident/restore procedures.
 - Review Supabase RLS strategy for defense in depth even though server routes already enforce membership.
+- Welfare Fund uses a unique linked-request index and retry-safe disbursement handling, but balance checks for simultaneous *different* requests are not yet one database transaction. Before treating it as a cash-disbursement authority, move the balance check and paid-expense insert into one locked database operation.
 
 ### Priority 5 — reports and documents
 
