@@ -14,6 +14,7 @@ This file is the authoritative handoff for continuing the project from another C
 - Deployment is blocked by the Contact & Support, Notification Center, and Privacy Center migrations plus missing access to the existing Sites project. A 2026-09-30 Contact-table probe returned HTTP `401`, so it did not prove whether that migration is applied; verify with the Supabase SQL Editor.
 - The stable production site remains version 30 at `https://family-management-system.hitht.chatgpt.site`.
 - A local privacy-hardening batch now blocks admin-only/hidden profiles for regular directory viewers, masks contacts for unlinked profiles, fails closed when consent lookup fails, and prevents profile photos from bypassing directory visibility through the Archive API or direct file URL. No new SQL migration is needed for this batch.
+- Notification Center now applies each member's saved in-app category preferences to the server response, while urgent/system alerts remain visible. Future scheduled items no longer crowd out current items; notification action links are restricted to safe same-site paths. No new SQL migration is needed for this follow-up.
 - The next account must run `git status --short` and `git log -1 --oneline` first; the working tree should be clean at handoff.
 
 ## Copy-paste prompt for the next Codex account
@@ -79,6 +80,7 @@ The following work is implemented, verified, and committed locally, but is inten
    - Members have private read/unread and archive state, search/filter views, localized XLSX export, and per-user in-app category/digest/quiet-hours preferences.
    - The API enforces active membership, `family_id` scoping, optional recipient isolation, role checks, safe internal links, audit logging, and global confirmation/result modals.
    - Email, SMS, Web Push/FCM delivery and scheduled source-data reminder jobs are not yet connected; the persisted preference foundation is ready for those providers.
+   - The server now enforces saved in-app category preferences, scheduled/expiry windows, and recipient scope. Urgent/system alerts bypass ordinary category muting; action links are validated for same-site navigation. `npm.cmd run test:notifications` covers these rules.
 6. **Privacy & Data Rights Center**
    - Members control directory visibility, family email/phone visibility, emergency access, and anonymous family analytics consent.
    - Members can submit tracked access/export, correction, deletion, and processing-restriction requests; duplicate active requests of the same type are blocked.
@@ -374,6 +376,7 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 ### Priority 3 — external notification delivery and health automation
 
 - The in-app Notification & Reminder Center, family publishing, per-user state, category preferences, digest choice, quiet hours, tenant isolation, audit logging, and XLSX export are implemented locally.
+- Category preferences now affect the in-app list. Digest frequency and quiet hours are stored for future external delivery; they do not yet schedule or suppress an in-app digest.
 - External email/SMS notifications for approvals, events, SOS, bills, medicine, and important notices.
 - FCM/Web Push subscriptions, permissions, device management, and retry/failure logs.
 - Scheduled jobs for medicine, appointment, birthday, anniversary, bill, event, and Qurbani reminders.
