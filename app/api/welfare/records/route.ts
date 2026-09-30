@@ -176,6 +176,11 @@ export async function PATCH(request: Request) {
     const existing = (await supabaseRest<Array<Record<string, unknown>>>(`${table}?${query}`))[0]; if (!existing) return Response.json({ error: "Record পাওয়া যায়নি।" }, { status: 404 });
     const owner = kind === "contribution" ? existing.submitted_by_user_id === user.userId : kind === "request" ? existing.requester_user_id === user.userId : kind === "pledge" ? existing.auth_user_id === user.userId : false;
     if (!canManage && !owner) return Response.json({ error: "এই record edit করার অনুমতি নেই।" }, { status: 403 });
+    const lockedStatuses: Record<WelfareKind, readonly string[]> = {
+      fund: ["closed"], contribution: ["approved", "rejected", "refunded"], expense: ["approved", "rejected", "paid"],
+      request: ["approved", "rejected", "disbursed", "cancelled"], pledge: ["completed", "cancelled"],
+    };
+    if (lockedStatuses[kind].includes(String(existing.status))) return Response.json({ error: "This reviewed or finalized record cannot be edited." }, { status: 409 });
     if (!canManage && ((kind === "contribution" && existing.status !== "pending") || (kind === "request" && !["submitted", "under_review"].includes(String(existing.status))))) return Response.json({ error: "Review/approval-এর পর এই financial record edit করা যাবে না।" }, { status: 409 });
     const changes = await welfareChanges(kind, body.data ?? {}, membership.family_id, canManage, user.displayName); if (changes instanceof Response) return changes;
     changes.updated_at = new Date().toISOString();
@@ -195,8 +200,10 @@ export async function DELETE(request: Request) {
     const existing = (await supabaseRest<Array<Record<string, unknown>>>(`${table}?${query}`))[0]; if (!existing) return Response.json({ error: "Record পাওয়া যায়নি।" }, { status: 404 });
     const owner = kind === "contribution" ? existing.submitted_by_user_id === user.userId : kind === "request" ? existing.requester_user_id === user.userId : kind === "pledge" ? existing.auth_user_id === user.userId : false;
     if (!canManage && !owner) return Response.json({ error: "এই record delete করার অনুমতি নেই।" }, { status: 403 });
-    if (kind === "fund") return Response.json({ error: "Financial history রক্ষার জন্য fund delete নয়—Close করুন।" }, { status: 409 });
-    if ((kind === "contribution" && existing.status === "approved") || (kind === "expense" && existing.status === "paid") || (kind === "request" && existing.status === "disbursed")) return Response.json({ error: "Approved/paid ledger record delete করা যাবে না; audit history বজায় থাকবে।" }, { status: 409 });
+    const deletableStatuses: Record<WelfareKind, readonly string[]> = {
+      fund: [], contribution: ["pending"], expense: ["pending"], request: ["submitted"], pledge: ["active", "paused"],
+    };
+    if (!deletableStatuses[kind].includes(String(existing.status))) return Response.json({ error: "This reviewed or finalized record cannot be deleted; its audit history is retained." }, { status: 409 });
     await supabaseRest(`${table}?${new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
     await audit(membership.family_id, user.userId, `welfare_${kind}_deleted`, table, recordId); return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।` });
   } catch (error) { return welfareErrorResponse(error, "Unable to delete Welfare Fund record"); }
@@ -245,6 +252,16 @@ async function updateStatus(data: Record<string, unknown>, familyId: string, use
   const lookup = new URLSearchParams({ select: "*", id: `eq.${id}`, family_id: `eq.${familyId}`, limit: "1" });
   const existing = (await supabaseRest<Array<Record<string, unknown>>>(`${table}?${lookup}`))[0];
   if (!existing) return Response.json({ error: "Record পাওয়া যায়নি।" }, { status: 404 });
+  const transitions: Record<typeof entity, Record<string, readonly string[]>> = {
+    fund: { active: ["paused", "closed"], paused: ["active", "closed"] },
+    contribution: { pending: ["approved", "rejected"], approved: ["refunded"] },
+    expense: { pending: ["approved", "rejected"], approved: ["paid"] },
+    request: { submitted: ["under_review", "approved", "rejected", "cancelled"], under_review: ["approved", "rejected", "cancelled"], approved: ["disbursed"] },
+    pledge: { active: ["paused", "completed", "cancelled"], paused: ["active", "completed", "cancelled"] },
+  };
+  if (!(transitions[entity][String(existing.status)] ?? []).includes(status)) {
+    return Response.json({ error: "This status change is not allowed for the record's current state." }, { status: 409 });
+  }
   if (!canManage) {
     if (entity === "pledge" && existing.auth_user_id === userId && ["active", "paused", "completed", "cancelled"].includes(status)) {
       // Members control only their own recurring pledge lifecycle.
