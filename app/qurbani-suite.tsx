@@ -912,7 +912,7 @@ export function QurbaniSuite() {
       <Dialog open={Boolean(recordKind)} onOpenChange={(open) => { if (!open) { setRecordKind(null); setEditingRecord(null); } }}>
         <DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle>{editingRecord ? `${recordKind ? kindLabels[recordKind] : pick("রেকর্ড", "Record")} ${pick("সম্পাদনা করুন", "edit")}` : `${pick("নতুন", "Add")} ${recordKind ? kindLabels[recordKind] : pick("রেকর্ড", "record")} ${pick("যোগ করুন", "")}`}</DialogTitle>
+            <DialogTitle>{editingRecord ? (locale === "bn" ? `${recordKind ? kindLabels[recordKind] : "রেকর্ড"} সম্পাদনা করুন` : `Edit ${recordKind ? kindLabels[recordKind] : "record"}`) : (locale === "bn" ? `নতুন ${recordKind ? kindLabels[recordKind] : "রেকর্ড"} যোগ করুন` : `Add ${recordKind ? kindLabels[recordKind] : "record"}`)}</DialogTitle>
             <DialogDescription>{pick(`${campaign?.title} ক্যাম্পেইনের যাচাইকৃত পরিচালন রেকর্ড ${editingRecord ? "হালনাগাদ" : "তৈরি"} করুন।`, `${editingRecord ? "Update" : "Create"} a verified operational record for the ${campaign?.title} campaign.`)}</DialogDescription>
           </DialogHeader>
           {recordKind ? (

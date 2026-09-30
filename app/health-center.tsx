@@ -199,7 +199,7 @@ export function HealthCenter() {
         setSetupRequired(true);
         return;
       }
-      if (!response.ok) throw new Error(payload.error ?? "Health workspace পাওয়া যায়নি।");
+      if (!response.ok) throw new Error(payload.error ?? pick("স্বাস্থ্য কর্মক্ষেত্র পাওয়া যায়নি।", "Health workspace could not be loaded."));
       setFamily(payload.family);
       setProfile(payload.profile ?? null);
       setMedications(payload.medications ?? []);
@@ -290,7 +290,7 @@ export function HealthCenter() {
       body: JSON.stringify({ action, data }),
     });
     const payload = (await response.json()) as { record?: unknown; error?: string };
-    if (!response.ok || !payload.record) throw new Error(payload.error ?? "Health record save হয়নি।");
+    if (!response.ok || !payload.record) throw new Error(payload.error ?? pick("স্বাস্থ্য রেকর্ড সংরক্ষণ হয়নি।", "Health record could not be saved."));
     return payload.record;
   }
 
@@ -315,7 +315,7 @@ export function HealthCenter() {
       if (editingRecord) {
         const response = await fetch("/api/health/records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: recordKind, recordId: editingRecord.id, data }) });
         const payload = await response.json() as { record?: unknown; error?: string };
-        if (!response.ok || !payload.record) throw new Error(payload.error ?? "Health record update হয়নি।");
+        if (!response.ok || !payload.record) throw new Error(payload.error ?? pick("স্বাস্থ্য রেকর্ড হালনাগাদ হয়নি।", "Health record could not be updated."));
       } else {
         const action = recordKind === "medication" ? "create_medication" : recordKind === "appointment" ? "create_appointment" : "create_measurement";
         await postAction(action, data);
@@ -355,7 +355,7 @@ export function HealthCenter() {
     try {
       const response = await fetch("/api/health/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, recordId }) });
       const payload = await response.json() as { message?: string; error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Health record delete হয়নি।");
+      if (!response.ok) throw new Error(payload.error ?? pick("স্বাস্থ্য রেকর্ড মোছা যায়নি।", "Health record could not be deleted."));
       await loadHealth();
       setFeedback(payload.message ?? pick("স্বাস্থ্য রেকর্ড মুছে ফেলা হয়েছে।", "Health record was deleted."));
     } finally { setSaving(false); }
@@ -366,7 +366,7 @@ export function HealthCenter() {
     try {
       const response = await fetch(`/api/health-document/${id}`, { method: "DELETE" });
       const payload = await response.json() as { message?: string; error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Document delete হয়নি।");
+      if (!response.ok) throw new Error(payload.error ?? pick("নথি মোছা যায়নি।", "Document could not be deleted."));
       await loadHealth();
       setFeedback(payload.message ?? pick("নথি মুছে ফেলা হয়েছে।", "Document was deleted."));
     } finally { setSaving(false); }
@@ -392,7 +392,7 @@ export function HealthCenter() {
       Object.entries(uploadForm).forEach(([key, value]) => formData.set(key, value));
       const response = await fetch("/api/health/upload", { method: "POST", body: formData });
       const payload = (await response.json()) as { document?: HealthDocument; error?: string };
-      if (!response.ok || !payload.document) throw new Error(payload.error ?? "Document upload হয়নি।");
+      if (!response.ok || !payload.document) throw new Error(payload.error ?? pick("নথি আপলোড হয়নি।", "Document could not be uploaded."));
       setUploadOpen(false);
       setUploadFile(null);
       setUploadForm({ category: "prescription", documentDate: today() });
@@ -542,7 +542,7 @@ export function HealthCenter() {
 
       {migrationRequired ? <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-100">{pick("Supabase SQL Editor-এ ", "Run ")}<b>supabase/migrations/20260927_health_sos.sql</b>{pick(" চালালে স্বাস্থ্য ও SOS তথ্য সক্রিয় হবে।", " in the Supabase SQL Editor to enable Health and SOS data.")}</div> : null}
       {feedback ? <div className="flex items-start justify-between gap-3 rounded-2xl border bg-card px-4 py-3 text-sm"><span>{feedback}</span><Button size="icon-xs" variant="ghost" onClick={() => setFeedback(null)}><X /></Button></div> : null}
-      {activeAlerts.length ? <div className="space-y-2">{activeAlerts.map((alert) => <SosBanner key={alert.id} alert={alert} onRespond={() => setResponseTarget(alert)} onClose={(status) => void closeSos(alert, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "SOS update হয়নি।"))} canClose={alert.is_reporter || canManageSos} />)}</div> : null}
+      {activeAlerts.length ? <div className="space-y-2">{activeAlerts.map((alert) => <SosBanner key={alert.id} alert={alert} onRespond={() => setResponseTarget(alert)} onClose={(status) => void closeSos(alert, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("SOS হালনাগাদ হয়নি।", "SOS could not be updated.")))} canClose={alert.is_reporter || canManageSos} />)}</div> : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric icon={<Pill />} label={pick("সক্রিয় ওষুধ", "Active medicines")} value={String(activeMedications.length)} note={activeMedications.length ? pick(`${activeMedications.reduce((sum, item) => sum + item.reminder_times.length, 0)}টি দৈনিক রিমাইন্ডার সময়`, `${activeMedications.reduce((sum, item) => sum + item.reminder_times.length, 0)} daily reminder times`) : pick("ওষুধ যোগ করুন", "Add medicine")} />
@@ -578,7 +578,7 @@ export function HealthCenter() {
             <CardHeader className="flex-row items-center justify-between"><div><CardTitle>{pick("সাম্প্রতিক পরিমাপ", "Recent measurements")}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{pick("শুধু ব্যক্তিগত ট্র্যাকিং—চিকিৎসা নির্ণয় নয়", "Personal tracking only—not a clinical diagnosis")}</p></div><Button variant="outline" size="sm" className="rounded-xl" onClick={() => openRecord("measurement")}><Plus className="size-4" /> {pick("লগ যোগ করুন", "Add log")}</Button></CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {recentMeasurements.map((item) => <div key={item.id} className="rounded-2xl border p-4"><div className="flex items-center justify-between"><span className="text-sm font-semibold">{typeLabels[item.measurement_type]}</span><Activity className="size-4 text-primary" /></div><p className="mt-3 text-2xl font-bold">{item.value_primary}{item.value_secondary !== null ? ` / ${item.value_secondary}` : ""} <small className="text-xs font-normal text-muted-foreground">{item.unit}</small></p><p className="mt-1 text-xs text-muted-foreground">{dateTime.format(new Date(item.measured_at))}</p></div>)}
-              {!recentMeasurements.length ? <div className="sm:col-span-2 xl:col-span-3"><Empty icon={<Activity />} title="কোনো health log নেই" text="Blood pressure, sugar, pulse, temperature, weight বা oxygen লিখে রাখতে পারেন।" /></div> : null}
+              {!recentMeasurements.length ? <div className="sm:col-span-2 xl:col-span-3"><Empty icon={<Activity />} title={pick("কোনো স্বাস্থ্য পরিমাপ নেই", "No health measurements yet")} text={pick("রক্তচাপ, শর্করা, নাড়ির গতি, তাপমাত্রা, ওজন বা অক্সিজেন লিখে রাখতে পারেন।", "You can record blood pressure, glucose, pulse, temperature, weight, or oxygen saturation.")} /></div> : null}
             </CardContent>
           </Card>
         </TabsContent>
@@ -586,13 +586,13 @@ export function HealthCenter() {
         <TabsContent value="care" className="space-y-4">
           <DataSection title={pick("ওষুধের সময়সূচি", "Medicine schedule")} description={pick("মাত্রা, ব্যবধান, রিমাইন্ডারের সময় ও স্ট্যাটাস", "Dosage, frequency, reminder times, and status")} onAdd={() => openRecord("medication")}>
             <Table><TableHeader><TableRow><TableHead>{pick("ওষুধ", "Medicine")}</TableHead><TableHead>{pick("মাত্রা", "Dosage")}</TableHead><TableHead>{pick("সময়সূচি", "Schedule")}</TableHead><TableHead>{pick("তারিখ", "Dates")}</TableHead><TableHead>{pick("স্ট্যাটাস", "Status")}</TableHead><TableHead /></TableRow></TableHeader><TableBody>
-              {medications.map((item) => <TableRow key={item.id}><TableCell><b>{item.medicine_name}</b><p className="text-xs text-muted-foreground">{item.instructions || item.prescribing_doctor || ""}</p></TableCell><TableCell>{item.dosage}</TableCell><TableCell>{item.frequency}<p className="text-xs text-muted-foreground">{item.reminder_times.join(", ") || "No time"}</p></TableCell><TableCell>{item.start_date}{item.end_date ? ` → ${item.end_date}` : ""}</TableCell><TableCell><Status value={item.status} /></TableCell><TableCell><div className="flex"><StatusMenu disabled={saving} values={["active", "paused", "completed"]} onSelect={(status) => void updateStatus("medication", item.id, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Update হয়নি।"))} /><RecordActions disabled={saving} onEdit={() => openEditRecord("medication", item)} onDelete={() => void deleteRecord("medication", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell></TableRow>)}
+              {medications.map((item) => <TableRow key={item.id}><TableCell><b>{item.medicine_name}</b><p className="text-xs text-muted-foreground">{item.instructions || item.prescribing_doctor || ""}</p></TableCell><TableCell>{item.dosage}</TableCell><TableCell>{item.frequency}<p className="text-xs text-muted-foreground">{item.reminder_times.join(", ") || pick("সময় নির্ধারিত নয়", "No time set")}</p></TableCell><TableCell>{item.start_date}{item.end_date ? ` → ${item.end_date}` : ""}</TableCell><TableCell><Status value={item.status} /></TableCell><TableCell><div className="flex"><StatusMenu disabled={saving} values={["active", "paused", "completed"]} onSelect={(status) => void updateStatus("medication", item.id, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("হালনাগাদ হয়নি।", "Update failed.")))} /><RecordActions disabled={saving} onEdit={() => openEditRecord("medication", item)} onDelete={() => void deleteRecord("medication", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("মোছা যায়নি।", "Delete failed.")))} /></div></TableCell></TableRow>)}
               {!medications.length ? <EmptyRows columns={6} /> : null}
             </TableBody></Table>
           </DataSection>
           <DataSection title={pick("অ্যাপয়েন্টমেন্ট", "Appointments")} description={pick("চিকিৎসক, প্রতিষ্ঠান, তারিখ, রিমাইন্ডার ও ভিজিট স্ট্যাটাস", "Doctor, facility, date, reminder, and visit status")} onAdd={() => openRecord("appointment")}>
             <Table><TableHeader><TableRow><TableHead>{pick("অ্যাপয়েন্টমেন্ট", "Appointment")}</TableHead><TableHead>{pick("চিকিৎসক", "Doctor")}</TableHead><TableHead>{pick("সময়সূচি", "Schedule")}</TableHead><TableHead>{pick("প্রতিষ্ঠান", "Facility")}</TableHead><TableHead>{pick("স্ট্যাটাস", "Status")}</TableHead><TableHead /></TableRow></TableHeader><TableBody>
-              {appointments.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.title}</TableCell><TableCell>{item.doctor_name || "—"}</TableCell><TableCell>{dateTime.format(new Date(item.scheduled_at))}</TableCell><TableCell>{item.facility || "—"}</TableCell><TableCell><Status value={item.status} /></TableCell><TableCell><div className="flex"><StatusMenu disabled={saving} values={["scheduled", "completed", "cancelled"]} onSelect={(status) => void updateStatus("appointment", item.id, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Update হয়নি।"))} /><RecordActions disabled={saving} onEdit={() => openEditRecord("appointment", item)} onDelete={() => void deleteRecord("appointment", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></div></TableCell></TableRow>)}
+              {appointments.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.title}</TableCell><TableCell>{item.doctor_name || "—"}</TableCell><TableCell>{dateTime.format(new Date(item.scheduled_at))}</TableCell><TableCell>{item.facility || "—"}</TableCell><TableCell><Status value={item.status} /></TableCell><TableCell><div className="flex"><StatusMenu disabled={saving} values={["scheduled", "completed", "cancelled"]} onSelect={(status) => void updateStatus("appointment", item.id, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("হালনাগাদ হয়নি।", "Update failed.")))} /><RecordActions disabled={saving} onEdit={() => openEditRecord("appointment", item)} onDelete={() => void deleteRecord("appointment", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("মোছা যায়নি।", "Delete failed.")))} /></div></TableCell></TableRow>)}
               {!appointments.length ? <EmptyRows columns={6} /> : null}
             </TableBody></Table>
           </DataSection>
@@ -601,13 +601,13 @@ export function HealthCenter() {
         <TabsContent value="records" className="space-y-4">
           <DataSection title={pick("স্বাস্থ্য পরিমাপ", "Health measurements")} description={pick("ব্যক্তিগত সময়ক্রমিক লগ", "Private chronological log")} onAdd={() => openRecord("measurement")}>
             <Table><TableHeader><TableRow><TableHead>{pick("সময়", "Time")}</TableHead><TableHead>{pick("ধরন", "Type")}</TableHead><TableHead>{pick("মান", "Reading")}</TableHead><TableHead>{pick("নোট", "Notes")}</TableHead><TableHead /></TableRow></TableHeader><TableBody>
-              {measurements.map((item) => <TableRow key={item.id}><TableCell>{dateTime.format(new Date(item.measured_at))}</TableCell><TableCell>{typeLabels[item.measurement_type]}</TableCell><TableCell className="font-bold">{item.value_primary}{item.value_secondary !== null ? ` / ${item.value_secondary}` : ""} {item.unit}</TableCell><TableCell>{item.notes || "—"}</TableCell><TableCell><RecordActions disabled={saving} onEdit={() => openEditRecord("measurement", item)} onDelete={() => void deleteRecord("measurement", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))} /></TableCell></TableRow>)}
+              {measurements.map((item) => <TableRow key={item.id}><TableCell>{dateTime.format(new Date(item.measured_at))}</TableCell><TableCell>{typeLabels[item.measurement_type]}</TableCell><TableCell className="font-bold">{item.value_primary}{item.value_secondary !== null ? ` / ${item.value_secondary}` : ""} {item.unit}</TableCell><TableCell>{item.notes || "—"}</TableCell><TableCell><RecordActions disabled={saving} onEdit={() => openEditRecord("measurement", item)} onDelete={() => void deleteRecord("measurement", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("মোছা যায়নি।", "Delete failed.")))} /></TableCell></TableRow>)}
               {!measurements.length ? <EmptyRows columns={5} /> : null}
             </TableBody></Table>
           </DataSection>
           <DataSection title={pick("ব্যক্তিগত চিকিৎসা ভল্ট", "Private medical vault")} description={pick("প্রেসক্রিপশন, রিপোর্ট, ইমেজিং, টিকা ও বীমার নথি", "Prescription, report, imaging, vaccine, and insurance documents")} onAdd={() => setUploadOpen(true)} addLabel={pick("আপলোড", "Upload")}>
             <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-3">
-              {documents.map((item) => <div key={item.id} className="flex items-center gap-2 rounded-2xl border p-3 transition hover:border-primary/30 hover:bg-muted/40"><a href={`/api/health-document/${item.id}`} target="_blank" rel="noreferrer" className="flex min-w-0 flex-1 items-center gap-3"><span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary"><FileText className="size-5" /></span><span className="min-w-0 flex-1"><b className="block truncate">{item.title}</b><small className="block truncate text-muted-foreground">{item.category.replaceAll("_", " ")} · {fileSize(item.file_size)}</small></span><Download className="size-4 text-muted-foreground" /></a><Button size="icon-sm" variant="ghost" className="text-destructive" disabled={saving} onClick={() => void deleteDocument(item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delete হয়নি।"))}><Trash2 /><span className="sr-only">Delete document</span></Button></div>)}
+              {documents.map((item) => <div key={item.id} className="flex items-center gap-2 rounded-2xl border p-3 transition hover:border-primary/30 hover:bg-muted/40"><a href={`/api/health-document/${item.id}`} target="_blank" rel="noreferrer" className="flex min-w-0 flex-1 items-center gap-3"><span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary"><FileText className="size-5" /></span><span className="min-w-0 flex-1"><b className="block truncate">{item.title}</b><small className="block truncate text-muted-foreground">{healthDocumentCategoryLabel(item.category, locale)} · {fileSize(item.file_size)}</small></span><Download className="size-4 text-muted-foreground" /></a><Button size="icon-sm" variant="ghost" className="text-destructive" disabled={saving} onClick={() => void deleteDocument(item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("মোছা যায়নি।", "Delete failed.")))}><Trash2 /><span className="sr-only">{pick("নথি মুছুন", "Delete document")}</span></Button></div>)}
               {!documents.length ? <div className="sm:col-span-2 xl:col-span-3"><Empty icon={<FileHeart />} title={pick("চিকিৎসা ভল্ট খালি", "Medical vault is empty")} text={pick("নিজের প্রেসক্রিপশন বা রিপোর্ট ব্যক্তিগত সংরক্ষণে আপলোড করুন।", "Upload your prescriptions or reports to private storage.")} /></div> : null}
             </div>
           </DataSection>
@@ -644,6 +644,8 @@ const healthLabelBn: Record<string, string> = { "Blood group": "রক্তে�
 function Field({ label, id, children }: { label: string; id: string; children: ReactNode }) { const { locale } = useLocale(); return <div className="space-y-2"><Label htmlFor={id}>{locale === "bn" ? healthLabelBn[label] ?? label : label}</Label>{children}</div>; }
 const healthStatusBn: Record<string, string> = { active: "সক্রিয়", scheduled: "নির্ধারিত", completed: "সম্পন্ন", resolved: "সমাধান", paused: "বিরত", acknowledged: "দেখা হয়েছে", cancelled: "বাতিল", on_the_way: "পথে আছি", called_emergency: "জরুরি সেবায় কল করা হয়েছে", update: "হালনাগাদ" };
 function healthStatusLabel(value: string, locale: AppLocale) { return (locale === "bn" ? healthStatusBn[value] : undefined) ?? value.replaceAll("_", " "); }
+const healthDocumentCategoryBn: Record<string, string> = { prescription: "প্রেসক্রিপশন", lab_report: "ল্যাব রিপোর্ট", imaging: "ইমেজিং", vaccine: "টিকা", insurance: "বীমা", other: "অন্যান্য" };
+function healthDocumentCategoryLabel(value: string, locale: AppLocale) { return (locale === "bn" ? healthDocumentCategoryBn[value] : undefined) ?? value.replaceAll("_", " "); }
 function Status({ value }: { value: string }) { const { locale } = useLocale(); const style = ["active", "scheduled", "completed", "resolved"].includes(value) ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300" : ["paused", "acknowledged"].includes(value) ? "bg-amber-500/12 text-amber-700 dark:text-amber-300" : ["cancelled"].includes(value) ? "bg-rose-500/12 text-rose-700 dark:text-rose-300" : "bg-muted text-muted-foreground"; return <Badge variant="secondary" className={style}>{healthStatusLabel(value, locale)}</Badge>; }
 function StatusMenu({ values, onSelect, disabled }: { values: string[]; onSelect: (value: string) => void; disabled: boolean }) { const { locale } = useLocale(); return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" disabled={disabled}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{values.map((value) => <DropdownMenuItem key={value} onClick={() => onSelect(value)}>{healthStatusLabel(value, locale)}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>; }
 function RecordActions({ onEdit, onDelete, disabled }: { onEdit: () => void; onDelete: () => void; disabled: boolean }) { const { pick } = useLocale(); return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" disabled={disabled}><MoreHorizontal className="size-4" /><span className="sr-only">{pick("রেকর্ডের কাজ", "Record actions")}</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={onEdit}><Pencil /> {pick("বিস্তারিত সম্পাদনা", "Edit details")}</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}><Trash2 /> {pick("স্থায়ীভাবে মুছুন", "Delete permanently")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>; }
