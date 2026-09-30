@@ -40,7 +40,7 @@ const pollInitial: Form = {
 };
 
 export function GovernanceCenter() {
-  const { pick } = useLocale();
+  const { locale, pick } = useLocale();
   const [family, setFamily] = useState<GovernancePayload["family"]>();
   const [polls, setPolls] = useState<FamilyPoll[]>([]);
   const [comments, setComments] = useState<PollComment[]>([]);
@@ -116,16 +116,16 @@ export function GovernanceCenter() {
   async function exportXlsx(section: "all" | "active" | "proposals" | "history" | "decisions") {
     setExporting(true); try {
       const XLSX = await import("xlsx"), workbook = XLSX.utils.book_new();
-      const add = (name: string, rows: Array<Record<string, unknown>>) => XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Message: "No records" }]), name);
-      const pollRows = (items: FamilyPoll[]) => items.map((poll) => ({ Title: poll.title, Category: poll.category, Type: poll.decision_type, Mode: poll.voting_mode, Anonymous: poll.is_anonymous ? "Yes" : "No", Audience: poll.audience, Status: poll.status, Quorum: `${poll.quorum_percent}%`, Participants: poll.participant_count ?? "Hidden", Eligible: poll.eligible_voters, "Quorum reached": poll.quorum_reached === null ? "Hidden" : poll.quorum_reached ? "Yes" : "No", Opens: poll.opens_at ?? "", Closes: poll.closes_at ?? "", Creator: poll.created_by_name, Description: poll.description ?? "" }));
-      const optionRows = (items: FamilyPoll[]) => items.flatMap((poll) => poll.options.map((option) => ({ Poll: poll.title, Option: option.label, Votes: option.vote_count ?? "Hidden", Percentage: option.percentage === null ? "Hidden" : `${option.percentage}%` })));
-      if (section === "all" || section === "active") { add("Active Ballots", pollRows(activePolls)); add("Visible Results", optionRows(activePolls)); }
-      if (section === "all" || section === "proposals") add("Proposals", pollRows(proposals));
-      if (section === "all" || section === "history") { add("Poll History", pollRows(history)); add("History Results", optionRows(history)); }
-      if (section === "all" || section === "decisions") add("Decision Register", decisions.map((item) => ({ Title: item.title, Summary: item.summary, Outcome: item.final_outcome, Effective: item.effective_date ?? "", Status: item.status, "Decided by": item.decided_by_name, Created: item.created_at })));
-      if (section === "all") add("Discussion", comments.map((item) => ({ Poll: polls.find((poll) => poll.id === item.poll_id)?.title ?? "Poll", Author: item.author_name, Comment: item.body, Status: item.status, Created: item.created_at })));
+      const add = (bn: string, en: string, rows: Array<Record<string, unknown>>) => XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows.length ? rows : [{ [pick("বার্তা", "Message")]: pick("কোনো রেকর্ড নেই", "No records") }]), locale === "bn" ? bn : en);
+      const pollRows = (items: FamilyPoll[]) => items.map((poll) => ({ [pick("শিরোনাম", "Title")]: poll.title, [pick("শ্রেণি", "Category")]: poll.category, [pick("ধরন", "Type")]: poll.decision_type, [pick("পদ্ধতি", "Mode")]: poll.voting_mode, [pick("বেনামী", "Anonymous")]: poll.is_anonymous ? pick("হ্যাঁ", "Yes") : pick("না", "No"), [pick("অডিয়েন্স", "Audience")]: poll.audience, [pick("অবস্থা", "Status")]: poll.status, [pick("কোরাম", "Quorum")]: `${poll.quorum_percent}%`, [pick("অংশগ্রহণকারী", "Participants")]: poll.participant_count ?? pick("গোপন", "Hidden"), [pick("যোগ্য ভোটার", "Eligible")]: poll.eligible_voters, [pick("কোরাম পূর্ণ", "Quorum reached")]: poll.quorum_reached === null ? pick("গোপন", "Hidden") : poll.quorum_reached ? pick("হ্যাঁ", "Yes") : pick("না", "No"), [pick("শুরু", "Opens")]: poll.opens_at ?? "", [pick("শেষ", "Closes")]: poll.closes_at ?? "", [pick("তৈরিকারী", "Creator")]: poll.created_by_name, [pick("বিবরণ", "Description")]: poll.description ?? "" }));
+      const optionRows = (items: FamilyPoll[]) => items.flatMap((poll) => poll.options.map((option) => ({ [pick("ভোট", "Poll")]: poll.title, [pick("বিকল্প", "Option")]: option.label, [pick("ভোট সংখ্যা", "Votes")]: option.vote_count ?? pick("গোপন", "Hidden"), [pick("শতাংশ", "Percentage")]: option.percentage === null ? pick("গোপন", "Hidden") : `${option.percentage}%` })));
+      if (section === "all" || section === "active") { add("সক্রিয় ব্যালট", "Active Ballots", pollRows(activePolls)); add("দৃশ্যমান ফলাফল", "Visible Results", optionRows(activePolls)); }
+      if (section === "all" || section === "proposals") add("প্রস্তাব", "Proposals", pollRows(proposals));
+      if (section === "all" || section === "history") { add("ভোটের ইতিহাস", "Poll History", pollRows(history)); add("পুরোনো ফলাফল", "History Results", optionRows(history)); }
+      if (section === "all" || section === "decisions") add("সিদ্ধান্ত রেজিস্টার", "Decision Register", decisions.map((item) => ({ [pick("শিরোনাম", "Title")]: item.title, [pick("সারাংশ", "Summary")]: item.summary, [pick("ফলাফল", "Outcome")]: item.final_outcome, [pick("কার্যকর", "Effective")]: item.effective_date ?? "", [pick("অবস্থা", "Status")]: item.status, [pick("সিদ্ধান্তদাতা", "Decided by")]: item.decided_by_name, [pick("তৈরির সময়", "Created")]: item.created_at })));
+      if (section === "all") add("আলোচনা", "Discussion", comments.map((item) => ({ [pick("ভোট", "Poll")]: polls.find((poll) => poll.id === item.poll_id)?.title ?? pick("ভোট", "Poll"), [pick("লেখক", "Author")]: item.author_name, [pick("মন্তব্য", "Comment")]: item.body, [pick("অবস্থা", "Status")]: item.status, [pick("তৈরির সময়", "Created")]: item.created_at })));
       XLSX.writeFile(workbook, `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-governance-${section}.xlsx`);
-    } catch (error) { setFeedback(error instanceof Error ? error.message : "XLSX export হয়নি।"); } finally { setExporting(false); }
+    } catch (error) { setFeedback(error instanceof Error ? error.message : pick("XLSX এক্সপোর্ট হয়নি।", "XLSX export failed.")); } finally { setExporting(false); }
   }
 
   useEffect(() => {
@@ -156,10 +156,10 @@ export function GovernanceCenter() {
     {feedback ? <Notice tone="info" icon={<Sparkles />} text={feedback} close={() => setFeedback(null)} /> : null}
 
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <Metric icon={<Vote />} label="Open ballots" value={String(activePolls.length)} note="এখন vote গ্রহণ করছে" tone="indigo" />
-      <Metric icon={<FileCheck2 />} label="Review queue" value={String(proposals.length)} note="proposal ও draft" tone="amber" />
-      <Metric icon={<Users />} label="Visible participation" value={String(visibleParticipants)} note="hidden result গণনা নয়" tone="cyan" />
-      <Metric icon={<Gavel />} label="Formal decisions" value={String(decisions.filter((item) => item.status === "adopted").length)} note="adopted decision" tone="emerald" />
+      <Metric icon={<Vote />} label={pick("চলমান ব্যালট", "Open ballots")} value={String(activePolls.length)} note={pick("এখন ভোট গ্রহণ করছে", "Accepting votes now")} tone="indigo" />
+      <Metric icon={<FileCheck2 />} label={pick("পর্যালোচনা সারি", "Review queue")} value={String(proposals.length)} note={pick("প্রস্তাব ও খসড়া", "Proposals and drafts")} tone="amber" />
+      <Metric icon={<Users />} label={pick("দৃশ্যমান অংশগ্রহণ", "Visible participation")} value={String(visibleParticipants)} note={pick("গোপন ফলাফল অন্তর্ভুক্ত নয়", "Hidden results excluded")} tone="cyan" />
+      <Metric icon={<Gavel />} label={pick("আনুষ্ঠানিক সিদ্ধান্ত", "Formal decisions")} value={String(decisions.filter((item) => item.status === "adopted").length)} note={pick("গৃহীত সিদ্ধান্ত", "Adopted decisions")} tone="emerald" />
     </section>
 
     <Tabs defaultValue="ballots" className="space-y-4"><TabsList className="h-auto w-full justify-start overflow-x-auto rounded-2xl bg-muted/60 p-1"><TabsTrigger value="ballots" className="rounded-xl"><Vote /> {pick("ব্যালট", "Ballots")}</TabsTrigger><TabsTrigger value="proposals" className="rounded-xl"><FileCheck2 /> {pick("প্রস্তাব", "Proposals")}</TabsTrigger><TabsTrigger value="history" className="rounded-xl"><Archive /> {pick("ইতিহাস", "History")}</TabsTrigger><TabsTrigger value="decisions" className="rounded-xl"><Gavel /> {pick("সিদ্ধান্ত", "Decisions")}</TabsTrigger><TabsTrigger value="guide" className="rounded-xl"><ShieldCheck /> {pick("নিয়ম", "Rules")}</TabsTrigger></TabsList>
