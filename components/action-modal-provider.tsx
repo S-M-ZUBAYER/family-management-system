@@ -95,6 +95,9 @@ const actionLabels: Record<string, string> = {
   mark_read: "নোটিফিকেশনটি পড়া হয়েছে হিসেবে চিহ্নিত",
   mark_unread: "নোটিফিকেশনটি না-পড়া হিসেবে চিহ্নিত",
   restore: "নোটিফিকেশনটি ফিরিয়ে আনা",
+  save_consent: "Privacy পছন্দ সংরক্ষণ",
+  save_policy: "Family privacy policy সংরক্ষণ",
+  cancel_request: "Data-rights অনুরোধ বাতিল",
 };
 
 const actionLabelsEn: Record<string, string> = {
@@ -143,7 +146,15 @@ const actionLabelsEn: Record<string, string> = {
   mark_read: "mark the notification as read",
   mark_unread: "mark the notification as unread",
   restore: "restore the notification",
+  save_consent: "save privacy choices",
+  save_policy: "save the family privacy policy",
+  cancel_request: "cancel the data-rights request",
 };
+
+const privacyActionLabels = {
+  bn: { create_request: "Data-rights অনুরোধ জমা", review_request: "Data-rights অনুরোধ পর্যালোচনা" },
+  en: { create_request: "submit a data-rights request", review_request: "review the data-rights request" },
+} as const;
 
 const destructiveWords = [
   "delete",
@@ -178,6 +189,7 @@ function endpointLabel(pathname: string, locale: AppLocale) {
     ["governance", "ভোট বা সিদ্ধান্তের রেকর্ড", "governance record"], ["workspace", "পরিবারের preference", "family preference"],
     ["admin", "অ্যাডমিন সেটিং", "admin setting"], ["chat", "চ্যাট action", "chat action"],
     ["notifications", "নোটিফিকেশন", "notification"],
+    ["privacy", "Privacy ও data-rights record", "privacy and data-rights record"],
     ["setup/family", "ফ্যামিলি workspace", "family workspace"],
   ];
   const match = labels.find(([part]) => pathname.includes(part));
@@ -195,7 +207,8 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
   const status = typeof body.status === "string" ? body.status : typeof nested.status === "string" ? nested.status : "";
   const intent = [action, decision, status, method].join(" ").toLowerCase();
   const destructive = destructiveWords.some((word) => intent.includes(word)) || method === "DELETE";
-  const label = (locale === "bn" ? actionLabels[action] : actionLabelsEn[action]) ?? endpointLabel(pathname, locale);
+  const privacyLabel = pathname.includes("/api/privacy") ? privacyActionLabels[locale][action as keyof typeof privacyActionLabels.bn] : undefined;
+  const label = privacyLabel ?? (locale === "bn" ? actionLabels[action] : actionLabelsEn[action]) ?? endpointLabel(pathname, locale);
 
   return {
     title: locale === "bn" ? (destructive ? "গুরুত্বপূর্ণ action নিশ্চিত করুন" : "Action নিশ্চিত করুন") : (destructive ? "Confirm important action" : "Confirm action"),

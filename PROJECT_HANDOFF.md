@@ -9,9 +9,9 @@ This file is the authoritative handoff for continuing the project from another C
 - Local Magazine and Family Tree relationship updates are implemented and committed.
 - A shared BN/EN locale provider, database-persisted per-user language preference, bilingual theme controls, and bilingual global confirmation/result modals are implemented locally. The bilingual pass covers the core modules and localized XLSX exports. A read-only Supabase REST probe on 2026-09-30 returned HTTP `200` for `family_memberships.preferred_locale`, confirming that `20260929_user_locale_preference.sql` is applied.
 - `npm.cmd run i18n:audit`, `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` were run again successfully after the latest continuation request.
-- Read-only Supabase REST checks previously returned HTTP `200` for Magazine, Shared Household, Qurbani, and the locale-preference column. Contact & Support and Notification Center are the currently pending schema changes.
+- Read-only Supabase REST checks previously returned HTTP `200` for Magazine, Shared Household, Qurbani, and the locale-preference column. Contact & Support, Notification Center, and Privacy Center are the currently pending schema changes.
 - The current Codex/ChatGPT account still cannot access the existing Sites project ID (`Sites project not found`). The original owning account must either deploy the update or add this account as an editor/collaborator; do not create a duplicate Site.
-- Deployment is blocked by the Contact & Support and Notification Center migrations plus missing access to the existing Sites project. A 2026-09-30 Contact-table probe returned HTTP `401`, so it did not prove whether that migration is applied; verify with the Supabase SQL Editor.
+- Deployment is blocked by the Contact & Support, Notification Center, and Privacy Center migrations plus missing access to the existing Sites project. A 2026-09-30 Contact-table probe returned HTTP `401`, so it did not prove whether that migration is applied; verify with the Supabase SQL Editor.
 - The stable production site remains version 30 at `https://family-management-system.hitht.chatgpt.site`.
 - The next account must run `git status --short` and `git log -1 --oneline` first; the working tree should be clean at handoff.
 
@@ -23,7 +23,7 @@ C:\Personal project\family-management-system
 
 First read C:\Personal project\family-management-system\PROJECT_HANDOFF.md completely. Then run git status --short and git log -1 --oneline, and inspect package.json, .env.example, .openai/hosting.json, supabase/schema.sql, and all migrations. Do not expose, print, copy, or commit .env.local or any Supabase secret. Preserve existing work and keep the deployed site owner-private/custom unless I explicitly ask to change sharing.
 
-The stable live site is currently version 30 at https://family-management-system.hitht.chatgpt.site. The latest local code contains the verified Magazine, relationship mapper, expanded bilingual coverage, Contact & Support, and Notification & Reminder Center modules. The Magazine and locale migrations are applied. Before deployment, run supabase/migrations/20260930_family_contact_support.sql and supabase/migrations/20260930_family_notifications.sql in Supabase SQL Editor. Then run npm.cmd run i18n:audit, npm.cmd run lint, npm.cmd run security:audit, and npm.cmd run build; deploy to the existing Sites project appgprj_6ab4e57009088191814056c14e820221 while preserving owner-private/custom access; then smoke-test /contact, /notifications, and all previously listed critical routes, language persistence, XLSX exports, and confirmation/result modals.
+The stable live site is currently version 30 at https://family-management-system.hitht.chatgpt.site. The latest local code contains the verified Magazine, relationship mapper, expanded bilingual coverage, Contact & Support, Notification & Reminder Center, and Privacy & Data Rights Center modules. The Magazine and locale migrations are applied. Before deployment, run supabase/migrations/20260930_family_contact_support.sql, supabase/migrations/20260930_family_notifications.sql, and supabase/migrations/20260930_family_privacy_center.sql in Supabase SQL Editor. Then run npm.cmd run i18n:audit, npm.cmd run lint, npm.cmd run security:audit, and npm.cmd run build; deploy to the existing Sites project appgprj_6ab4e57009088191814056c14e820221 while preserving owner-private/custom access; then smoke-test /contact, /notifications, /privacy, and all previously listed critical routes, language persistence, XLSX exports, and confirmation/result modals.
 
 Continue the remaining roadmap one module at a time. Every mutating action must show a confirmation modal first and a success/error/info modal afterward, with a close X/button. Every major management section must support XLSX export. Every API and database operation must preserve family_id tenant isolation. New membership must remain pending until that family's owner/family_admin approves it. Personal-finance data must remain private to its user. Keep audit logging and safe-delete/finalized-record restrictions.
 ```
@@ -78,12 +78,17 @@ The following work is implemented, verified, and committed locally, but is inten
    - Members have private read/unread and archive state, search/filter views, localized XLSX export, and per-user in-app category/digest/quiet-hours preferences.
    - The API enforces active membership, `family_id` scoping, optional recipient isolation, role checks, safe internal links, audit logging, and global confirmation/result modals.
    - Email, SMS, Web Push/FCM delivery and scheduled source-data reminder jobs are not yet connected; the persisted preference foundation is ready for those providers.
+6. **Privacy & Data Rights Center**
+   - Members control directory visibility, family email/phone visibility, emergency access, and anonymous family analytics consent.
+   - Members can submit tracked access/export, correction, deletion, and processing-restriction requests; duplicate active requests of the same type are blocked.
+   - Family Admins can publish bilingual privacy notices, configure retention defaults, pause new requests, assign/review requests, and use guarded status transitions.
+   - Directory/member API responses enforce hidden/admin-only visibility and contact-field consent for non-admin viewers. The module includes localized XLSX export, audit logging, tenant/user scoping, and global confirmation/result modals.
 
 The user confirmed and the API check verified that `supabase/migrations/20260928_family_magazine.sql` is applied. This batch is database-ready for deployment.
 
 ### Last verification result
 
-All of these passed after the local Notification & Reminder Center changes:
+All of these passed after the local Privacy & Data Rights Center changes:
 
 ```powershell
 npm.cmd run i18n:audit
@@ -219,6 +224,7 @@ Permission helper functions must be used rather than duplicating role logic ad h
 | Bilingual foundation | Global shell and core flows | Shared locale context, persisted member preference, bilingual theme/global action dialogs, onboarding, member approval, primary directory view, family tree, notice ticker/primary notice views, Magazine, Events, core Qurbani, Personal Finance, Family Chat, and primary Health/SOS complete locally; new migration and deployment pending |
 | Contact & Support | `/contact` | Code complete; `20260930_family_contact_support.sql` and deployment pending |
 | Notification & Reminder Center | `/notifications` | Code complete; `20260930_family_notifications.sql` and deployment pending |
+| Privacy & Data Rights Center | `/privacy` | Code complete; `20260930_family_privacy_center.sql` and deployment pending |
 
 ### Shared interaction behavior
 
@@ -243,6 +249,7 @@ Permission helper functions must be used rather than duplicating role logic ad h
 - Magazine: `app/api/magazine`, `records`, `upload`, plus protected magazine-media route
 - Contact & Support: `app/api/contact`
 - Notifications: `app/api/notifications`
+- Privacy & data rights: `app/api/privacy`
 
 When adding or editing any route:
 
@@ -268,6 +275,7 @@ Run only migrations that have not already been applied, in filename order. Read-
 ```text
 supabase/migrations/20260930_family_contact_support.sql
 supabase/migrations/20260930_family_notifications.sql
+supabase/migrations/20260930_family_privacy_center.sql
 ```
 
 Do not rerun destructive SQL. The scripts are designed around `create table if not exists`/safe additions, but still inspect a migration before applying it to production.
@@ -289,6 +297,7 @@ Do not rerun destructive SQL. The scripts are designed around `create table if n
 13. `20260929_user_locale_preference.sql` — applied and verified by a read-only REST probe on 2026-09-30
 14. `20260930_family_contact_support.sql` — Contact & Support queue; must be applied before deploying this module
 15. `20260930_family_notifications.sql` — family notifications, per-user state, and preferences; must be applied before deploying this module
+16. `20260930_family_privacy_center.sql` — privacy policy, member consent controls, and data-rights request workflow; must be applied before deploying this module
 
 ### Main table groups
 
@@ -305,6 +314,7 @@ Do not rerun destructive SQL. The scripts are designed around `create table if n
 - Magazine: `family_magazine_articles`, `magazine_article_comments`, `magazine_article_reactions`, `magazine_media`
 - Contact & Support: `family_contact_tickets`
 - Notifications: `family_notifications`, `family_notification_states`, `family_notification_preferences`
+- Privacy: `family_privacy_settings`, `family_privacy_consents`, `family_data_requests`
 
 PostgreSQL/Supabase can be used on the free tier for development and small early usage, but quotas and pricing can change. Check current official Supabase limits before production launch, especially database size, bandwidth, storage, backups, project pausing, and monthly active users.
 
@@ -344,10 +354,10 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 
 ### Priority 1 — publish the verified local batch
 
-1. Run `20260930_family_contact_support.sql` and `20260930_family_notifications.sql` in the connected Supabase project.
+1. Run `20260930_family_contact_support.sql`, `20260930_family_notifications.sql`, and `20260930_family_privacy_center.sql` in the connected Supabase project.
 2. Obtain access to the existing Sites project from the original owning account; do not create a duplicate deployment unless the user explicitly chooses a new URL/project.
 3. Deploy the next owner-private Sites version from the verified local commit.
-4. Smoke-test Contact & Support, Notifications, Magazine, Family Tree relationship labels, Events, Qurbani, Personal Finance, language switching/persistence, localized XLSX exports, and bilingual confirmation/result modals.
+4. Smoke-test Contact & Support, Notifications, Privacy/Directory consent enforcement, Magazine, Family Tree relationship labels, Events, Qurbani, Personal Finance, language switching/persistence, localized XLSX exports, and bilingual confirmation/result modals.
 
 ### Priority 2 — complete bilingual support
 
@@ -367,10 +377,11 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 
 ### Priority 4 — privacy and security hardening
 
+- Privacy policy, consent controls, member data-rights requests, guarded admin review, retention defaults, and directory/contact privacy enforcement are implemented locally.
 - Personal finance is currently protected by server-side authenticated user scoping, but it is not client-side/end-to-end encrypted. Add field encryption/key management if this is a firm requirement.
 - Consider column/file encryption for medical, legal, property, and identity documents.
 - Add 2FA/OTP and, if required, Google/phone sign-in beyond the hosting identity.
-- Create privacy policy, consent controls, data export/delete requests, retention rules, and incident/restore procedures.
+- Add automatic data-export packages, administrator-approved deletion execution, retention cleanup jobs, and documented incident/restore procedures.
 - Review Supabase RLS strategy for defense in depth even though server routes already enforce membership.
 
 ### Priority 5 — reports and documents
@@ -459,6 +470,7 @@ If deployment fails, preserve the source and record the exact stage/error. Do no
 - `app/*-center.tsx`, `app/*-suite.tsx`, `app/family-chat.tsx`, `app/member-directory.tsx`, `app/family-tree-view.tsx` — module UIs.
 - `app/contact-center.tsx`, `app/api/contact/route.ts`, and `lib/contact-types.ts` — family-scoped Contact & Support workflow.
 - `app/notification-center.tsx`, `app/api/notifications/route.ts`, and `lib/notification-types.ts` — family notifications, user state, and reminder preferences.
+- `app/privacy-center.tsx`, `app/api/privacy/route.ts`, and `lib/privacy-types.ts` — consent controls, privacy policy, and data-rights workflow.
 - `app/api/**/route.ts` — authenticated server APIs.
 - `lib/*-types.ts` — module data contracts/types.
 - `supabase/schema.sql` — full fresh-project schema.
