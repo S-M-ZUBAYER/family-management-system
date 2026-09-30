@@ -30,7 +30,6 @@ const today = () => new Date().toISOString().slice(0, 10);
 const futureLocal = () => { const value = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); value.setMinutes(value.getMinutes() - value.getTimezoneOffset()); return value.toISOString().slice(0, 16); };
 const n = (value: number | string | null | undefined) => Number(value ?? 0) || 0;
 const titles: Record<Kind, string> = { collection: "নতুন archive collection", story: "পারিবারিক ইতিহাস লিখুন", asset: "Family asset যোগ করুন", capsule: "Time capsule তৈরি করুন" };
-const visibilityOptions = [["family", "Whole family"], ["admins", "Admins only"], ["private", "Only me"]];
 const assetLabels: Record<string, string> = { land: "Land", house: "House", flat: "Flat", vehicle: "Vehicle", business: "Business", investment: "Investment", jewelry: "Jewelry", other: "Other" };
 
 function initial(kind: Kind): Form {

@@ -155,30 +155,30 @@ export function AdminCenter() {
     try {
       const XLSX = await import("xlsx");
       const memberSheet = XLSX.utils.json_to_sheet((payload.memberships ?? []).map((item, index) => ({
-        "ক্রমিক": index + 1,
-        "সদস্য": item.profile?.name_bn ?? "Profile unavailable",
-        "Name (English)": item.profile?.name_en ?? "",
-        "সম্পর্ক": item.profile?.relationship_text ?? "",
-        "ইমেইল": item.profile?.email ?? "",
-        "ফোন": item.profile?.phone ?? "",
-        "Role": roleLabels[item.role],
-        "Access": statusLabels[item.status],
-        "যোগদানের সময়": dateFormatter.format(new Date(item.created_at)),
+        [pick("ক্রমিক", "Serial")]: index + 1,
+        [pick("সদস্য", "Member")]: item.profile?.name_bn ?? pick("প্রোফাইল পাওয়া যায়নি", "Profile unavailable"),
+        [pick("ইংরেজি নাম", "Name (English)")]: item.profile?.name_en ?? "",
+        [pick("সম্পর্ক", "Relationship")]: item.profile?.relationship_text ?? "",
+        [pick("ইমেইল", "Email")]: item.profile?.email ?? "",
+        [pick("ফোন", "Phone")]: item.profile?.phone ?? "",
+        [pick("ভূমিকা", "Role")]: roleLabels[item.role],
+        [pick("অ্যাক্সেস", "Access")]: statusLabels[item.status],
+        [pick("যোগদানের সময়", "Joined at")]: dateFormatter.format(new Date(item.created_at)),
       })));
       const auditSheet = XLSX.utils.json_to_sheet(visibleAuditLogs.map((item, index) => ({
-        "ক্রমিক": index + 1,
-        "সময়": dateFormatter.format(new Date(item.created_at)),
-        "কে করেছেন": payload.actorNames?.[item.actor_user_id] ?? item.actor_user_id,
-        "Action": item.action,
-        "Record type": item.entity_type,
-        "Record ID": item.entity_id ?? "",
-        "Details": JSON.stringify(item.metadata),
+        [pick("ক্রমিক", "Serial")]: index + 1,
+        [pick("সময়", "Time")]: dateFormatter.format(new Date(item.created_at)),
+        [pick("কে করেছেন", "Actor")]: payload.actorNames?.[item.actor_user_id] ?? item.actor_user_id,
+        [pick("অ্যাকশন", "Action")]: item.action,
+        [pick("রেকর্ডের ধরন", "Record type")]: item.entity_type,
+        [pick("রেকর্ড আইডি", "Record ID")]: item.entity_id ?? "",
+        [pick("বিস্তারিত", "Details")]: JSON.stringify(item.metadata),
       })));
       memberSheet["!cols"] = [8, 28, 24, 22, 32, 18, 18, 18, 24].map((wch) => ({ wch }));
       auditSheet["!cols"] = [8, 24, 28, 32, 24, 38, 60].map((wch) => ({ wch }));
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, memberSheet, "Members & Roles");
-      XLSX.utils.book_append_sheet(workbook, auditSheet, "Audit Log");
+      XLSX.utils.book_append_sheet(workbook, memberSheet, locale === "bn" ? "সদস্য ও ভূমিকা" : "Members & Roles");
+      XLSX.utils.book_append_sheet(workbook, auditSheet, locale === "bn" ? "অডিট লগ" : "Audit Log");
       XLSX.writeFile(workbook, `${payload.family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-admin-audit.xlsx`);
     } finally {
       setExporting(false);
