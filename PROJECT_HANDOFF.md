@@ -7,11 +7,11 @@ This file is the authoritative handoff for continuing the project from another C
 ## Immediate continuation status
 
 - Local Magazine and Family Tree relationship updates are implemented and committed.
-- A shared BN/EN locale provider, database-persisted per-user language preference, bilingual theme controls, and bilingual global confirmation/result modals are implemented locally. The bilingual pass now covers onboarding, member approvals, the member-directory list/profile/relationship workflows, family-tree controls and relationship-to-me labels, Notice Center CRUD/status/dialog/export workflows, Magazine, Events, Qurbani, Personal Finance, Family Chat, the primary Health/SOS workflow, primary Welfare Fund dashboard/contributions, and the primary Household, Archives, Governance, and Admin surfaces. Events, Qurbani, Finance, Chat, Health, Directory, Notices, Archives, and Household XLSX headings, sheet names, and system-owned values follow the selected language. This work depends on `supabase/migrations/20260929_user_locale_preference.sql`, which must be applied before deployment.
+- A shared BN/EN locale provider, database-persisted per-user language preference, bilingual theme controls, and bilingual global confirmation/result modals are implemented locally. The bilingual pass covers the core modules and localized XLSX exports. A read-only Supabase REST probe on 2026-09-30 returned HTTP `200` for `family_memberships.preferred_locale`, confirming that `20260929_user_locale_preference.sql` is applied.
 - `npm.cmd run i18n:audit`, `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` were run again successfully after the latest continuation request.
-- The user applied all SQL files in `supabase/migrations` on 2026-09-29. A direct Supabase REST check for `public.family_magazine_articles` then returned HTTP `200`, confirming that the Magazine migration is ready.
+- Read-only Supabase REST checks returned HTTP `200` for Magazine, Shared Household, Qurbani, and the locale-preference column. The new Contact & Support migration is the only currently unapplied schema change.
 - The Codex/ChatGPT account used on 2026-09-29 could not access the existing Sites project ID (`Sites project not found`). The original owning account must either deploy the update or add the new account as an editor/collaborator; do not create a duplicate Site.
-- After the expanded bilingual implementation, `npm.cmd run lint`, `npm.cmd run security:audit`, and `npm.cmd run build` all passed. The first sandboxed build attempt hit a Windows `spawn EPERM`; the unrestricted verification build then completed successfully. Deployment is blocked by the new locale migration and Sites project access.
+- Deployment is blocked by the new Contact & Support migration and unverified access to the existing Sites project. The Sites skill/tooling was unavailable in the 2026-09-30 continuation session; do not create a duplicate Site.
 - The stable production site remains version 30 at `https://family-management-system.hitht.chatgpt.site`.
 - The next account must run `git status --short` and `git log -1 --oneline` first; the working tree should be clean at handoff.
 
@@ -23,7 +23,7 @@ C:\Personal project\family-management-system
 
 First read C:\Personal project\family-management-system\PROJECT_HANDOFF.md completely. Then run git status --short and git log -1 --oneline, and inspect package.json, .env.example, .openai/hosting.json, supabase/schema.sql, and all migrations. Do not expose, print, copy, or commit .env.local or any Supabase secret. Preserve existing work and keep the deployed site owner-private/custom unless I explicitly ask to change sharing.
 
-The stable live site is currently version 30 at https://family-management-system.hitht.chatgpt.site. The latest local code contains a verified Family Magazine module, improved family-tree relationship labels, and expanded bilingual coverage through Events, Qurbani, Personal Finance, Family Chat, and primary Health/SOS. The Magazine migration is applied. Before deployment, run supabase/migrations/20260929_user_locale_preference.sql in Supabase SQL Editor. Then run npm.cmd run lint, npm.cmd run security:audit, and npm.cmd run build; deploy to the existing Sites project appgprj_6ab4e57009088191814056c14e820221 while preserving owner-private/custom access; then smoke-test /magazine, /family-tree, /events, /qurbani, /finance, /chat, /health, language switching, preference persistence, XLSX exports, and confirmation/result modals.
+The stable live site is currently version 30 at https://family-management-system.hitht.chatgpt.site. The latest local code contains the verified Magazine, relationship mapper, expanded bilingual coverage, and Contact & Support module. The Magazine and locale migrations are applied. Before deployment, run supabase/migrations/20260930_family_contact_support.sql in Supabase SQL Editor. Then run npm.cmd run i18n:audit, npm.cmd run lint, npm.cmd run security:audit, and npm.cmd run build; deploy to the existing Sites project appgprj_6ab4e57009088191814056c14e820221 while preserving owner-private/custom access; then smoke-test /contact and all previously listed critical routes, language persistence, XLSX exports, and confirmation/result modals.
 
 Continue the remaining roadmap one module at a time. Every mutating action must show a confirmation modal first and a success/error/info modal afterward, with a close X/button. Every major management section must support XLSX export. Every API and database operation must preserve family_id tenant isolation. New membership must remain pending until that family's owner/family_admin approves it. Personal-finance data must remain private to its user. Keep audit logging and safe-delete/finalized-record restrictions.
 ```
@@ -69,6 +69,10 @@ The following work is implemented, verified, and committed locally, but is inten
    - Member Directory: the member list, profile-photo flow, create/edit profile form, profile statuses, relationship cards/dialogs/actions, errors, locale-aware member names, and XLSX sheet/column headings now follow the selected locale. Stored free-text relationship values and API-returned messages can still appear in their original language.
    - Notice Center: list/ticker states, badges, filters, CRUD and status actions, create/edit dialog, schedule/priority/pinning controls, feedback, and XLSX sheet/column headings now follow the selected locale. Stored notice content and API-returned messages can still appear in their original language.
    - Family Governance: primary header/actions, metrics, navigation tabs, poll/decision forms and dialogs, section headings, rules, empty/access states, poll/proposal/history/decision card labels and actions, locale-aware dates, status badges, feedback, and XLSX sheet/column headings now follow the selected locale. Stored categories/decision types and API-returned messages can still appear in their original language.
+4. **Contact & Support**
+   - Family members can submit family-admin, technical, privacy, event, Qurbani, finance, health, or general support requests and track status/response.
+   - Owners and Family Admins can view the family queue, assign, prioritize, respond, and move tickets through open, in-progress, waiting, resolved, and closed states.
+   - The module includes search/filter, bilingual UI, localized XLSX export, tenant/user scoping, global confirmation/result modals, and audit events.
 
 The user confirmed and the API check verified that `supabase/migrations/20260928_family_magazine.sql` is applied. This batch is database-ready for deployment.
 
@@ -207,6 +211,7 @@ Permission helper functions must be used rather than duplicating role logic ad h
 | Digital Family Magazine | `/magazine` | Code and database migration complete; lint/audit/build passed; deployment pending |
 | Relationship-to-me labels | `/family-tree` | Code complete and verified locally; deployment pending |
 | Bilingual foundation | Global shell and core flows | Shared locale context, persisted member preference, bilingual theme/global action dialogs, onboarding, member approval, primary directory view, family tree, notice ticker/primary notice views, Magazine, Events, core Qurbani, Personal Finance, Family Chat, and primary Health/SOS complete locally; new migration and deployment pending |
+| Contact & Support | `/contact` | Code complete; `20260930_family_contact_support.sql` and deployment pending |
 
 ### Shared interaction behavior
 
@@ -229,6 +234,7 @@ Permission helper functions must be used rather than duplicating role logic ad h
 - Governance: `app/api/governance`, `records`
 - Admin/audit: `app/api/admin`
 - Magazine: `app/api/magazine`, `records`, `upload`, plus protected magazine-media route
+- Contact & Support: `app/api/contact`
 
 When adding or editing any route:
 
@@ -249,10 +255,10 @@ Run the complete `supabase/schema.sql` once in the Supabase SQL Editor. It inclu
 
 ### Existing Supabase project already used by the live site
 
-Run only migrations that have not already been applied, in filename order. The deployed database should already contain migrations through the Governance module. The next required migration is:
+Run only migrations that have not already been applied, in filename order. Read-only REST probes confirmed migrations through the locale preference. The next required migration is:
 
 ```text
-supabase/migrations/20260928_family_magazine.sql
+supabase/migrations/20260930_family_contact_support.sql
 ```
 
 Do not rerun destructive SQL. The scripts are designed around `create table if not exists`/safe additions, but still inspect a migration before applying it to production.
@@ -271,7 +277,8 @@ Do not rerun destructive SQL. The scripts are designed around `create table if n
 10. `20260927_family_archives_vault.sql`
 11. `20260927_family_governance.sql`
 12. `20260928_family_magazine.sql` — applied and verified on 2026-09-29
-13. `20260929_user_locale_preference.sql` — adds the per-member `preferred_locale`; must be applied before deploying the bilingual preference code
+13. `20260929_user_locale_preference.sql` — applied and verified by a read-only REST probe on 2026-09-30
+14. `20260930_family_contact_support.sql` — Contact & Support queue; must be applied before deploying this module
 
 ### Main table groups
 
@@ -286,6 +293,7 @@ Do not rerun destructive SQL. The scripts are designed around `create table if n
 - Archive: `archive_collections`, `archive_memories`, `archive_stories`, `archive_vault_documents`, `family_assets`, `time_capsules`, `archive_files`
 - Governance: `family_polls`, `poll_options`, `poll_votes`, `poll_comments`, `family_decisions`
 - Magazine: `family_magazine_articles`, `magazine_article_comments`, `magazine_article_reactions`, `magazine_media`
+- Contact & Support: `family_contact_tickets`
 
 PostgreSQL/Supabase can be used on the free tier for development and small early usage, but quotas and pricing can change. Check current official Supabase limits before production launch, especially database size, bandwidth, storage, backups, project pausing, and monthly active users.
 
@@ -325,10 +333,10 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 
 ### Priority 1 — publish the verified local batch
 
-1. Run `20260929_user_locale_preference.sql` in the connected Supabase project.
+1. Run `20260930_family_contact_support.sql` in the connected Supabase project.
 2. Obtain access to the existing Sites project from the original owning account; do not create a duplicate deployment unless the user explicitly chooses a new URL/project.
 3. Deploy the next owner-private Sites version from the verified local commit.
-4. Smoke-test Magazine, Family Tree relationship labels, Events, Qurbani, Personal Finance, language switching/persistence, localized XLSX exports, and bilingual confirmation/result modals.
+4. Smoke-test Contact & Support, Magazine, Family Tree relationship labels, Events, Qurbani, Personal Finance, language switching/persistence, localized XLSX exports, and bilingual confirmation/result modals.
 
 ### Priority 2 — complete bilingual support
 
@@ -437,6 +445,7 @@ If deployment fails, preserve the source and record the exact stage/error. Do no
 - `lib/supabase-rest.ts` — server-only Supabase Data API helper.
 - `app/chatgpt-auth.ts` — authenticated hosting identity.
 - `app/*-center.tsx`, `app/*-suite.tsx`, `app/family-chat.tsx`, `app/member-directory.tsx`, `app/family-tree-view.tsx` — module UIs.
+- `app/contact-center.tsx`, `app/api/contact/route.ts`, and `lib/contact-types.ts` — family-scoped Contact & Support workflow.
 - `app/api/**/route.ts` — authenticated server APIs.
 - `lib/*-types.ts` — module data contracts/types.
 - `supabase/schema.sql` — full fresh-project schema.
