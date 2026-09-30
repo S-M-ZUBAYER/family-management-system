@@ -235,7 +235,7 @@ export function EventCenter() {
         setEvents([]);
         return;
       }
-      if (!response.ok) throw new Error(payload.error ?? "Event planner পাওয়া যায়নি।");
+      if (!response.ok) throw new Error(payload.error ?? pick("ইভেন্ট পরিকল্পনা পাওয়া যায়নি।", "Event planner could not be loaded."));
       setFamily(payload.family);
       setEvents(payload.events ?? []);
       setRsvps(payload.rsvps ?? []);
@@ -245,11 +245,11 @@ export function EventCenter() {
       setMigrationRequired(Boolean(payload.migrationRequired));
       setSetupRequired(false);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "Event planner পাওয়া যায়নি।");
+      setFeedback(error instanceof Error ? error.message : pick("ইভেন্ট পরিকল্পনা পাওয়া যায়নি।", "Event planner could not be loaded."));
     } finally {
       setLoading(false);
     }
-  }, [setFeedback]);
+  }, [pick, setFeedback]);
 
   function openCreateEvent() {
     setEditingEvent(null);
@@ -290,12 +290,12 @@ export function EventCenter() {
         body: JSON.stringify({ action: "edit", data: input }),
       });
       const payload = await response.json() as { event?: FamilyEvent; error?: string; message?: string };
-      if (!response.ok || !payload.event) throw new Error(payload.error ?? "Event update হয়নি।");
+      if (!response.ok || !payload.event) throw new Error(payload.error ?? pick("ইভেন্ট হালনাগাদ হয়নি।", "Event could not be updated."));
       setEvents((current) => current.map((event) => event.id === id ? payload.event! : event).sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
       setCreateOpen(false);
       setEditingEvent(null);
       setForm(emptyForm);
-      setFeedback(payload.message ?? "Event details update হয়েছে।");
+      setFeedback(payload.message ?? pick("ইভেন্টের বিস্তারিত হালনাগাদ হয়েছে।", "Event details updated."));
     } finally {
       setSaving(false);
     }
@@ -306,13 +306,13 @@ export function EventCenter() {
     try {
       const response = await fetch(`/api/events/${id}`, { method: "DELETE" });
       const payload = await response.json() as { error?: string; message?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Event delete হয়নি।");
+      if (!response.ok) throw new Error(payload.error ?? pick("ইভেন্ট মোছা যায়নি।", "Event could not be deleted."));
       setEvents((current) => current.filter((event) => event.id !== id));
       setRsvps((current) => current.filter((item) => item.event_id !== id));
       setComments((current) => current.filter((item) => item.event_id !== id));
       setMedia((current) => current.filter((item) => item.event_id !== id));
       setSelectedId(null);
-      setFeedback(payload.message ?? "Event delete হয়েছে।");
+      setFeedback(payload.message ?? pick("ইভেন্ট মোছা হয়েছে।", "Event deleted."));
     } finally {
       setWorking(false);
     }
@@ -323,9 +323,9 @@ export function EventCenter() {
     try {
       const response = await fetch(`/api/event-media/${id}`, { method: "DELETE" });
       const payload = await response.json() as { error?: string; message?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Media delete হয়নি।");
+      if (!response.ok) throw new Error(payload.error ?? pick("মিডিয়া মোছা যায়নি।", "Media could not be deleted."));
       setMedia((current) => current.filter((item) => item.id !== id));
-      setFeedback(payload.message ?? "Media delete হয়েছে।");
+      setFeedback(payload.message ?? pick("মিডিয়া মোছা হয়েছে।", "Media deleted."));
     } finally {
       setWorking(false);
     }
@@ -371,16 +371,16 @@ export function EventCenter() {
         body: JSON.stringify(input),
       });
       const payload = (await response.json()) as { event?: FamilyEvent; error?: string };
-      if (!response.ok || !payload.event) throw new Error(payload.error ?? "Event save হয়নি।");
+      if (!response.ok || !payload.event) throw new Error(payload.error ?? pick("ইভেন্ট সংরক্ষণ হয়নি।", "Event could not be saved."));
       setEvents((current) => [...current, payload.event!].sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
       setForm(emptyForm);
       setCreateOpen(false);
-      setFeedback(payload.event.status === "published" ? "Event প্রকাশিত হয়েছে।" : "Event খসড়া হিসেবে সংরক্ষিত হয়েছে।");
+      setFeedback(payload.event.status === "published" ? pick("ইভেন্ট প্রকাশিত হয়েছে।", "Event published.") : pick("ইভেন্ট খসড়া হিসেবে সংরক্ষিত হয়েছে।", "Event saved as a draft."));
       return { id: payload.event.id, title: payload.event.title_bn, status: payload.event.status };
     } finally {
       setSaving(false);
     }
-  }, [setFeedback]);
+  }, [pick, setFeedback]);
 
   async function updateEvent(action: "publish" | "close" | "complete" | "cancel" | "draft") {
     if (!selected) return;
@@ -393,9 +393,9 @@ export function EventCenter() {
         body: JSON.stringify({ action }),
       });
       const payload = (await response.json()) as { event?: FamilyEvent; error?: string };
-      if (!response.ok || !payload.event) throw new Error(payload.error ?? "Event update হয়নি।");
+      if (!response.ok || !payload.event) throw new Error(payload.error ?? pick("ইভেন্ট হালনাগাদ হয়নি।", "Event could not be updated."));
       setEvents((current) => current.map((event) => event.id === selected.id ? payload.event! : event));
-      setFeedback("Event status update হয়েছে।");
+      setFeedback(pick("ইভেন্টের স্ট্যাটাস হালনাগাদ হয়েছে।", "Event status updated."));
     } finally {
       setWorking(false);
     }
@@ -412,9 +412,9 @@ export function EventCenter() {
         body: JSON.stringify({ response: responseValue, guestCount: Number(guestCount || 0), note: rsvpNote }),
       });
       const payload = (await response.json()) as { rsvp?: EventRsvp; error?: string };
-      if (!response.ok || !payload.rsvp) throw new Error(payload.error ?? "RSVP save হয়নি।");
+      if (!response.ok || !payload.rsvp) throw new Error(payload.error ?? pick("RSVP সংরক্ষণ হয়নি।", "RSVP could not be saved."));
       setRsvps((current) => [...current.filter((item) => item.id !== payload.rsvp!.id && !(item.event_id === payload.rsvp!.event_id && item.is_current_user)), payload.rsvp!]);
-      setFeedback(`আপনার উত্তর “${responseLabels[responseValue]}” হিসেবে সংরক্ষিত হয়েছে।`);
+      setFeedback(pick(`আপনার উত্তর “${responseLabels[responseValue]}” হিসেবে সংরক্ষিত হয়েছে।`, `Your response was saved as “${responseLabels[responseValue]}”.`));
       return { eventId: selected.id, response: responseValue, guestCount: payload.rsvp.guest_count };
     } finally {
       setWorking(false);
@@ -431,9 +431,10 @@ export function EventCenter() {
         body: JSON.stringify({ body: commentText }),
       });
       const payload = (await response.json()) as { comment?: EventComment; error?: string };
-      if (!response.ok || !payload.comment) throw new Error(payload.error ?? "Comment save হয়নি।");
+      if (!response.ok || !payload.comment) throw new Error(payload.error ?? pick("মন্তব্য সংরক্ষণ হয়নি।", "Comment could not be saved."));
       setComments((current) => [...current, payload.comment!]);
       setCommentText("");
+      setFeedback(pick("মন্তব্য যোগ হয়েছে।", "Comment added."));
     } finally {
       setWorking(false);
     }
@@ -449,11 +450,11 @@ export function EventCenter() {
       body.set("caption", mediaCaption);
       const response = await fetch(`/api/events/${selected.id}/media`, { method: "POST", body });
       const payload = (await response.json()) as { media?: EventMedia; error?: string };
-      if (!response.ok || !payload.media) throw new Error(payload.error ?? "Media upload হয়নি।");
+      if (!response.ok || !payload.media) throw new Error(payload.error ?? pick("মিডিয়া আপলোড হয়নি।", "Media could not be uploaded."));
       setMedia((current) => [payload.media!, ...current]);
       setMediaCaption("");
       if (fileInputRef.current) fileInputRef.current.value = "";
-      setFeedback("Event gallery-তে media যোগ হয়েছে।");
+      setFeedback(pick("ইভেন্ট গ্যালারিতে মিডিয়া যোগ হয়েছে।", "Media added to the event gallery."));
     } finally {
       setWorking(false);
     }
@@ -464,36 +465,39 @@ export function EventCenter() {
     try {
       const XLSX = await import("xlsx");
       const eventSheet = XLSX.utils.json_to_sheet(visibleEvents.map((event, index) => ({
-        "ক্রমিক": index + 1,
-        "ইভেন্ট": event.title_bn,
-        "ধরন": typeLabels[event.event_type],
-        "শুরু": dateFormatter.format(new Date(event.start_at)),
-        "শেষ": event.end_at ? dateFormatter.format(new Date(event.end_at)) : "",
-        "স্থান": [event.venue, event.city].filter(Boolean).join(", "),
-        "প্রতি ব্যক্তি": Number(event.estimated_cost_per_person),
-        "মোট বাজেট": Number(event.total_budget),
-        "Capacity": event.capacity ?? "",
-        "অংশগ্রহণকারী": goingCount(event.id),
-        "অবস্থা": statusLabels[event.status],
+        [pick("ক্রমিক", "Serial")]: index + 1,
+        [pick("ইভেন্ট", "Event")]: locale === "en" ? event.title_en || event.title_bn : event.title_bn,
+        [pick("ধরন", "Type")]: typeLabels[event.event_type],
+        [pick("শুরু", "Start")]: dateFormatter.format(new Date(event.start_at)),
+        [pick("শেষ", "End")]: event.end_at ? dateFormatter.format(new Date(event.end_at)) : "",
+        [pick("স্থান", "Venue")]: [event.venue, event.city].filter(Boolean).join(", "),
+        [pick("প্রতি ব্যক্তি", "Per person")]: Number(event.estimated_cost_per_person),
+        [pick("মোট বাজেট", "Total budget")]: Number(event.total_budget),
+        [pick("ধারণক্ষমতা", "Capacity")]: event.capacity ?? "",
+        [pick("অংশগ্রহণকারী", "Participants")]: goingCount(event.id),
+        [pick("অবস্থা", "Status")]: statusLabels[event.status],
       })));
       const rsvpSheet = XLSX.utils.json_to_sheet(rsvps.filter((item) => visibleEvents.some((event) => event.id === item.event_id)).map((item) => ({
-        "ইভেন্ট": events.find((event) => event.id === item.event_id)?.title_bn ?? "",
-        "সদস্য": item.respondent_name,
-        "উত্তর": responseLabels[item.response],
-        "অতিথি": item.guest_count,
-        "মন্তব্য": item.note ?? "",
+        [pick("ইভেন্ট", "Event")]: events.find((event) => event.id === item.event_id)?.title_bn ?? "",
+        [pick("সদস্য", "Member")]: item.respondent_name,
+        [pick("উত্তর", "Response")]: responseLabels[item.response],
+        [pick("অতিথি", "Guests")]: item.guest_count,
+        [pick("মন্তব্য", "Note")]: item.note ?? "",
       })));
       const commentSheet = XLSX.utils.json_to_sheet(comments.filter((item) => visibleEvents.some((event) => event.id === item.event_id)).map((item) => ({
-        "ইভেন্ট": events.find((event) => event.id === item.event_id)?.title_bn ?? "",
-        "সদস্য": item.author_name,
-        "মন্তব্য": item.body,
-        "সময়": dateFormatter.format(new Date(item.created_at)),
+        [pick("ইভেন্ট", "Event")]: events.find((event) => event.id === item.event_id)?.title_bn ?? "",
+        [pick("সদস্য", "Member")]: item.author_name,
+        [pick("মন্তব্য", "Comment")]: item.body,
+        [pick("সময়", "Time")]: dateFormatter.format(new Date(item.created_at)),
       })));
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, eventSheet, "Events");
+      XLSX.utils.book_append_sheet(workbook, eventSheet, pick("ইভেন্ট", "Events"));
       XLSX.utils.book_append_sheet(workbook, rsvpSheet, "RSVPs");
-      XLSX.utils.book_append_sheet(workbook, commentSheet, "Discussion");
+      XLSX.utils.book_append_sheet(workbook, commentSheet, pick("আলোচনা", "Discussion"));
       XLSX.writeFile(workbook, `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-events.xlsx`);
+      setFeedback(pick("ইভেন্ট XLSX রপ্তানি হয়েছে।", "Event XLSX exported."));
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : pick("XLSX রপ্তানি হয়নি।", "XLSX export failed."));
     } finally {
       setExporting(false);
     }
@@ -533,7 +537,7 @@ export function EventCenter() {
 
   return (
     <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
-      <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary"><CalendarDays className="size-4" /> {pick("ইভেন্ট ও ট্যুর কার্যক্রম", "Event & Tour Operations")}</div><h1 className="text-2xl font-bold tracking-tight md:text-3xl">{pick("ইভেন্ট ও ট্যুর ম্যানেজমেন্ট", "Event & Tour Management")}</h1><p className="mt-1 text-muted-foreground">{pick("পরিকল্পনা, registration, আলোচনা, budget ও স্মৃতির gallery এক জায়গায়।", "Planning, registration, discussion, budgets, and memory galleries in one place.")}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="gap-2 rounded-xl" disabled={!visibleEvents.length || exporting} onClick={() => void exportXlsx()}>{exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} {pick("XLSX Export", "Export XLSX")}</Button>{canManage ? <Button className="gap-2 rounded-xl" disabled={migrationRequired} onClick={openCreateEvent}><Plus className="size-4" /> {pick("নতুন ইভেন্ট", "New event")}</Button> : null}</div></section>
+      <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary"><CalendarDays className="size-4" /> {pick("ইভেন্ট ও ট্যুর কার্যক্রম", "Event & Tour Operations")}</div><h1 className="text-2xl font-bold tracking-tight md:text-3xl">{pick("ইভেন্ট ও ট্যুর ম্যানেজমেন্ট", "Event & Tour Management")}</h1><p className="mt-1 text-muted-foreground">{pick("পরিকল্পনা, নিবন্ধন, আলোচনা, বাজেট ও স্মৃতির গ্যালারি এক জায়গায়।", "Planning, registration, discussion, budgets, and memory galleries in one place.")}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="gap-2 rounded-xl" disabled={!visibleEvents.length || exporting} onClick={() => void exportXlsx()}>{exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} {pick("XLSX রপ্তানি", "Export XLSX")}</Button>{canManage ? <Button className="gap-2 rounded-xl" disabled={migrationRequired} onClick={openCreateEvent}><Plus className="size-4" /> {pick("নতুন ইভেন্ট", "New event")}</Button> : null}</div></section>
       {migrationRequired ? <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/8 px-4 py-3 text-sm text-amber-800 dark:text-amber-200"><TriangleAlert className="mt-0.5 size-4 shrink-0" /> {pick("Event & Tour database migration Supabase SQL Editor-এ একবার চালাতে হবে।", "Run the Event & Tour database migration once in the Supabase SQL Editor.")}</div> : null}
       {feedback ? <div className="rounded-2xl border bg-muted/35 px-4 py-3 text-sm font-medium">{feedback}</div> : null}
 
