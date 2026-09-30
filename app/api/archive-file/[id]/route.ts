@@ -1,7 +1,9 @@
 import { env } from "cloudflare:workers";
 
 import { getChatGPTUser } from "@/app/chatgpt-auth";
-import { canManageArchives, getActiveFamilyMembership } from "@/lib/family-access";
+import { canManageArchives, canViewAdministration, getActiveFamilyMembership } from "@/lib/family-access";
+import { canViewDirectoryProfile, PROFILE_PHOTO_MARKER } from "@/lib/member-privacy";
+import type { DirectoryVisibility } from "@/lib/privacy-types";
 import { BackendNotConfiguredError, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 
 type RuntimeEnv = Cloudflare.Env & { BUCKET?: R2Bucket };
@@ -15,14 +17,28 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const file = (await supabaseRest<Array<{ storage_key: string; mime_type: string; file_name: string; visibility: string; uploaded_by_user_id: string; entity_type: "memory" | "vault_document"; entity_id: string }>>(`archive_files?${query}`))[0]; if (!file) return new Response("File not found.", { status: 404 });
     const canManage = canManageArchives(membership.role);
     let entityAllowed = false;
+    let isProfilePhoto = false;
     if (file.entity_type === "memory") {
-      const memoryQuery = new URLSearchParams({ select: "visibility,uploaded_by_user_id,collection_id", id: `eq.${file.entity_id}`, family_id: `eq.${membership.family_id}`, status: "eq.active", limit: "1" });
-      const memory = (await supabaseRest<Array<{ visibility: string; uploaded_by_user_id: string; collection_id: string }>>(`archive_memories?${memoryQuery}`))[0];
+      const memoryQuery = new URLSearchParams({ select: "visibility,uploaded_by_user_id,collection_id,place,people_tags", id: `eq.${file.entity_id}`, family_id: `eq.${membership.family_id}`, status: "eq.active", limit: "1" });
+      const memory = (await supabaseRest<Array<{ visibility: string; uploaded_by_user_id: string; collection_id: string; place: string | null; people_tags: string[] | null }>>(`archive_memories?${memoryQuery}`))[0];
       if (memory) {
         const collectionQuery = new URLSearchParams({ select: "visibility,created_by_user_id", id: `eq.${memory.collection_id}`, family_id: `eq.${membership.family_id}`, status: "eq.active", limit: "1" });
         const collection = (await supabaseRest<Array<{ visibility: string; created_by_user_id: string }>>(`archive_collections?${collectionQuery}`))[0];
         const visible = (value: string, owner: string) => value === "family" || owner === user.userId || (value === "admins" && canManage);
         entityAllowed = Boolean(collection && visible(memory.visibility, memory.uploaded_by_user_id) && visible(collection.visibility, collection.created_by_user_id));
+        if (entityAllowed && memory.place === PROFILE_PHOTO_MARKER) {
+          isProfilePhoto = true;
+          const memberId = memory.people_tags?.find((tag) => tag.startsWith("member:"))?.slice(7);
+          if (!memberId) return new Response("Not authorized.", { status: 403 });
+          const profile = (await supabaseRest<Array<{ auth_user_id: string | null }>>(`member_profiles?${new URLSearchParams({ select: "auth_user_id", id: `eq.${memberId}`, family_id: `eq.${membership.family_id}`, profile_status: "neq.archived", limit: "1" })}`))[0];
+          if (!profile) return new Response("Not authorized.", { status: 403 });
+          let visibility: DirectoryVisibility | undefined;
+          if (profile.auth_user_id && profile.auth_user_id !== user.userId && !canViewAdministration(membership.role)) {
+            const consent = (await supabaseRest<Array<{ directory_visibility: DirectoryVisibility }>>(`family_privacy_consents?${new URLSearchParams({ select: "directory_visibility", family_id: `eq.${membership.family_id}`, user_id: `eq.${profile.auth_user_id}`, limit: "1" })}`))[0];
+            visibility = consent?.directory_visibility;
+          }
+          entityAllowed = canViewDirectoryProfile(profile.auth_user_id, visibility, user.userId, canViewAdministration(membership.role));
+        }
       }
     } else {
       const documentQuery = new URLSearchParams({ select: "visibility,uploaded_by_user_id", id: `eq.${file.entity_id}`, family_id: `eq.${membership.family_id}`, limit: "1" });
@@ -32,7 +48,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const fileAllowed = file.visibility === "family" || file.uploaded_by_user_id === user.userId || (file.visibility === "admins" && canManage); if (!fileAllowed || !entityAllowed) return new Response("Not authorized.", { status: 403 });
     const object = await bucket.get(file.storage_key); if (!object) return new Response("File not found.", { status: 404 });
     const inline = file.mime_type.startsWith("image/") || file.mime_type.startsWith("video/") || file.mime_type.startsWith("audio/") || file.mime_type === "application/pdf";
-    return new Response(object.body, { headers: { "Content-Type": file.mime_type, "Content-Disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.file_name)}`, "Cache-Control": "private, max-age=600", "X-Content-Type-Options": "nosniff", ETag: object.httpEtag } });
+    return new Response(object.body, { headers: { "Content-Type": file.mime_type, "Content-Disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.file_name)}`, "Cache-Control": isProfilePhoto ? "private, no-store" : "private, max-age=600", "X-Content-Type-Options": "nosniff", ETag: object.httpEtag } });
   } catch (error) { if (error instanceof BackendNotConfiguredError) return new Response("Backend unavailable.", { status: 503 }); if (error instanceof SupabaseRequestError) console.error("Unable to load archive file", error.status, error.message); else console.error("Unable to load archive file", error); return new Response("File unavailable.", { status: 500 }); }
 }
 

@@ -1,6 +1,7 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import type { ArchiveCollection, ArchiveFile, ArchiveMemory, ArchivePayload, ArchiveStory, FamilyAsset, TimeCapsule, VaultDocument } from "@/lib/archive-types";
 import { canManageArchives, getActiveFamilyMembership } from "@/lib/family-access";
+import { PROFILE_PHOTO_COLLECTION, PROFILE_PHOTO_MARKER } from "@/lib/member-privacy";
 import { BackendNotConfiguredError, isBackendConfigured, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 
 type CollectionRow = Omit<ArchiveCollection, "is_mine">;
@@ -38,9 +39,10 @@ export async function GET() {
       ]);
     } catch (error) { if (error instanceof SupabaseRequestError) migrationRequired = true; else throw error; }
     const allowed = (visibility: string, ownerId: string) => visibility === "family" || (visibility === "admins" && canManage) || ownerId === user.userId;
-    collections = collections.filter((item) => allowed(item.visibility, item.created_by_user_id));
+    // Profile images belong to the directory, not the general family archive.
+    collections = collections.filter((item) => item.name !== PROFILE_PHOTO_COLLECTION && allowed(item.visibility, item.created_by_user_id));
     const collectionIds = new Set(collections.map((item) => item.id));
-    memories = memories.filter((item) => collectionIds.has(item.collection_id) && allowed(item.visibility, item.uploaded_by_user_id));
+    memories = memories.filter((item) => item.place !== PROFILE_PHOTO_MARKER && collectionIds.has(item.collection_id) && allowed(item.visibility, item.uploaded_by_user_id));
     stories = stories.filter((item) => (item.status === "published" && (item.visibility === "family" || canManage)) || item.author_user_id === user.userId || canManage);
     documents = documents.filter((item) => allowed(item.visibility, item.uploaded_by_user_id));
     if (!canManage) assets = assets.filter((item) => item.visibility === "family");

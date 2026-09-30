@@ -13,6 +13,7 @@ This file is the authoritative handoff for continuing the project from another C
 - The current Codex/ChatGPT account still cannot access the existing Sites project ID (`Sites project not found`). The original owning account must either deploy the update or add this account as an editor/collaborator; do not create a duplicate Site.
 - Deployment is blocked by the Contact & Support, Notification Center, and Privacy Center migrations plus missing access to the existing Sites project. A 2026-09-30 Contact-table probe returned HTTP `401`, so it did not prove whether that migration is applied; verify with the Supabase SQL Editor.
 - The stable production site remains version 30 at `https://family-management-system.hitht.chatgpt.site`.
+- A local privacy-hardening batch now blocks admin-only/hidden profiles for regular directory viewers, masks contacts for unlinked profiles, fails closed when consent lookup fails, and prevents profile photos from bypassing directory visibility through the Archive API or direct file URL. No new SQL migration is needed for this batch.
 - The next account must run `git status --short` and `git log -1 --oneline` first; the working tree should be clean at handoff.
 
 ## Copy-paste prompt for the next Codex account
@@ -83,17 +84,20 @@ The following work is implemented, verified, and committed locally, but is inten
    - Members can submit tracked access/export, correction, deletion, and processing-restriction requests; duplicate active requests of the same type are blocked.
    - Family Admins can publish bilingual privacy notices, configure retention defaults, pause new requests, assign/review requests, and use guarded status transitions.
    - Directory/member API responses enforce hidden/admin-only visibility and contact-field consent for non-admin viewers. The module includes localized XLSX export, audit logging, tenant/user scoping, and global confirmation/result modals.
+   - A follow-up hardening pass closes consent-query failure and profile-photo archive/direct-link bypasses; `scripts/test-member-privacy.mjs` covers visibility decisions. Emergency-access and analytics consent are stored preferences only, not yet enforced across all downstream modules.
 
 The user confirmed and the API check verified that `supabase/migrations/20260928_family_magazine.sql` is applied. This batch is database-ready for deployment.
 
 ### Last verification result
 
-All of these passed after the local Privacy & Data Rights Center changes:
+All of these passed after the privacy-hardening follow-up:
 
 ```powershell
 npm.cmd run i18n:audit
 npm.cmd run lint
 npm.cmd run security:audit
+npm.cmd run test:privacy
+npx.cmd tsc --noEmit --incremental false
 npm.cmd run build
 ```
 
@@ -378,6 +382,7 @@ The system is broad but not yet a final commercial SaaS. Remaining work should b
 ### Priority 4 — privacy and security hardening
 
 - Privacy policy, consent controls, member data-rights requests, guarded admin review, retention defaults, and directory/contact privacy enforcement are implemented locally.
+- Directory profile/photo visibility now fails closed on missing consent data. Validate the same policy with authenticated live tests after the pending migration and deployment.
 - Personal finance is currently protected by server-side authenticated user scoping, but it is not client-side/end-to-end encrypted. Add field encryption/key management if this is a firm requirement.
 - Consider column/file encryption for medical, legal, property, and identity documents.
 - Add 2FA/OTP and, if required, Google/phone sign-in beyond the hosting identity.

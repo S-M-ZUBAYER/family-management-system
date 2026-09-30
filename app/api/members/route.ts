@@ -4,6 +4,7 @@ import {
   canViewAdministration,
   getActiveFamilyMembership,
 } from "@/lib/family-access";
+import { visibleDirectoryMembers, type DirectoryConsent } from "@/lib/member-privacy";
 import {
   BackendNotConfiguredError,
   isBackendConfigured,
@@ -138,31 +139,22 @@ export async function GET() {
       if (!(error instanceof SupabaseRequestError)) throw error;
     }
 
-    let visibleMembers = membersWithPhotos;
-    try {
-      const privacyRows = await supabaseRest<Array<{ user_id: string; directory_visibility: "family" | "admins_only" | "hidden"; show_email_to_family: boolean; show_phone_to_family: boolean }>>(
-        `family_privacy_consents?${new URLSearchParams({
-          select: "user_id,directory_visibility,show_email_to_family,show_phone_to_family",
-          family_id: `eq.${membership.family_id}`,
-        })}`,
-      );
-      const privacyByUser = new Map(privacyRows.map((row) => [row.user_id, row]));
-      const canSeeAdminOnly = canViewAdministration(membership.role);
-      visibleMembers = membersWithPhotos.flatMap((member) => {
-        if (!member.auth_user_id || member.auth_user_id === user.userId || canSeeAdminOnly) return [member];
-        const privacy = privacyByUser.get(member.auth_user_id);
-        if (privacy?.directory_visibility === "hidden") return [];
-        return [{
-          ...member,
-          email: privacy?.directory_visibility === "family" && privacy.show_email_to_family ? member.email : null,
-          phone: privacy?.directory_visibility === "family" && privacy.show_phone_to_family ? member.phone : null,
-        }];
-      });
-      const visibleIds = new Set(visibleMembers.map((member) => member.id));
-      relationships = relationships.filter((relationship) => visibleIds.has(relationship.from_member_id) && visibleIds.has(relationship.to_member_id));
-    } catch (error) {
-      if (!(error instanceof SupabaseRequestError)) throw error;
-    }
+    // Privacy is a required authorization input. A missing migration or backend failure
+    // must fail closed instead of returning the unfiltered profile list.
+    const privacyRows = await supabaseRest<DirectoryConsent[]>(
+      `family_privacy_consents?${new URLSearchParams({
+        select: "user_id,directory_visibility,show_email_to_family,show_phone_to_family",
+        family_id: `eq.${membership.family_id}`,
+      })}`,
+    );
+    const visibleMembers = visibleDirectoryMembers(
+      membersWithPhotos,
+      privacyRows,
+      user.userId,
+      canViewAdministration(membership.role),
+    );
+    const visibleIds = new Set(visibleMembers.map((member) => member.id));
+    relationships = relationships.filter((relationship) => visibleIds.has(relationship.from_member_id) && visibleIds.has(relationship.to_member_id));
 
     const familyQuery = new URLSearchParams({
       select: "id,name_bn,name_en",

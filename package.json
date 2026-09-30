@@ -13,6 +13,7 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "security:audit": "node scripts/audit-tenant-scope.mjs",
+    "test:privacy": "node scripts/test-member-privacy.mjs",
     "i18n:audit": "node scripts/audit-translations.mjs"
   },
   "dependencies": {

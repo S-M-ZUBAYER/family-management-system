@@ -2,12 +2,11 @@ import { env } from "cloudflare:workers";
 
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageProfiles, getActiveFamilyMembership } from "@/lib/family-access";
+import { PROFILE_PHOTO_COLLECTION, PROFILE_PHOTO_MARKER } from "@/lib/member-privacy";
 import { BackendNotConfiguredError, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 
 type RuntimeEnv = Cloudflare.Env & { BUCKET?: R2Bucket };
 const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-const profileCollectionName = "__member_profile_photos__";
-const profilePhotoMarker = "__profile_photo__";
 
 export async function POST(request: Request) {
   let uploadedKey: string | null = null;
@@ -36,18 +35,18 @@ export async function POST(request: Request) {
     if (!member) return Response.json({ error: "Member profile পাওয়া যায়নি।" }, { status: 404 });
     if (!canManageProfiles(membership.role) && member.auth_user_id !== user.userId) return Response.json({ error: "এই profile-এর photo পরিবর্তনের permission নেই।" }, { status: 403 });
 
-    const collectionQuery = new URLSearchParams({ select: "id", family_id: `eq.${membership.family_id}`, name: `eq.${profileCollectionName}`, status: "eq.active", limit: "1" });
+    const collectionQuery = new URLSearchParams({ select: "id", family_id: `eq.${membership.family_id}`, name: `eq.${PROFILE_PHOTO_COLLECTION}`, status: "eq.active", limit: "1" });
     let collection = (await supabaseRest<Array<{ id: string }>>(`archive_collections?${collectionQuery}`))[0];
     if (!collection) {
       [collection] = await supabaseRest<Array<{ id: string }>>("archive_collections", {
         method: "POST",
         headers: { Prefer: "return=representation" },
-        body: JSON.stringify({ family_id: membership.family_id, name: profileCollectionName, description: "System-managed member profile photos", collection_type: "album", cover_color: "#153A5B", visibility: "family", status: "active", created_by_user_id: user.userId, created_by_name: user.displayName }),
+        body: JSON.stringify({ family_id: membership.family_id, name: PROFILE_PHOTO_COLLECTION, description: "System-managed member profile photos", collection_type: "album", cover_color: "#153A5B", visibility: "family", status: "active", created_by_user_id: user.userId, created_by_name: user.displayName }),
       });
     }
 
     const tag = `member:${memberId}`;
-    const previous = await supabaseRest<Array<{ id: string }>>(`archive_memories?${new URLSearchParams({ select: "id", family_id: `eq.${membership.family_id}`, collection_id: `eq.${collection.id}`, place: `eq.${profilePhotoMarker}`, people_tags: `cs.{${tag}}`, status: "eq.active" })}`);
+    const previous = await supabaseRest<Array<{ id: string }>>(`archive_memories?${new URLSearchParams({ select: "id", family_id: `eq.${membership.family_id}`, collection_id: `eq.${collection.id}`, place: `eq.${PROFILE_PHOTO_MARKER}`, people_tags: `cs.{${tag}}`, status: "eq.active" })}`);
     const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
     uploadedKey = `families/${membership.family_id}/profiles/${memberId}/${crypto.randomUUID()}.${extension}`;
     await bucket.put(uploadedKey, file.stream(), { httpMetadata: { contentType: file.type }, customMetadata: { memberId, uploaderId: user.userId } });
@@ -55,7 +54,7 @@ export async function POST(request: Request) {
     const [memory] = await supabaseRest<Array<{ id: string }>>("archive_memories", {
       method: "POST",
       headers: { Prefer: "return=representation" },
-      body: JSON.stringify({ family_id: membership.family_id, collection_id: collection.id, title: `${member.name_bn} profile photo`, description: "Current member profile photo", memory_type: "photo", place: profilePhotoMarker, people_tags: [tag], visibility: "family", status: "active", uploaded_by_user_id: user.userId, uploaded_by_name: user.displayName }),
+      body: JSON.stringify({ family_id: membership.family_id, collection_id: collection.id, title: `${member.name_bn} profile photo`, description: "Current member profile photo", memory_type: "photo", place: PROFILE_PHOTO_MARKER, people_tags: [tag], visibility: "family", status: "active", uploaded_by_user_id: user.userId, uploaded_by_name: user.displayName }),
     });
     createdMemoryId = memory.id;
     const [archiveFile] = await supabaseRest<Array<{ id: string }>>("archive_files", {
