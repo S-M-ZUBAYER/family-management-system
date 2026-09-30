@@ -149,18 +149,29 @@ const moneyBn = new Intl.NumberFormat("bn-BD", { style: "currency", currency: "B
 const dateBn = new Intl.DateTimeFormat("bn-BD", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 const eventDateBn = new Intl.DateTimeFormat("bn-BD", { day: "2-digit", month: "short" });
 const relativeBn = new Intl.RelativeTimeFormat("bn-BD", { numeric: "auto" });
+const relativeEn = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" });
 const numberEn = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 const moneyEn = new Intl.NumberFormat("en-US", { style: "currency", currency: "BDT", maximumFractionDigits: 0 });
 const dateEn = new Intl.DateTimeFormat("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 const eventDateEn = new Intl.DateTimeFormat("en-US", { day: "2-digit", month: "short" });
 
-function relativeTime(value: string, reference: number) {
+function relativeTime(value: string, reference: number, locale: "bn" | "en") {
+  const formatter = locale === "bn" ? relativeBn : relativeEn;
   const difference = new Date(value).getTime() - reference;
   const minutes = Math.round(difference / 60000);
-  if (Math.abs(minutes) < 60) return relativeBn.format(minutes, "minute");
+  if (Math.abs(minutes) < 60) return formatter.format(minutes, "minute");
   const hours = Math.round(minutes / 60);
-  if (Math.abs(hours) < 24) return relativeBn.format(hours, "hour");
-  return relativeBn.format(Math.round(hours / 24), "day");
+  if (Math.abs(hours) < 24) return formatter.format(hours, "hour");
+  return formatter.format(Math.round(hours / 24), "day");
+}
+
+function campaignStatusLabel(value: string, locale: "bn" | "en") {
+  const labels: Record<string, [string, string]> = {
+    planning: ["পরিকল্পনা", "Planning"], registration: ["নিবন্ধন", "Registration"], procurement: ["কেনাকাটা", "Procurement"],
+    slaughter: ["কোরবানির দিন", "Qurbani day"], distribution: ["বণ্টন", "Distribution"], settled: ["হিসাব চূড়ান্ত", "Settled"], closed: ["বন্ধ", "Closed"],
+  };
+  const pair = labels[value];
+  return pair ? pair[locale === "bn" ? 0 : 1] : value.replaceAll("_", " ");
 }
 
 function initials(name: string) {
@@ -250,7 +261,7 @@ export function FamilyDashboard({
 }: {
   view?: "dashboard" | "directory" | "tree" | "members" | "notices" | "events" | "magazine" | "qurbani" | "finance" | "chat" | "health" | "welfare" | "household" | "archives" | "governance" | "notifications" | "privacy" | "contact" | "admin";
 }) {
-  const { locale, setLocale } = useLocale();
+  const { locale, pick, setLocale } = useLocale();
   const [theme, setTheme] = useState<ThemeId>("heritage");
   const [dark, setDark] = useState(false);
   const [modePreference, setModePreference] = useState<"system" | "light" | "dark">("system");
@@ -373,29 +384,52 @@ export function FamilyDashboard({
     try {
       const XLSX = await import("xlsx");
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
-        { Metric: "Total members", Value: dashboard.stats.totalMembers },
-        { Metric: "Generations", Value: dashboard.stats.generations },
-        { Metric: "Pending approvals", Value: dashboard.stats.pendingApprovals },
-        { Metric: "Upcoming events", Value: dashboard.stats.upcomingEvents },
-        { Metric: "Unread messages", Value: dashboard.stats.unreadMessages },
-        { Metric: "Unread channels", Value: dashboard.stats.unreadChannels },
-      ]), "Overview");
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dashboard.approvals.map((item) => ({ Name: item.name, Relationship: item.relationship, Requested: item.createdAt }))), "Pending Approvals");
-      if (dashboard.qurbani) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([dashboard.qurbani]), "Qurbani");
-      if (dashboard.nextEvent) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([dashboard.nextEvent]), "Next Event");
-      XLSX.writeFile(workbook, `${dashboard.family.name_en.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-dashboard.xlsx`);
-      setFeedback("Dashboard XLSX সফলভাবে তৈরি হয়েছে।");
+      const metric = pick("সূচক", "Metric"), value = pick("মান", "Value");
+      const overview = [
+        [pick("মোট সদস্য", "Total members"), dashboard.stats.totalMembers],
+        [pick("প্রজন্ম", "Generations"), dashboard.stats.generations],
+        [pick("অপেক্ষমাণ অনুমোদন", "Pending approvals"), dashboard.stats.pendingApprovals],
+        [pick("আসন্ন ইভেন্ট", "Upcoming events"), dashboard.stats.upcomingEvents],
+        [pick("অপঠিত বার্তা", "Unread messages"), dashboard.stats.unreadMessages],
+        [pick("অপঠিত চ্যানেল", "Unread channels"), dashboard.stats.unreadChannels],
+      ].map(([label, amount]) => ({ [metric]: label, [value]: amount }));
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(overview), pick("সারসংক্ষেপ", "Overview"));
+      if (canReviewApprovals) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dashboard.approvals.map((item) => ({
+        [pick("নাম", "Name")]: item.name,
+        [pick("সম্পর্ক", "Relationship")]: item.relationship,
+        [pick("আবেদনের সময়", "Requested at")]: item.createdAt,
+      }))), pick("সদস্য আবেদন", "Member Requests"));
+      if (dashboard.qurbani) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
+        [pick("ক্যাম্পেইন", "Campaign")]: dashboard.qurbani.title,
+        [pick("বছর", "Year")]: dashboard.qurbani.year,
+        [pick("অবস্থা", "Status")]: campaignStatusLabel(dashboard.qurbani.status, locale),
+        [pick("লক্ষ্য শেয়ার", "Target shares")]: dashboard.qurbani.targetShares,
+        [pick("নিবন্ধিত শেয়ার", "Registered shares")]: dashboard.qurbani.registeredShares,
+        [pick("সংগৃহীত অর্থ", "Collected")]: dashboard.qurbani.collected,
+        [pick("বকেয়া", "Due")]: dashboard.qurbani.due,
+      }]), pick("কোরবানি", "Qurbani"));
+      if (dashboard.nextEvent) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
+        [pick("ইভেন্ট", "Event")]: dashboard.nextEvent.title,
+        [pick("শুরুর সময়", "Starts at")]: dashboard.nextEvent.startAt,
+        [pick("স্থান", "Venue")]: dashboard.nextEvent.venue,
+        [pick("শহর", "City")]: dashboard.nextEvent.city ?? "",
+        [pick("অংশগ্রহণকারী", "Going")]: dashboard.nextEvent.goingCount,
+      }]), pick("পরবর্তী ইভেন্ট", "Next Event"));
+      XLSX.writeFile(workbook, `${dashboard.family.name_en.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-dashboard.xlsx`);
+      setFeedback(pick("Dashboard XLSX সফলভাবে তৈরি হয়েছে।", "The dashboard XLSX was created successfully."));
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "Dashboard XLSX তৈরি হয়নি।");
+      setFeedback(error instanceof Error ? error.message : pick("Dashboard XLSX তৈরি হয়নি।", "The dashboard XLSX could not be created."));
     }
   }
 
-  const viewerName = workspace?.viewer.name ?? dashboard?.viewer.name ?? "পরিবারের সদস্য";
+  const viewerName = workspace?.viewer.name ?? dashboard?.viewer.name ?? pick("পরিবারের সদস্য", "Family member");
   const viewerFirstName = viewerName.split(/\s+/)[0] || viewerName;
-  const viewerRole = (workspace?.viewer.role ?? dashboard?.viewer.role)?.replaceAll("_", " ") ?? "Member";
-  const familyName = locale === "bn" ? workspace?.family.name_bn ?? dashboard?.family.name_bn ?? "Family workspace" : workspace?.family.name_en ?? dashboard?.family.name_en ?? "Family workspace";
-  const searchResults = searchQuery.trim() ? mainNavigation.filter((item) => `${item.label} ${item.english}`.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, 6) : [];
+  const role = workspace?.viewer.role ?? dashboard?.viewer.role ?? "member";
+  const viewerRole = ({ owner: pick("পরিবারের মালিক", "Owner"), family_admin: pick("ফ্যামিলি অ্যাডমিন", "Family Admin"), manager: pick("ম্যানেজার", "Manager"), member: pick("সদস্য", "Member") })[role];
+  const canReviewApprovals = role === "owner" || role === "family_admin";
+  const familyName = locale === "bn" ? workspace?.family.name_bn ?? dashboard?.family.name_bn ?? "পারিবারিক ওয়ার্কস্পেস" : workspace?.family.name_en ?? dashboard?.family.name_en ?? "Family workspace";
+  const availableNavigation = mainNavigation.filter((item) => canReviewApprovals || (item.id !== "members" && item.id !== "admin"));
+  const searchResults = searchQuery.trim() ? availableNavigation.filter((item) => `${item.label} ${item.english}`.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, 6) : [];
   const notificationCount = (dashboard?.stats.pendingApprovals ?? 0) + (dashboard?.stats.unreadChannels ?? 0);
   const numberFormatter = locale === "bn" ? numberBn : numberEn;
   const moneyFormatter = locale === "bn" ? moneyBn : moneyEn;
@@ -417,7 +451,7 @@ export function FamilyDashboard({
               <GitFork className="size-5" />
             </div>
             <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-sm font-bold tracking-tight">Family Management</p>
+              <p className="truncate text-sm font-bold tracking-tight">Family Management System</p>
               <p className="truncate text-xs text-sidebar-foreground/60">{familyName}</p>
             </div>
           </div>
@@ -427,7 +461,7 @@ export function FamilyDashboard({
             <SidebarGroupLabel>{locale === "bn" ? "পরিবার পরিচালনা" : "Family management"}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {mainNavigation.map((item) => (
+                {availableNavigation.map((item) => (
                   <SidebarMenuItem key={item.english}>
                     <SidebarMenuButton
                       asChild
@@ -440,8 +474,8 @@ export function FamilyDashboard({
                         <span>{locale === "bn" ? item.label : item.english}</span>
                       </a>
                     </SidebarMenuButton>
-                    {item.id === "directory" && dashboard ? <SidebarMenuBadge>{numberBn.format(dashboard.stats.totalMembers)}</SidebarMenuBadge>
-                      : item.id === "members" && dashboard?.stats.pendingApprovals ? <SidebarMenuBadge>{numberBn.format(dashboard.stats.pendingApprovals)}</SidebarMenuBadge>
+                    {item.id === "directory" && dashboard ? <SidebarMenuBadge>{numberFormatter.format(dashboard.stats.totalMembers)}</SidebarMenuBadge>
+                      : item.id === "members" && dashboard?.stats.pendingApprovals ? <SidebarMenuBadge>{numberFormatter.format(dashboard.stats.pendingApprovals)}</SidebarMenuBadge>
                         : null}
                   </SidebarMenuItem>
                 ))}
@@ -452,7 +486,7 @@ export function FamilyDashboard({
         <SidebarFooter className="p-3">
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild className="h-11 rounded-xl" tooltip="Settings">
+              <SidebarMenuButton asChild className="h-11 rounded-xl" tooltip={pick("সেটিংস", "Settings")}>
                 <a href="/setup">
                   <Settings />
                   <span>{locale === "bn" ? "সেটিংস" : "Settings"}</span>
@@ -479,7 +513,7 @@ export function FamilyDashboard({
           <div className="relative hidden max-w-md flex-1 md:block">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <input
-              aria-label="Search family management system"
+              aria-label={pick("ফ্যামিলি সেকশন খুঁজুন", "Search family sections")}
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               onKeyDown={(event) => { if (event.key === "Enter" && searchResults[0]) window.location.assign(searchResults[0].href); }}
@@ -491,7 +525,7 @@ export function FamilyDashboard({
           <div className="ml-auto flex items-center gap-2">
             <ThemeSelector value={theme} onChange={(nextTheme) => void changeFamilyTheme(nextTheme)} canManage={workspace?.permissions.canManageTheme ?? false} saving={themeSaving} locale={locale} />
             <Button
-              aria-label={dark ? "Use light mode" : "Use dark mode"}
+              aria-label={dark ? pick("লাইট মোড চালু করুন", "Use light mode") : pick("ডার্ক মোড চালু করুন", "Use dark mode")}
               variant="outline"
               size="icon"
               className="rounded-xl bg-card"
@@ -506,12 +540,23 @@ export function FamilyDashboard({
               <Languages className="size-4" />
               <span className="hidden sm:inline">{locale === "bn" ? "EN" : "বাংলা"}</span>
             </Button>
-            <Dialog><DialogTrigger asChild><Button variant="outline" size="icon" className="relative rounded-xl bg-card"><Bell className="size-4" />{notificationCount ? <span className="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground ring-2 ring-card">{notificationCount > 99 ? "99+" : notificationCount}</span> : null}<span className="sr-only">Notifications</span></Button></DialogTrigger><DialogContent className="rounded-3xl sm:max-w-md"><DialogHeader><DialogTitle>{locale === "bn" ? "আপনার notifications" : "Your notifications"}</DialogTitle><DialogDescription>{locale === "bn" ? "Live family activity থেকে গুরুত্বপূর্ণ actionগুলো।" : "Important actions from live family activity."}</DialogDescription></DialogHeader><div className="space-y-2"><NotificationLink href="/members" icon={UserCheck} title={locale === "bn" ? "সদস্য অনুমোদন" : "Member approvals"} detail={locale === "bn" ? `${numberBn.format(dashboard?.stats.pendingApprovals ?? 0)}টি আবেদন অপেক্ষমাণ` : `${dashboard?.stats.pendingApprovals ?? 0} requests waiting`} active={Boolean(dashboard?.stats.pendingApprovals)} /><NotificationLink href="/chat" icon={MessageCircle} title={locale === "bn" ? "অপঠিত chat" : "Unread chat"} detail={locale === "bn" ? `${numberBn.format(dashboard?.stats.unreadMessages ?? 0)}টি message · ${numberBn.format(dashboard?.stats.unreadChannels ?? 0)}টি channel` : `${dashboard?.stats.unreadMessages ?? 0} messages · ${dashboard?.stats.unreadChannels ?? 0} channels`} active={Boolean(dashboard?.stats.unreadMessages)} /><NotificationLink href="/events" icon={CalendarDays} title={locale === "bn" ? "আসন্ন আয়োজন" : "Upcoming events"} detail={locale === "bn" ? `পরবর্তী ৭ দিনে ${numberBn.format(dashboard?.stats.eventsNextSevenDays ?? 0)}টি` : `${dashboard?.stats.eventsNextSevenDays ?? 0} in the next 7 days`} active={Boolean(dashboard?.stats.eventsNextSevenDays)} />{!notificationCount && !(dashboard?.stats.eventsNextSevenDays) ? <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">{locale === "bn" ? "নতুন কোনো action প্রয়োজন নেই।" : "No new action is required."}</div> : null}</div></DialogContent></Dialog>
+            <Dialog>
+              <DialogTrigger asChild><Button variant="outline" size="icon" className="relative rounded-xl bg-card"><Bell className="size-4" />{notificationCount ? <span className="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground ring-2 ring-card">{notificationCount > 99 ? "99+" : notificationCount}</span> : null}<span className="sr-only">{pick("নোটিফিকেশন", "Notifications")}</span></Button></DialogTrigger>
+              <DialogContent className="rounded-3xl sm:max-w-md">
+                <DialogHeader><DialogTitle>{pick("আপনার নোটিফিকেশন", "Your notifications")}</DialogTitle><DialogDescription>{pick("পারিবারিক কার্যক্রমের গুরুত্বপূর্ণ আপডেট।", "Important updates from family activity.")}</DialogDescription></DialogHeader>
+                <div className="space-y-2">
+                  {canReviewApprovals ? <NotificationLink href="/members" icon={UserCheck} title={pick("সদস্য অনুমোদন", "Member approvals")} detail={pick(`${numberFormatter.format(dashboard?.stats.pendingApprovals ?? 0)}টি আবেদন অপেক্ষমাণ`, `${numberFormatter.format(dashboard?.stats.pendingApprovals ?? 0)} requests waiting`)} active={Boolean(dashboard?.stats.pendingApprovals)} /> : null}
+                  <NotificationLink href="/chat" icon={MessageCircle} title={pick("অপঠিত চ্যাট", "Unread chat")} detail={pick(`${numberFormatter.format(dashboard?.stats.unreadMessages ?? 0)}টি বার্তা · ${numberFormatter.format(dashboard?.stats.unreadChannels ?? 0)}টি চ্যানেল`, `${numberFormatter.format(dashboard?.stats.unreadMessages ?? 0)} messages · ${numberFormatter.format(dashboard?.stats.unreadChannels ?? 0)} channels`)} active={Boolean(dashboard?.stats.unreadMessages)} />
+                  <NotificationLink href="/events" icon={CalendarDays} title={pick("আসন্ন আয়োজন", "Upcoming events")} detail={pick(`পরবর্তী ৭ দিনে ${numberFormatter.format(dashboard?.stats.eventsNextSevenDays ?? 0)}টি`, `${numberFormatter.format(dashboard?.stats.eventsNextSevenDays ?? 0)} in the next 7 days`)} active={Boolean(dashboard?.stats.eventsNextSevenDays)} />
+                  {!notificationCount && !(dashboard?.stats.eventsNextSevenDays) ? <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">{pick("নতুন কোনো কাজ নেই।", "No new action is required.")}</div> : null}
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </header>
 
-        <Suspense fallback={<main className="grid min-h-[calc(100vh-4rem)] place-items-center text-sm text-muted-foreground">Module loading…</main>}>
-        {view === "directory" ? <MemberDirectory /> : view === "tree" ? <FamilyTreeView /> : view === "members" ? <MemberApprovals /> : view === "notices" ? <NoticeCenter /> : view === "events" ? <EventCenter /> : view === "magazine" ? <MagazineCenter /> : view === "qurbani" ? <QurbaniSuite /> : view === "finance" ? <PersonalFinanceCenter /> : view === "chat" ? <FamilyChat /> : view === "health" ? <HealthCenter /> : view === "welfare" ? <WelfareCenter /> : view === "household" ? <HouseholdCenter /> : view === "archives" ? <ArchiveCenter /> : view === "governance" ? <GovernanceCenter /> : view === "notifications" ? <NotificationCenter /> : view === "privacy" ? <PrivacyCenter /> : view === "contact" ? <ContactCenter /> : view === "admin" ? <AdminCenter /> : setupRequired ? <main className="grid min-h-[calc(100vh-4rem)] place-items-center px-4 py-10"><Card className="w-full max-w-xl rounded-3xl"><CardContent className="flex flex-col items-center p-8 text-center md:p-10"><span className="grid size-16 place-items-center rounded-2xl bg-primary/10 text-primary"><UserCheck className="size-8" /></span><h1 className="mt-6 text-2xl font-bold">Family access সক্রিয় নয়</h1><p className="mt-3 max-w-md leading-7 text-muted-foreground">Join code দিয়ে আবেদন করুন। Family Owner বা Admin অনুমোদন করার পর dashboard এবং সব protected module ব্যবহার করতে পারবেন।</p><Button asChild className="mt-7 rounded-xl"><a href="/setup">Family onboarding খুলুন</a></Button></CardContent></Card></main> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
+        <Suspense fallback={<main className="grid min-h-[calc(100vh-4rem)] place-items-center text-sm text-muted-foreground">{pick("মডিউল লোড হচ্ছে…", "Loading module…")}</main>}>
+        {view === "directory" ? <MemberDirectory /> : view === "tree" ? <FamilyTreeView /> : view === "members" ? <MemberApprovals /> : view === "notices" ? <NoticeCenter /> : view === "events" ? <EventCenter /> : view === "magazine" ? <MagazineCenter /> : view === "qurbani" ? <QurbaniSuite /> : view === "finance" ? <PersonalFinanceCenter /> : view === "chat" ? <FamilyChat /> : view === "health" ? <HealthCenter /> : view === "welfare" ? <WelfareCenter /> : view === "household" ? <HouseholdCenter /> : view === "archives" ? <ArchiveCenter /> : view === "governance" ? <GovernanceCenter /> : view === "notifications" ? <NotificationCenter /> : view === "privacy" ? <PrivacyCenter /> : view === "contact" ? <ContactCenter /> : view === "admin" ? <AdminCenter /> : setupRequired ? <main className="grid min-h-[calc(100vh-4rem)] place-items-center px-4 py-10"><Card className="w-full max-w-xl rounded-3xl"><CardContent className="flex flex-col items-center p-8 text-center md:p-10"><span className="grid size-16 place-items-center rounded-2xl bg-primary/10 text-primary"><UserCheck className="size-8" /></span><h1 className="mt-6 text-2xl font-bold">{pick("ফ্যামিলি অ্যাক্সেস সক্রিয় নয়", "Family access is not active")}</h1><p className="mt-3 max-w-md leading-7 text-muted-foreground">{pick("Join code দিয়ে আবেদন করুন। Family Owner বা Admin অনুমোদন করার পর dashboard এবং protected module ব্যবহার করতে পারবেন।", "Apply with a join code. You can use the dashboard and protected modules after the Family Owner or Admin approves your request.")}</p><Button asChild className="mt-7 rounded-xl"><a href="/setup">{pick("ফ্যামিলিতে যোগ দিন", "Join a family")}</a></Button></CardContent></Card></main> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
           <section className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
@@ -555,7 +600,7 @@ export function FamilyDashboard({
             ))}
           </section>
 
-          <section className="grid gap-5 xl:grid-cols-[1.35fr_.85fr]">
+          <section className={canReviewApprovals ? "grid gap-5 xl:grid-cols-[1.35fr_.85fr]" : "grid gap-5"}>
             <Card className="gap-0 overflow-hidden rounded-3xl border-border/75 py-0 shadow-none">
               <CardHeader className="flex-row items-center justify-between border-b bg-muted/20 p-5 md:p-6">
                 <div>
@@ -563,7 +608,7 @@ export function FamilyDashboard({
                     <p className="mt-1 text-sm text-muted-foreground">{locale === "bn" ? "রেজিস্ট্রেশন ও প্রস্তুতির সারসংক্ষেপ" : "Registration and preparation summary"}</p>
                 </div>
                 <Badge variant="secondary" className="rounded-full bg-amber-500/12 px-3 text-amber-700 dark:text-amber-300">
-                  {dashboard?.qurbani?.status.replaceAll("_", " ") ?? "Campaign নেই"}
+                  {dashboard?.qurbani ? campaignStatusLabel(dashboard.qurbani.status, locale) : pick("ক্যাম্পেইন নেই", "No campaign")}
                 </Badge>
               </CardHeader>
               <CardContent className="space-y-6 p-5 md:p-6">
@@ -588,29 +633,29 @@ export function FamilyDashboard({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button className="rounded-xl" asChild>
-                    <a href="/qurbani">কোরবানি ড্যাশবোর্ড</a>
+                    <a href="/qurbani">{pick("কোরবানি ড্যাশবোর্ড", "Qurbani dashboard")}</a>
                   </Button>
                   <Button variant="outline" className="gap-2 rounded-xl" asChild>
-                    <a href="/qurbani"><Download className="size-4" /> XLSX</a>
+                    <a href="/qurbani"><Download className="size-4" /> {pick("XLSX এক্সপোর্ট খুলুন", "Open XLSX export")}</a>
                   </Button>
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="gap-0 rounded-3xl border-border/75 py-0 shadow-none">
+            {canReviewApprovals ? <Card className="gap-0 rounded-3xl border-border/75 py-0 shadow-none">
               <CardHeader className="flex-row items-start justify-between p-5 pb-3 md:p-6 md:pb-3">
                 <div>
-                  <CardTitle className="text-xl">সদস্য অনুমোদন</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">আপনার পরিবারের অপেক্ষমাণ আবেদন</p>
+                  <CardTitle className="text-xl">{pick("সদস্য অনুমোদন", "Member approvals")}</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">{pick("আপনার পরিবারের অপেক্ষমাণ আবেদন", "Pending requests for your family")}</p>
                 </div>
                  <Button variant="ghost" size="icon" className="rounded-xl" asChild>
-                   <a href="/members" aria-label="সব member request দেখুন"><ChevronRight className="size-5" /></a>
+                   <a href="/members" aria-label={pick("সব সদস্য আবেদন দেখুন", "View all member requests")}><ChevronRight className="size-5" /></a>
                  </Button>
               </CardHeader>
               <CardContent className="space-y-1 p-3 pt-1 md:px-4 md:pb-4">
                  {dashboard?.approvals.map((person) => (
-                  <button
-                    type="button"
+                  <a
+                    href="/members"
                     key={person.id}
                     className="flex w-full items-center gap-3 rounded-2xl p-3 text-left transition hover:bg-muted/70"
                   >
@@ -623,22 +668,22 @@ export function FamilyDashboard({
                       <p className="truncate text-sm font-semibold">{person.name}</p>
                        <p className="truncate text-xs text-muted-foreground">{person.relationship}</p>
                     </div>
-                     <span className="text-[11px] text-muted-foreground">{dashboardNow ? relativeTime(person.createdAt, dashboardNow) : "—"}</span>
-                  </button>
+                     <span className="text-xs text-muted-foreground">{dashboardNow ? relativeTime(person.createdAt, dashboardNow, locale) : "—"}</span>
+                  </a>
                  ))}
-                 {!dashboardLoading && !dashboard?.approvals.length ? <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">কোনো pending member request নেই।</div> : null}
+                 {!dashboardLoading && !dashboard?.approvals.length ? <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">{pick("কোনো অপেক্ষমাণ সদস্য আবেদন নেই।", "There are no pending member requests.")}</div> : null}
               </CardContent>
-            </Card>
+            </Card> : null}
           </section>
 
           <section className="grid gap-5 lg:grid-cols-3">
             <Card className="gap-0 rounded-3xl border-border/75 py-0 shadow-none lg:col-span-2">
               <CardHeader className="flex-row items-center justify-between p-5 md:p-6">
                 <div>
-                  <CardTitle className="text-xl">পরবর্তী পারিবারিক আয়োজন</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">সবার জন্য উন্মুক্ত</p>
+                  <CardTitle className="text-xl">{pick("পরবর্তী পারিবারিক আয়োজন", "Next family event")}</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">{pick("সবার জন্য উন্মুক্ত", "Open to the family")}</p>
                 </div>
-                 <Badge variant="outline" className="rounded-full">{dashboard?.nextEvent ? `${numberBn.format(nextEventDays)} দিন বাকি` : "Event নেই"}</Badge>
+                 <Badge variant="outline" className="rounded-full">{dashboard?.nextEvent ? pick(`${numberFormatter.format(nextEventDays)} দিন বাকি`, `${numberFormatter.format(nextEventDays)} days away`) : pick("ইভেন্ট নেই", "No event")}</Badge>
               </CardHeader>
               <CardContent className="px-5 pb-6 md:px-6">
                 <div className="flex flex-col gap-5 rounded-2xl bg-primary px-5 py-6 text-primary-foreground sm:flex-row sm:items-center">
@@ -647,20 +692,20 @@ export function FamilyDashboard({
                     <span className="-mt-2 text-2xl font-bold">{dashboard?.nextEvent ? eventDateFormatter.format(new Date(dashboard.nextEvent.startAt)).split(" ")[0] : "—"}</span>
                   </div>
                   <div className="min-w-0 flex-1">
-                     <p className="text-lg font-bold">{dashboard?.nextEvent?.title ?? "কোনো upcoming event নেই"}</p>
+                     <p className="text-lg font-bold">{dashboard?.nextEvent?.title ?? pick("কোনো আসন্ন ইভেন্ট নেই", "No upcoming event")}</p>
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm text-primary-foreground/75">
-                       <span className="flex items-center gap-1.5"><MapPin className="size-4" /> {dashboard?.nextEvent ? [dashboard.nextEvent.venue, dashboard.nextEvent.city].filter(Boolean).join(", ") : "স্থান নির্ধারিত নয়"}</span>
-                       <span className="flex items-center gap-1.5"><Users className="size-4" /> {numberBn.format(dashboard?.nextEvent?.goingCount ?? 0)} জন যাচ্ছেন</span>
+                       <span className="flex items-center gap-1.5"><MapPin className="size-4" /> {dashboard?.nextEvent ? [dashboard.nextEvent.venue, dashboard.nextEvent.city].filter(Boolean).join(", ") : pick("স্থান নির্ধারিত নয়", "Venue not set")}</span>
+                       <span className="flex items-center gap-1.5"><Users className="size-4" /> {pick(`${numberFormatter.format(dashboard?.nextEvent?.goingCount ?? 0)} জন যাচ্ছেন`, `${numberFormatter.format(dashboard?.nextEvent?.goingCount ?? 0)} going`)}</span>
                     </div>
                   </div>
-                   <Button variant="secondary" className="rounded-xl" asChild><a href="/events">বিস্তারিত দেখুন</a></Button>
+                   <Button variant="secondary" className="rounded-xl" asChild><a href="/events">{pick("বিস্তারিত দেখুন", "View details")}</a></Button>
                 </div>
               </CardContent>
             </Card>
 
             <Card className="gap-0 rounded-3xl border-border/75 py-0 shadow-none">
               <CardHeader className="p-5 pb-3 md:p-6 md:pb-3">
-                <CardTitle className="text-xl">নিরাপত্তা অবস্থা</CardTitle>
+                <CardTitle className="text-xl">{pick("অ্যাক্সেস অবস্থা", "Access status")}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 p-5 pt-2 md:px-6">
                 <div className="flex items-center gap-3">
@@ -668,13 +713,13 @@ export function FamilyDashboard({
                     <ShieldCheck className="size-5" />
                   </span>
                   <div>
-                     <p className="text-sm font-semibold">Family-scoped access সক্রিয়</p>
-                     <p className="text-xs text-muted-foreground">{familyName} workspace অনুযায়ী API data filter করা হচ্ছে</p>
+                     <p className="text-sm font-semibold">{pick("পরিবারভিত্তিক অ্যাক্সেস সক্রিয়", "Family-scoped access is active")}</p>
+                     <p className="text-xs text-muted-foreground">{pick(`${familyName} পরিবারের তথ্যই দেখানো হচ্ছে`, `Showing records for ${familyName}`)}</p>
                   </div>
                 </div>
                 <div className="rounded-2xl border p-4">
-                  <p className="text-xs text-muted-foreground">সর্বশেষ সিকিউরিটি যাচাই</p>
-                   <p className="mt-1 text-sm font-semibold">Live dashboard data verified</p>
+                  <p className="text-xs text-muted-foreground">{pick("বর্তমান সেশন", "Current session")}</p>
+                   <p className="mt-1 text-sm font-semibold">{pick("অনুমোদিত পারিবারিক সদস্য", "Approved family member")}</p>
                 </div>
               </CardContent>
             </Card>

@@ -93,24 +93,24 @@ export function FamilyTreeView() {
       const XLSX = await import("xlsx");
       const byId = new Map(members.map((member) => [member.id, member]));
       const memberSheet = XLSX.utils.json_to_sheet(members.map((member) => ({
-        "নাম (বাংলা)": member.name_bn,
-        "Name (English)": member.name_en ?? "",
-        "সম্পর্ক": member.relationship_text ?? "",
-        "প্রজন্ম": (model.levels.get(member.id) ?? 0) + 1,
-        "জন্মতারিখ": member.date_of_birth ?? "",
-        "রক্তের গ্রুপ": member.blood_group ?? "",
-        "পেশা": member.occupation ?? "",
-        "শহর": member.city ?? "",
-        "দেশ": member.country ?? "",
+        [pick("বাংলা নাম", "Bangla name")]: member.name_bn,
+        [pick("ইংরেজি নাম", "English name")]: member.name_en ?? "",
+        [pick("পরিবারে পরিচয়", "Family identity")]: member.relationship_text ?? "",
+        [pick("প্রজন্ম", "Generation")]: (model.levels.get(member.id) ?? 0) + 1,
+        [pick("জন্মতারিখ", "Date of birth")]: member.date_of_birth ?? "",
+        [pick("রক্তের গ্রুপ", "Blood group")]: member.blood_group ?? "",
+        [pick("পেশা", "Occupation")]: member.occupation ?? "",
+        [pick("শহর", "City")]: member.city ?? "",
+        [pick("দেশ", "Country")]: member.country ?? "",
       })));
       const relationshipSheet = XLSX.utils.json_to_sheet(relationships.map((item) => ({
-        From: byId.get(item.from_member_id)?.name_en ?? byId.get(item.from_member_id)?.name_bn ?? "",
-        Relationship: item.relationship_type,
-        To: byId.get(item.to_member_id)?.name_en ?? byId.get(item.to_member_id)?.name_bn ?? "",
+        [pick("যার থেকে", "From")]: (locale === "bn" ? byId.get(item.from_member_id)?.name_bn : byId.get(item.from_member_id)?.name_en) ?? byId.get(item.from_member_id)?.name_bn ?? "",
+        [pick("সম্পর্কের ধরন", "Relationship type")]: item.relationship_type === "parent" ? pick("অভিভাবক-সন্তান", "Parent-child") : item.relationship_type === "spouse" ? pick("স্বামী-স্ত্রী", "Spouse") : pick("অভিভাবক", "Guardian"),
+        [pick("যার সাথে", "To")]: (locale === "bn" ? byId.get(item.to_member_id)?.name_bn : byId.get(item.to_member_id)?.name_en) ?? byId.get(item.to_member_id)?.name_bn ?? "",
       })));
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, memberSheet, "Members");
-      XLSX.utils.book_append_sheet(workbook, relationshipSheet, "Relationships");
+      XLSX.utils.book_append_sheet(workbook, memberSheet, pick("সদস্য", "Members"));
+      XLSX.utils.book_append_sheet(workbook, relationshipSheet, pick("সম্পর্ক", "Relationships"));
       XLSX.writeFile(workbook, `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-tree.xlsx`);
       setFeedback(pick("Family Tree XLSX সফলভাবে তৈরি হয়েছে।", "Family Tree XLSX was created successfully."));
     } catch (error) {

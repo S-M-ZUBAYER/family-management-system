@@ -1,5 +1,5 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
-import { canManageChat, getActiveFamilyMembership } from "@/lib/family-access";
+import { canManageChat, canReviewMembers, getActiveFamilyMembership } from "@/lib/family-access";
 import type { DashboardPayload } from "@/lib/dashboard-types";
 import {
   BackendNotConfiguredError,
@@ -69,7 +69,9 @@ export async function GET() {
       supabaseRest<DashboardPayload["family"][]>(`families?${new URLSearchParams({ select: "id,name_bn,name_en,theme", id: `eq.${familyId}`, limit: "1" })}`),
       supabaseRest<ProfileRow[]>(`member_profiles?${new URLSearchParams({ select: "id,auth_user_id,name_bn,name_en", ...common, profile_status: "eq.active", order: "created_at.asc" })}`),
       supabaseRest<RelationshipRow[]>(`family_relationships?${new URLSearchParams({ select: "from_member_id,to_member_id,relationship_type", ...common })}`),
-      supabaseRest<RequestRow[]>(`family_member_requests?${new URLSearchParams({ select: "id,requested_name_bn,relationship_text,created_at", ...common, status: "eq.pending", order: "created_at.desc" })}`),
+      canReviewMembers(membership.role)
+        ? supabaseRest<RequestRow[]>(`family_member_requests?${new URLSearchParams({ select: "id,requested_name_bn,relationship_text,created_at", ...common, status: "eq.pending", order: "created_at.desc" })}`)
+        : Promise.resolve([] as RequestRow[]),
       supabaseRest<EventRow[]>(`family_events?${new URLSearchParams({ select: "id,title_bn,start_at,venue,city", ...common, status: "in.(published,registration_closed)", start_at: `gte.${now.toISOString()}`, order: "start_at.asc" })}`),
       supabaseRest<CampaignRow[]>(`qurbani_campaigns?${new URLSearchParams({ select: "id,title,year,status,target_shares", ...common, status: "neq.closed", order: "year.desc,created_at.desc" })}`),
       supabaseRest<ChannelRow[]>(`chat_channels?${new URLSearchParams({ select: "id,visibility", ...common, status: "eq.active" })}`),

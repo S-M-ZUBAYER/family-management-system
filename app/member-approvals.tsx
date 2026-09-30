@@ -132,17 +132,27 @@ export function MemberApprovals() {
   }, [applicants, pick]);
 
   async function exportRequests() {
-    if (!applicants.length) {
+    if (!visibleApplicants.length) {
       setFeedback(pick("Export করার মতো অপেক্ষমাণ আবেদন নেই।", "There are no pending requests to export."));
       return;
     }
     setExporting(true);
     try {
       const XLSX = await import("xlsx");
-      const sheet = XLSX.utils.json_to_sheet(applicants.map((item) => ({ "নাম (বাংলা)": item.name, "Name (English)": item.english, সম্পর্ক: item.relation, Reference: item.sponsor, Email: item.email, Phone: item.phone, "Requested role": item.requestedRole, "Duplicate warning": item.duplicate ? "Yes" : "No", "Submitted at": item.submittedRaw })));
+      const sheet = XLSX.utils.json_to_sheet(visibleApplicants.map((item) => ({
+        [pick("বাংলা নাম", "Bangla name")]: item.name,
+        [pick("ইংরেজি নাম", "English name")]: item.english,
+        [pick("সম্পর্ক", "Relationship")]: item.relation,
+        [pick("রেফারেন্স", "Reference")]: item.sponsor,
+        [pick("ইমেইল", "Email")]: item.email,
+        [pick("ফোন", "Phone")]: item.phone,
+        [pick("চাওয়া ভূমিকা", "Requested role")]: item.requestedRole,
+        [pick("সম্ভাব্য ডুপ্লিকেট", "Possible duplicate")]: item.duplicate ? pick("হ্যাঁ", "Yes") : pick("না", "No"),
+        [pick("আবেদনের সময়", "Submitted at")]: item.submitted,
+      })));
       const book = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(book, sheet, "Pending members");
-      XLSX.writeFile(book, `${family?.name_en || "family"}-member-requests.xlsx`);
+      XLSX.utils.book_append_sheet(book, sheet, pick("সদস্য আবেদন", "Member Requests"));
+      XLSX.writeFile(book, `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-member-requests.xlsx`);
       setFeedback(pick("অপেক্ষমাণ সদস্য আবেদন XLSX-এ export হয়েছে।", "Pending member requests were exported to XLSX."));
     } catch {
       setFeedback(pick("XLSX export সম্পন্ন হয়নি।", "XLSX export could not be completed."));
@@ -180,7 +190,7 @@ export function MemberApprovals() {
     <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
       <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div><div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary"><UserCheck className="size-4" /> {pick("Family Admin কার্যপ্রবাহ", "Family Admin workflow")}</div><h1 className="text-2xl font-bold tracking-tight md:text-3xl">{pick("সদস্য অনুমোদন কেন্দ্র", "Member approval center")}</h1><p className="mt-1 max-w-2xl text-muted-foreground">{pick("শুধু আপনার পরিবারের live আবেদন যাচাই করুন, existing profile-এর সঙ্গে মিলিয়ে তারপর প্রবেশাধিকার দিন।", "Review only your family's live requests, compare them with existing profiles, and then grant access.")}</p></div>
-        <div className="flex flex-wrap gap-2"><Button variant="outline" className="gap-2 rounded-xl" disabled={exporting || !applicants.length} onClick={() => void exportRequests()}>{exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} {pick("XLSX Export", "Export XLSX")}</Button><Button className="gap-2 rounded-xl" disabled={!family?.join_code} onClick={() => setInviteOpen(true)}><UserRoundPlus className="size-4" /> {pick("সদস্য আমন্ত্রণ", "Invite member")}</Button></div>
+        <div className="flex flex-wrap gap-2"><Button variant="outline" className="gap-2 rounded-xl" disabled={exporting || !visibleApplicants.length} onClick={() => void exportRequests()}>{exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} {pick("XLSX Export", "Export XLSX")}</Button><Button className="gap-2 rounded-xl" disabled={!family?.join_code} onClick={() => setInviteOpen(true)}><UserRoundPlus className="size-4" /> {pick("সদস্য আমন্ত্রণ", "Invite member")}</Button></div>
       </section>
 
       <div className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${dataSource === "postgresql" ? "border-emerald-500/25 bg-emerald-500/8 text-emerald-800 dark:text-emerald-200" : dataSource === "error" ? "border-rose-500/25 bg-rose-500/8 text-rose-800 dark:text-rose-200" : "border-amber-500/30 bg-amber-500/8 text-amber-800 dark:text-amber-200"}`}>{dataSource === "loading" ? <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" /> : <Database className="mt-0.5 size-4 shrink-0" />}<div><p className="font-semibold">{dataSource === "postgresql" ? pick("Live PostgreSQL সংযুক্ত", "Live PostgreSQL connected") : dataSource === "loading" ? pick("PostgreSQL data লোড হচ্ছে", "Loading PostgreSQL data") : pick("Live data লোড করা যায়নি", "Could not load live data")}</p>{dataSource === "error" ? <Button size="sm" variant="outline" className="mt-2 rounded-lg" onClick={() => { setDataSource("loading"); void loadRequests().catch((error: unknown) => { setDataSource("error"); setFeedback(error instanceof Error ? error.message : pick("আবার চেষ্টা করা যায়নি।", "Could not retry.")); }); }}>{pick("আবার চেষ্টা করুন", "Try again")}</Button> : null}</div></div>
