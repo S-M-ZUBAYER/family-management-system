@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useLocale, type AppLocale } from "@/components/locale-provider";
+import { feedbackResult, mutationResponseResult, type ResultState } from "@/lib/action-feedback";
 import {
   Dialog,
   DialogClose,
@@ -26,14 +27,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-
-type ResultKind = "success" | "error" | "info";
-
-type ResultState = {
-  kind: ResultKind;
-  title: string;
-  message: string;
-};
 
 type ConfirmationState = {
   title: string;
@@ -90,6 +83,7 @@ const actionLabels: Record<string, string> = {
   update_sos: "SOS status পরিবর্তন",
   update_membership: "member role ও access পরিবর্তন",
   update_locale: "ভাষার পছন্দ পরিবর্তন",
+  select_family: "পরিবারের ওয়ার্কস্পেস পরিবর্তন",
   create_notification: "ফ্যামিলি নোটিফিকেশন প্রকাশ",
   save_preferences: "নোটিফিকেশন পছন্দ সংরক্ষণ",
   mark_read: "নোটিফিকেশনটি পড়া হয়েছে হিসেবে চিহ্নিত",
@@ -141,6 +135,7 @@ const actionLabelsEn: Record<string, string> = {
   update_sos: "change the SOS status",
   update_membership: "change member role and access",
   update_locale: "change the language preference",
+  select_family: "switch family workspace",
   create_notification: "publish a family notification",
   save_preferences: "save notification preferences",
   mark_read: "mark the notification as read",
@@ -209,10 +204,13 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
   const destructive = destructiveWords.some((word) => intent.includes(word)) || method === "DELETE";
   const privacyLabel = pathname.includes("/api/privacy") ? privacyActionLabels[locale][action as keyof typeof privacyActionLabels.bn] : undefined;
   const label = privacyLabel ?? (locale === "bn" ? actionLabels[action] : actionLabelsEn[action]) ?? endpointLabel(pathname, locale);
+  const familySwitch = pathname === "/api/workspace/select";
 
   return {
     title: locale === "bn" ? (destructive ? "গুরুত্বপূর্ণ action নিশ্চিত করুন" : "Action নিশ্চিত করুন") : (destructive ? "Confirm important action" : "Confirm action"),
-    description: locale === "bn" ? `আপনি কি নিশ্চিতভাবে ${label} করতে চান? নিশ্চিত করার পর পরিবর্তনটি database-এ সংরক্ষিত হবে।` : `Are you sure you want to ${label}? The change will be saved after confirmation.`,
+    description: familySwitch
+      ? locale === "bn" ? "আপনি কি সক্রিয় পরিবার পরিবর্তন করতে চান? এরপর এই ব্রাউজারে নির্বাচিত পরিবারের তথ্য দেখানো হবে।" : "Switch the active family? This browser will then show the selected family's data."
+      : locale === "bn" ? `আপনি কি নিশ্চিতভাবে ${label} করতে চান? নিশ্চিত করার পর পরিবর্তনটি database-এ সংরক্ষিত হবে।` : `Are you sure you want to ${label}? The change will be saved after confirmation.`,
     confirmLabel: locale === "bn" ? (destructive ? "হ্যাঁ, নিশ্চিত করুন" : "নিশ্চিত করে এগিয়ে যান") : (destructive ? "Yes, confirm" : "Confirm and continue"),
     destructive,
     successMessage: locale === "bn" ? `${label} সফলভাবে সম্পন্ন হয়েছে।` : `${label.charAt(0).toUpperCase()}${label.slice(1)} completed successfully.`,
@@ -231,21 +229,6 @@ async function responseMessage(response: Response, fallback: string) {
   return fallback;
 }
 
-function feedbackResult(message: string, locale: AppLocale): ResultState {
-  const normalized = message.toLowerCase();
-  const failed = ["হয়নি", "যায়নি", "পাওয়া যায়নি", "error", "failed", "invalid", "required", "denied", "unable", "cannot"]
-    .some((word) => normalized.includes(word));
-  const informational = ["সম্পন্ন করুন", "অনুমোদনের অপেক্ষায়", "approval-এর অপেক্ষায়", "যোগ দিন"]
-    .some((word) => normalized.includes(word));
-  const successful = ["হয়েছে", "সংরক্ষিত", "যোগ হয়েছে", "তৈরি হয়েছে", "সম্পন্ন", "success"]
-    .some((word) => normalized.includes(word));
-
-  if (failed) return { kind: "error", title: locale === "bn" ? "Action সম্পন্ন হয়নি" : "Action not completed", message };
-  if (informational) return { kind: "info", title: locale === "bn" ? "পরবর্তী ধাপ প্রয়োজন" : "Next step required", message };
-  if (successful) return { kind: "success", title: locale === "bn" ? "সফল হয়েছে" : "Completed successfully", message };
-  return { kind: "info", title: locale === "bn" ? "গুরুত্বপূর্ণ তথ্য" : "Important information", message };
-}
-
 export function useActionFeedback(): [string | null, Dispatch<SetStateAction<string | null>>] {
   const { locale } = useLocale();
   const setFeedback = useCallback<Dispatch<SetStateAction<string | null>>>((value) => {
@@ -262,20 +245,78 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
   const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
   const [result, setResult] = useState<ResultState | null>(null);
   const mounted = useRef(true);
+  const activeConfirmation = useRef<ConfirmationState | null>(null);
+  const pendingConfirmations = useRef<ConfirmationState[]>([]);
+  const activeResult = useRef<ResultState | null>(null);
+  const pendingResults = useRef<ResultState[]>([]);
+  const lastMutationResult = useRef<{ kind: ResultState["kind"]; at: number } | null>(null);
+
+  const showNextDialog = useCallback(() => {
+    if (!mounted.current || activeConfirmation.current || activeResult.current) return;
+
+    const nextConfirmation = pendingConfirmations.current.shift();
+    if (nextConfirmation) {
+      activeConfirmation.current = nextConfirmation;
+      setConfirmation(nextConfirmation);
+      return;
+    }
+
+    const nextResult = pendingResults.current.shift();
+    if (nextResult) {
+      activeResult.current = nextResult;
+      setResult(nextResult);
+    }
+  }, []);
 
   const requestConfirmation = useCallback((copy: ActionCopy) => new Promise<boolean>((resolve) => {
-    setConfirmation({ ...copy, resolve });
-  }), []);
+    if (!mounted.current) {
+      resolve(false);
+      return;
+    }
+    pendingConfirmations.current.push({ ...copy, resolve });
+    showNextDialog();
+  }), [showNextDialog]);
 
-  const settleConfirmation = useCallback((confirmed: boolean) => {
-    setConfirmation((current) => {
-      current?.resolve(confirmed);
-      return null;
-    });
-  }, []);
+  const settleConfirmation = useCallback((confirmed: boolean, expected: ConfirmationState | null) => {
+    const current = activeConfirmation.current;
+    if (!current || current !== expected) return;
+    activeConfirmation.current = null;
+    setConfirmation(null);
+    current.resolve(confirmed);
+    // Radix can emit onOpenChange after a button click. Advance after that event
+    // so a second close callback cannot accidentally dismiss the next action.
+    queueMicrotask(showNextDialog);
+  }, [showNextDialog]);
+
+  const showResult = useCallback((state: ResultState) => {
+    if (!mounted.current) return;
+    pendingResults.current.push(state);
+    showNextDialog();
+  }, [showNextDialog]);
+
+  const dismissResult = useCallback((expected: ResultState | null) => {
+    if (!expected || activeResult.current !== expected) return;
+    activeResult.current = null;
+    lastMutationResult.current = null;
+    setResult(null);
+    queueMicrotask(showNextDialog);
+  }, [showNextDialog]);
 
   useEffect(() => {
     mounted.current = true;
+    const confirmations = pendingConfirmations.current;
+    const results = pendingResults.current;
+    return () => {
+      mounted.current = false;
+      activeConfirmation.current?.resolve(false);
+      activeConfirmation.current = null;
+      activeResult.current = null;
+      for (const pending of confirmations.splice(0)) pending.resolve(false);
+      results.length = 0;
+    };
+  }, []);
+
+  useEffect(() => {
     const originalFetch = window.fetch.bind(window);
 
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -288,7 +329,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
 
       const confirmed = await requestConfirmation(copy);
       if (!confirmed) {
-        if (mounted.current) setResult({ kind: "info", title: locale === "bn" ? "Action বাতিল হয়েছে" : "Action cancelled", message: locale === "bn" ? "কোনো পরিবর্তন সংরক্ষণ করা হয়নি।" : "No changes were saved." });
+        showResult({ kind: "info", title: locale === "bn" ? "Action বাতিল হয়েছে" : "Action cancelled", message: locale === "bn" ? "বাতিল করা কাজটি পাঠানো হয়নি। আগে নিশ্চিত করা পরিবর্তন থাকলে তা সংরক্ষিত আছে।" : "The cancelled action was not sent. Any earlier confirmed changes remain saved." });
         return new Response(JSON.stringify({ error: locale === "bn" ? "Action বাতিল হয়েছে।" : "Action cancelled." }), {
           status: 499,
           headers: { "Content-Type": "application/json" },
@@ -299,16 +340,15 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
         const response = await originalFetch(input, init);
         if (mounted.current) {
           const message = await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."));
-          setResult({
-            kind: response.ok ? "success" : "error",
-            title: response.ok ? (locale === "bn" ? "সফল হয়েছে" : "Completed successfully") : (locale === "bn" ? "Action ব্যর্থ হয়েছে" : "Action failed"),
-            message,
-          });
+          const nextResult = mutationResponseResult(response.status, message, locale);
+          lastMutationResult.current = { kind: nextResult.kind, at: Date.now() };
+          showResult(nextResult);
         }
         return response;
       } catch (error) {
         if (mounted.current) {
-          setResult({
+          lastMutationResult.current = { kind: "error", at: Date.now() };
+          showResult({
             kind: "error",
             title: locale === "bn" ? "সংযোগজনিত error" : "Connection error",
             message: error instanceof Error ? error.message : (locale === "bn" ? "Server-এর সাথে যোগাযোগ করা যায়নি। আবার চেষ্টা করুন।" : "Could not contact the server. Please try again."),
@@ -319,20 +359,23 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
     };
 
     return () => {
-      mounted.current = false;
       window.fetch = originalFetch;
-      setConfirmation((current) => {
-        current?.resolve(false);
-        return null;
-      });
     };
-  }, [locale, requestConfirmation]);
+  }, [locale, requestConfirmation, showResult]);
 
   useEffect(() => {
-    const handleFeedback = (event: Event) => setResult((event as CustomEvent<ResultState>).detail);
+    const handleFeedback = (event: Event) => {
+      const nextResult = (event as CustomEvent<ResultState>).detail;
+      const lastMutation = lastMutationResult.current;
+      // Many route handlers also report the same outcome through useActionFeedback.
+      // The fetch interceptor has already shown that result; retain different-kind
+      // follow-up errors/warnings (for example a failed refresh after a save).
+      if (lastMutation && lastMutation.kind === nextResult.kind && Date.now() - lastMutation.at < 1500) return;
+      showResult(nextResult);
+    };
     window.addEventListener(feedbackEvent, handleFeedback);
     return () => window.removeEventListener(feedbackEvent, handleFeedback);
-  }, []);
+  }, [showResult]);
 
   const resultStyle = useMemo(() => {
     if (result?.kind === "success") return { icon: CheckCircle2, className: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300" };
@@ -345,7 +388,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
     <>
       {children}
 
-      <AlertDialog open={Boolean(confirmation)} onOpenChange={(open) => !open && settleConfirmation(false)}>
+      <AlertDialog open={Boolean(confirmation)} onOpenChange={(open) => !open && settleConfirmation(false, confirmation)}>
         <AlertDialogContent className="rounded-3xl sm:max-w-md">
           <AlertDialogCancel asChild>
             <Button
@@ -354,7 +397,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
               size="icon-sm"
               className="absolute right-4 top-4 rounded-full"
               aria-label={locale === "bn" ? "নিশ্চিতকরণ বন্ধ করুন" : "Close confirmation"}
-              onClick={() => settleConfirmation(false)}
+              onClick={() => settleConfirmation(false, confirmation)}
             >
               <X className="size-4" />
             </Button>
@@ -367,10 +410,10 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
             <AlertDialogDescription className="leading-6">{confirmation?.description}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => settleConfirmation(false)}>{locale === "bn" ? "না, ফিরে যান" : "No, go back"}</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => settleConfirmation(false, confirmation)}>{locale === "bn" ? "না, ফিরে যান" : "No, go back"}</AlertDialogCancel>
             <AlertDialogAction
               variant={confirmation?.destructive ? "destructive" : "default"}
-              onClick={() => settleConfirmation(true)}
+              onClick={() => settleConfirmation(true, confirmation)}
             >
               {confirmation?.confirmLabel}
             </AlertDialogAction>
@@ -378,7 +421,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={Boolean(result)} onOpenChange={(open) => !open && setResult(null)}>
+      <Dialog open={Boolean(result)} onOpenChange={(open) => !open && dismissResult(result)}>
         <DialogContent className="rounded-3xl sm:max-w-md">
           <DialogHeader className="items-center text-center sm:items-center sm:text-center">
             <div className={`grid size-16 place-items-center rounded-2xl ${resultStyle.className}`}>

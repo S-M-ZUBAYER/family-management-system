@@ -17,4 +17,10 @@ export type WorkspacePayload = {
   permissions: {
     canManageTheme: boolean;
   };
+  availableFamilies?: Array<{
+    id: string;
+    name_bn: string;
+    name_en: string;
+    role: FamilyRole;
+  }>;
 };

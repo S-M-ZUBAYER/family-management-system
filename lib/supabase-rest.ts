@@ -69,5 +69,21 @@ export async function supabaseRest<T>(
   }
 
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  const body = await response.text();
+  if (!body.trim()) return undefined as T;
+  return JSON.parse(body) as T;
+}
+
+export async function supabaseExactCount(path: string): Promise<number> {
+  const { url, secretKey } = getSupabaseConfig();
+  const response = await fetch(`${url}/rest/v1/${path.replace(/^\//, "")}`, {
+    method: "HEAD",
+    headers: { apikey: secretKey, Prefer: "count=exact" },
+  });
+  if (!response.ok) {
+    throw new SupabaseRequestError(`Supabase count failed with ${response.status}.`, response.status);
+  }
+  const total = response.headers.get("Content-Range")?.split("/").at(-1);
+  if (!total || !/^\d+$/.test(total)) throw new Error("Supabase did not return an exact row count.");
+  return Number(total);
 }

@@ -13,16 +13,35 @@ type LocaleContextValue = {
 const LocaleContext = createContext<LocaleContextValue | null>(null);
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocale] = useState<AppLocale>(() => {
-    if (typeof window === "undefined") return "bn";
-    const saved = window.localStorage.getItem("family-locale");
-    return saved === "en" ? "en" : "bn";
-  });
+  // The server and the first browser render must use the same language.
+  const [locale, setLocale] = useState<AppLocale>("bn");
+  const [preferenceLoaded, setPreferenceLoaded] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    let saved: string | null = null;
+    try {
+      saved = window.localStorage.getItem("family-locale");
+    } catch {
+      // A blocked storage API must not prevent the language switcher from working.
+    }
+    queueMicrotask(() => {
+      if (!active) return;
+      if (saved === "en") setLocale("en");
+      setPreferenceLoaded(true);
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = locale;
-    window.localStorage.setItem("family-locale", locale);
-  }, [locale]);
+    if (!preferenceLoaded) return;
+    try {
+      window.localStorage.setItem("family-locale", locale);
+    } catch {
+      // The in-memory choice still applies when browser storage is unavailable.
+    }
+  }, [locale, preferenceLoaded]);
 
   const value = useMemo<LocaleContextValue>(() => ({
     locale,

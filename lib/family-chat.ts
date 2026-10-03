@@ -1,5 +1,9 @@
 import type { ChatGPTUser } from "@/app/chatgpt-auth";
-import { canManageChat, type ActiveFamilyMembership } from "@/lib/family-access";
+import { applyChatCursorFilter, parseChatCursor } from "@/lib/chat-cursor";
+import { canAccessChatChannel } from "@/lib/chat-access-policy";
+import { type ActiveFamilyMembership } from "@/lib/family-access";
+import { PaginatedRowLimitError } from "@/lib/paginated-rows";
+import { readAllSupabaseRows } from "@/lib/supabase-pagination";
 import {
   BackendNotConfiguredError,
   SupabaseRequestError,
@@ -106,9 +110,8 @@ export async function getAccessibleChatChannel(
   )[0];
   if (!channel) return null;
 
-  if (channel.visibility === "family") return channel;
-  if (channel.visibility === "admins" && canManageChat(membership.role)) {
-    return channel;
+  if (channel.visibility !== "invite_only") {
+    return canAccessChatChannel(channel.visibility, membership.role, false) ? channel : null;
   }
 
   const memberQuery = new URLSearchParams({
@@ -124,7 +127,7 @@ export async function getAccessibleChatChannel(
       `chat_channel_members?${memberQuery}`,
     )
   )[0];
-  return channelMember ? channel : null;
+  return canAccessChatChannel(channel.visibility, membership.role, Boolean(channelMember)) ? channel : null;
 }
 
 export async function loadChatMessages(
@@ -133,18 +136,19 @@ export async function loadChatMessages(
   channelId: string,
   after?: string | null,
 ) {
+  const cursor = after ? parseChatCursor(after) : null;
+  if (after && !cursor) throw new Error("Invalid chat cursor.");
   const queryEntries: Record<string, string> = {
     select:
       "id,channel_id,auth_user_id,author_name,message_type,body,reply_to_id,edited_at,created_at",
     family_id: `eq.${membership.family_id}`,
     channel_id: `eq.${channelId}`,
-    order: after ? "created_at.asc" : "created_at.desc",
+    order: after ? "created_at.asc,id.asc" : "created_at.desc,id.desc",
     limit: after ? "200" : "150",
   };
-  if (after) queryEntries.created_at = `gt.${after}`;
-  const rows = await supabaseRest<ChatMessageRow[]>(
-    `chat_messages?${new URLSearchParams(queryEntries)}`,
-  );
+  const query = new URLSearchParams(queryEntries);
+  if (cursor) applyChatCursorFilter(query, cursor);
+  const rows = await supabaseRest<ChatMessageRow[]>(`chat_messages?${query}`);
   const messages = after ? rows : rows.reverse();
   if (!messages.length) return { messages: [], reactions: [], attachments: [] };
 
@@ -178,7 +182,49 @@ export async function loadChatMessages(
   };
 }
 
+export async function loadChatExport(
+  membership: ActiveFamilyMembership,
+  user: ChatGPTUser,
+  channelId: string,
+) {
+  const familyFilter = `eq.${membership.family_id}`;
+  const messages = await readAllSupabaseRows<ChatMessageRow>("chat_messages", new URLSearchParams({
+    select: "id,channel_id,auth_user_id,author_name,message_type,body,reply_to_id,edited_at,created_at",
+    family_id: familyFilter,
+    channel_id: `eq.${channelId}`,
+    order: "created_at.asc,id.asc",
+  }));
+  const attachments = await readAllSupabaseRows<ChatAttachmentRow>("chat_attachments", new URLSearchParams({
+    select: "id,channel_id,message_id,file_name,mime_type,file_size,created_at",
+    family_id: familyFilter,
+    channel_id: `eq.${channelId}`,
+    order: "created_at.asc,id.asc",
+  }));
+  const reactions: ChatReactionRow[] = [];
+  for (let offset = 0; offset < messages.length; offset += 400) {
+    const slices = [0, 100, 200, 300]
+      .map((start) => messages.slice(offset + start, offset + start + 100))
+      .filter((slice) => slice.length > 0);
+    const batches = await Promise.all(slices.map((slice) => readAllSupabaseRows<ChatReactionRow>("chat_message_reactions", new URLSearchParams({
+      select: "id,message_id,auth_user_id,emoji,created_at",
+      family_id: familyFilter,
+      message_id: `in.(${slice.map((message) => message.id).join(",")})`,
+      order: "created_at.asc,id.asc",
+    }))));
+    for (const batch of batches) reactions.push(...batch);
+    if (reactions.length > 20000) throw new PaginatedRowLimitError(20000);
+  }
+  return {
+    messages: messages.map(({ auth_user_id, ...message }) => ({ ...message, is_mine: auth_user_id === user.userId })),
+    reactions: reactions.map(({ auth_user_id, ...reaction }) => ({ ...reaction, is_mine: auth_user_id === user.userId })),
+    attachments,
+  };
+}
+
 export function chatErrorResponse(error: unknown, logMessage: string) {
+  if (error instanceof PaginatedRowLimitError) {
+    return Response.json({ code: "CHAT_ROW_LIMIT", maxRows: error.maxRows, error: `Chat history or roster exceeds ${error.maxRows} rows in one section. No partial chat data was shown or exported; contact support for a paged export.` }, { status: 413 });
+  }
   if (error instanceof BackendNotConfiguredError) {
     return Response.json({ error: "PostgreSQL backend configured নয়।" }, { status: 503 });
   }

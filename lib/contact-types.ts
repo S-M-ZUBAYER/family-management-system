@@ -21,7 +21,7 @@ export type ContactTicket = {
 
 export type ContactPayload = {
   family?: { id: string; name_bn: string; name_en: string };
-  viewer?: { displayName: string; role: string };
+  viewer?: { displayName: string; email: string; role: string };
   tickets?: ContactTicket[];
   permissions?: { canManage: boolean };
   migrationRequired?: boolean;

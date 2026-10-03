@@ -97,6 +97,7 @@ export type WelfareDocument = {
   uploaded_by_name: string;
   created_at: string;
   can_view: boolean;
+  is_mine: boolean;
 };
 
 export type WelfarePayload = {

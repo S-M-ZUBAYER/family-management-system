@@ -1,3 +1,6 @@
+import { headers } from "next/headers";
+import { canManageChatRole } from "./chat-access-policy";
+import { activeFamilyMembershipQuery, selectedFamilyIdFromCookie } from "./family-selection";
 import { supabaseRest } from "./supabase-rest";
 
 export type FamilyRole = "owner" | "family_admin" | "manager" | "member";
@@ -11,15 +14,21 @@ export type ActiveFamilyMembership = {
 };
 
 export async function getActiveFamilyMembership(authUserId: string) {
-  const query = new URLSearchParams({
-    select: "id,family_id,role,status,preferred_locale",
-    auth_user_id: `eq.${authUserId}`,
-    status: "eq.active",
-    order: "created_at.asc",
-    limit: "1",
-  });
+  const selectedFamilyId = selectedFamilyIdFromCookie((await headers()).get("cookie"));
+  if (selectedFamilyId) {
+    const selected = await supabaseRest<ActiveFamilyMembership[]>(
+      `family_memberships?${activeFamilyMembershipQuery(authUserId, selectedFamilyId)}`,
+    );
+    // A stale selection must not silently redirect an in-flight write to a
+    // different family. Setup can list other eligible families for recovery.
+    return selected[0] ?? null;
+  }
+  return getAnyActiveFamilyMembership(authUserId);
+}
+
+export async function getAnyActiveFamilyMembership(authUserId: string) {
   const memberships = await supabaseRest<ActiveFamilyMembership[]>(
-    `family_memberships?${query}`,
+    `family_memberships?${activeFamilyMembershipQuery(authUserId)}`,
   );
   return memberships[0] ?? null;
 }
@@ -53,7 +62,7 @@ export function canManageQurbani(role: FamilyRole) {
 }
 
 export function canManageChat(role: FamilyRole) {
-  return role === "owner" || role === "family_admin" || role === "manager";
+  return canManageChatRole(role);
 }
 
 export function canManageHealth(role: FamilyRole) {

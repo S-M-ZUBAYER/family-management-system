@@ -25,8 +25,14 @@ for (const filename of (await files(apiRoot)).filter((file) => file.endsWith("ro
     }
   }
 
+  const verifiesRequestedActiveMembership = filename.endsWith(path.join("workspace", "select", "route.ts"))
+    && source.includes("family_memberships?")
+    && source.includes("auth_user_id:")
+    && source.includes("family_id:")
+    && source.includes('status: "eq.active"');
   if (/export async function (POST|PUT|PATCH|DELETE)/.test(source)
     && !source.includes("getActiveFamilyMembership")
+    && !verifiesRequestedActiveMembership
     && !filename.endsWith(path.join("setup", "family", "route.ts"))) {
     failures.push(`${path.relative(root, filename)}: mutation handler is missing active family membership verification`);
   }
