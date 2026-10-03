@@ -4,6 +4,7 @@ import { useActionFeedback } from "@/components/action-modal-provider";
 import { useLocale, type AppLocale } from "@/components/locale-provider";
 import { qurbaniIsoToLocalDateTime, qurbaniLocalDateTimeToIso } from "@/lib/qurbani-validation";
 import { qurbaniMoneyOutstanding, qurbaniMoneyTotal } from "@/lib/qurbani-money-total";
+import { qurbaniDistributionTotals } from "@/lib/qurbani-distribution-totals";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
@@ -312,11 +313,7 @@ export function QurbaniSuite() {
       (sum, item) => sum + numberOf(item.estimated_meat_kg),
       0,
     );
-    const distributed = campaignDistributions.reduce(
-      (sum, item) => sum + numberOf(item.weight_kg),
-      0,
-    );
-    const packages = campaignDistributions.reduce((sum, item) => sum + item.package_count, 0);
+    const distribution = qurbaniDistributionTotals(campaignDistributions);
     const openTasks = campaignTasks.filter(
       (item) => item.status !== "completed" && item.status !== "cancelled",
     ).length;
@@ -331,8 +328,12 @@ export function QurbaniSuite() {
       balance: qurbaniMoneyTotal([collected, -expenses, -refunds]),
       animalBudget,
       meatEstimate,
-      distributed,
-      packages,
+      distributed: distribution.collectedKg,
+      packages: distribution.collectedPackages,
+      allocatedKg: distribution.allocatedKg,
+      pendingKg: distribution.pendingKg,
+      allocatedPackages: distribution.allocatedPackages,
+      pendingPackages: distribution.pendingPackages,
       openTasks,
     };
   }, [
@@ -516,8 +517,10 @@ export function QurbaniSuite() {
           [pick("ব্যালান্স", "Balance")]: totals.balance,
           [pick("পশুর সংখ্যা", "Animals count")]: campaignAnimals.length,
           [pick("আনুমানিক মাংস কেজি", "Estimated meat kg")]: totals.meatEstimate,
+          [pick("বরাদ্দকৃত কেজি", "Allocated kg")]: totals.allocatedKg,
           [pick("বণ্টিত কেজি", "Distributed kg")]: totals.distributed,
-          [pick("প্যাকেট", "Packages")]: totals.packages,
+          [pick("বরাদ্দকৃত প্যাকেট", "Allocated packages")]: totals.allocatedPackages,
+          [pick("বিতরণকৃত প্যাকেট", "Delivered packages")]: totals.packages,
           [pick("অসম্পন্ন কাজ", "Open tasks")]: totals.openTasks,
         },
       ]
@@ -622,6 +625,7 @@ export function QurbaniSuite() {
         const refunds = total("refund");
         const due = qurbaniMoneyTotal(active.map((entry) => entry.amount_due));
         const paid = qurbaniMoneyTotal(active.map((entry) => entry.amount_paid));
+        const annualDistribution = qurbaniDistributionTotals(distributions.filter((entry) => entry.campaign_id === item.id));
         return {
           [pick("বছর", "Year")]: item.year,
           [pick("ক্যাম্পেইন", "Campaign")]: item.title,
@@ -636,7 +640,8 @@ export function QurbaniSuite() {
           [pick("ফেরত", "Refunds")]: refunds,
           [pick("ব্যালান্স", "Balance")]: qurbaniMoneyTotal([collected, -expenses, -refunds]),
           [pick("পশু", "Animals")]: animals.filter((entry) => entry.campaign_id === item.id).length,
-          [pick("বণ্টিত কেজি", "Distributed kg")]: distributions.filter((entry) => entry.campaign_id === item.id).reduce((sum, entry) => sum + numberOf(entry.weight_kg), 0),
+          [pick("বরাদ্দকৃত কেজি", "Allocated kg")]: annualDistribution.allocatedKg,
+          [pick("বণ্টিত কেজি", "Distributed kg")]: annualDistribution.collectedKg,
         };
       }) : [];
       const sheets = allYears
@@ -715,7 +720,7 @@ export function QurbaniSuite() {
               balance: totals.balance,
             },
             animals: campaignAnimals.length,
-            meat: { estimatedKg: totals.meatEstimate, distributedKg: totals.distributed },
+            meat: { estimatedKg: totals.meatEstimate, allocatedKg: totals.allocatedKg, distributedKg: totals.distributed },
             openTasks: totals.openTasks,
           }),
         },
@@ -843,7 +848,7 @@ export function QurbaniSuite() {
             <Metric icon={<HandCoins />} label={pick("পরিশোধ", "Payments")} value={moneyFormatter.format(totals.paid)} note={pick(moneyFormatter.format(totals.outstanding) + " বকেয়া", moneyFormatter.format(totals.outstanding) + " outstanding")} />
             <Metric icon={<CircleDollarSign />} label={pick("Ledger balance", "Ledger balance")} value={moneyFormatter.format(totals.balance)} note={pick(moneyFormatter.format(totals.expenses) + " খরচ", moneyFormatter.format(totals.expenses) + " expenses")} />
             <Metric icon={<Truck />} label={pick("মোট পশু", "Total animals")} value={numberFormatter.format(campaignAnimals.length)} note={pick(moneyFormatter.format(totals.animalBudget) + " ক্রয় বাজেট", moneyFormatter.format(totals.animalBudget) + " procurement")} />
-            <Metric icon={<Scale />} label={pick("মাংস বণ্টনের অগ্রগতি", "Meat progress")} value={numberFormatter.format(totals.distributed) + " kg"} note={pick(numberFormatter.format(totals.meatEstimate) + " kg আনুমানিক", numberFormatter.format(totals.meatEstimate) + " kg estimated")} />
+            <Metric icon={<Scale />} label={pick("মাংস বণ্টনের অগ্রগতি", "Meat progress")} value={numberFormatter.format(totals.distributed) + " kg"} note={pick(numberFormatter.format(totals.pendingKg) + " kg সংগ্রহ বাকি · " + numberFormatter.format(totals.meatEstimate) + " kg আনুমানিক", numberFormatter.format(totals.pendingKg) + " kg pending collection · " + numberFormatter.format(totals.meatEstimate) + " kg estimated")} />
             <Metric icon={<ClipboardCheck />} label={pick("বাকি কাজ", "Open tasks")} value={numberFormatter.format(totals.openTasks)} note={pick(numberFormatter.format(campaignTasks.length) + "টি মোট কাজ", numberFormatter.format(campaignTasks.length) + " total tasks")} />
           </section>
 
@@ -929,7 +934,7 @@ export function QurbaniSuite() {
               <div className="grid gap-4 md:grid-cols-3">
                 <QuickCard icon={<Truck />} title={pick("ক্রয় নিয়ন্ত্রণ", "Procurement control")} text={pick(campaignAnimals.filter((item) => item.health_status === "fit").length + "টি উপযুক্ত · " + campaignAnimals.filter((item) => item.health_status === "observation").length + "টি পর্যবেক্ষণে", campaignAnimals.filter((item) => item.health_status === "fit").length + " fit · " + campaignAnimals.filter((item) => item.health_status === "observation").length + " under observation")} />
                 <QuickCard icon={<ClipboardCheck />} title={pick("Volunteer নিয়ন্ত্রণ", "Volunteer control")} text={pick(totals.openTasks + "টি অপেক্ষমাণ · " + campaignTasks.filter((item) => item.priority === "urgent" && item.status !== "completed").length + "টি জরুরি", totals.openTasks + " pending · " + campaignTasks.filter((item) => item.priority === "urgent" && item.status !== "completed").length + " urgent")} />
-                <QuickCard icon={<PackageCheck />} title={pick("বণ্টন নিয়ন্ত্রণ", "Distribution control")} text={numberFormatter.format(totals.packages) + " packages · " + numberFormatter.format(totals.distributed) + " kg"} />
+                <QuickCard icon={<PackageCheck />} title={pick("বণ্টন নিয়ন্ত্রণ", "Distribution control")} text={pick(numberFormatter.format(totals.packages) + " প্যাকেট সংগ্রহ · " + numberFormatter.format(totals.pendingPackages) + " প্যাকেট বাকি", numberFormatter.format(totals.packages) + " packages collected · " + numberFormatter.format(totals.pendingPackages) + " pending")} />
               </div>
             </TabsContent>
 
