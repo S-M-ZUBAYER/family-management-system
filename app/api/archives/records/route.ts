@@ -1,4 +1,5 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { canMutateArchiveRecord } from "@/lib/archive-access";
 import { canManageArchives, getActiveFamilyMembership } from "@/lib/family-access";
 import { supabaseRest } from "@/lib/supabase-rest";
 import { archiveErrorResponse } from "../route";
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
       table = "time_capsules"; record = { family_id: membership.family_id, title, message, recipient_names: text(data.recipientNames, 1000), unlock_at: unlockAt, visibility: choice(data.visibility, ["family", "admins"] as const, "family"), status: "locked", created_by_user_id: user.userId, created_by_name: user.displayName };
     } else return updateStatus(data, membership.family_id, user.userId, canManage);
     const [created] = await supabaseRest<Array<Record<string, unknown>>>(table, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(record) });
-    await audit(membership.family_id, user.userId, body.action, table, String(created.id)); return Response.json({ record: created }, { status: 201 });
+    await audit(membership.family_id, user.userId, body.action, table, String(created.id), String(record.visibility)); return Response.json({ record: created }, { status: 201 });
   } catch (error) { return archiveErrorResponse(error, "Unable to save archive record"); }
 }
 
@@ -49,12 +50,12 @@ export async function PATCH(request: Request) {
     const table = archiveTables[kind], existing = (await supabaseRest<Array<Record<string, unknown>>>(`${table}?${new URLSearchParams({ select: "*", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
     if (!existing) return Response.json({ error: "Archive record পাওয়া যায়নি।" }, { status: 404 });
     const ownerId = kind === "story" ? existing.author_user_id : existing.created_by_user_id;
-    if (!canManage && ownerId !== user.userId) return Response.json({ error: "এই record edit করার permission নেই।" }, { status: 403 });
+    if (!canMutateArchiveRecord(String(existing.visibility), String(ownerId ?? ""), user.userId, canManage)) return Response.json({ error: "এই record edit করার permission নেই।" }, { status: 403 });
     if (!canManage && !["story", "capsule"].includes(kind)) return Response.json({ error: "Family Admin action প্রয়োজন।" }, { status: 403 });
     if (kind === "capsule" && (existing.status !== "locked" || new Date(String(existing.unlock_at)).getTime() <= Date.now())) return Response.json({ error: "Opened/unlocked capsule edit করা যাবে না।" }, { status: 409 });
     const changes = archiveChanges(kind, body.data ?? {}, canManage); if (changes instanceof Response) return changes; changes.updated_at = new Date().toISOString();
     const [updated] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}` })}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
-    await audit(membership.family_id, user.userId, `archive_${kind}_updated`, table, recordId); return Response.json({ record: updated });
+    await audit(membership.family_id, user.userId, `archive_${kind}_updated`, table, recordId, String(updated.visibility ?? existing.visibility)); return Response.json({ record: updated });
   } catch (error) { return archiveErrorResponse(error, "Unable to update archive record"); }
 }
 
@@ -67,11 +68,11 @@ export async function DELETE(request: Request) {
     const table = archiveTables[kind], existing = (await supabaseRest<Array<Record<string, unknown>>>(`${table}?${new URLSearchParams({ select: "*", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
     if (!existing) return Response.json({ error: "Archive record পাওয়া যায়নি।" }, { status: 404 });
     const ownerId = kind === "story" ? existing.author_user_id : existing.created_by_user_id;
-    if (!canManage && ownerId !== user.userId) return Response.json({ error: "এই record delete করার permission নেই।" }, { status: 403 });
+    if (!canMutateArchiveRecord(String(existing.visibility), String(ownerId ?? ""), user.userId, canManage)) return Response.json({ error: "এই record delete করার permission নেই।" }, { status: 403 });
     if (kind === "collection") { const memory = (await supabaseRest<Array<{ id: string }>>(`archive_memories?${new URLSearchParams({ select: "id", collection_id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0]; if (memory) return Response.json({ error: "Collection-এ memory আছে। Delete না করে Archive করুন।" }, { status: 409 }); }
     if (kind === "capsule" && existing.status === "opened") return Response.json({ error: "Opened time capsule audit history-এর জন্য delete করা যাবে না।" }, { status: 409 });
     await supabaseRest(`${table}?${new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    await audit(membership.family_id, user.userId, `archive_${kind}_deleted`, table, recordId); return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।` });
+    await audit(membership.family_id, user.userId, `archive_${kind}_deleted`, table, recordId, String(existing.visibility)); return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।` });
   } catch (error) { return archiveErrorResponse(error, "Unable to delete archive record"); }
 }
 
@@ -89,6 +90,7 @@ async function updateStatus(data: Record<string, unknown>, familyId: string, use
   const allowed = { collection: ["active", "archived"], memory: ["active", "archived"], story: ["draft", "pending", "published", "archived"], asset: ["active", "disputed", "sold", "inactive"], capsule: ["opened", "cancelled"] }[entity]; if (!allowed.includes(status)) return Response.json({ error: "Status গ্রহণযোগ্য নয়।" }, { status: 400 });
   const table = tables[entity], query = new URLSearchParams({ select: "*", id: `eq.${id}`, family_id: `eq.${familyId}`, limit: "1" }); const existing = (await supabaseRest<Array<Record<string, unknown>>>(`${table}?${query}`))[0]; if (!existing) return Response.json({ error: "Record পাওয়া যায়নি।" }, { status: 404 });
   const ownerId = entity === "collection" ? existing.created_by_user_id : entity === "memory" ? existing.uploaded_by_user_id : entity === "story" ? existing.author_user_id : entity === "capsule" ? existing.created_by_user_id : null;
+  if (!canMutateArchiveRecord(String(existing.visibility), typeof ownerId === "string" ? ownerId : null, userId, canManage)) return Response.json({ error: "এই record update করার অনুমতি নেই।" }, { status: 403 });
   if (!canManage) {
     const ownerAllowed = ownerId === userId && ((entity === "story" && ["draft", "pending", "archived"].includes(status)) || (entity === "memory" && status === "archived") || (entity === "capsule" && status === "cancelled"));
     if (!ownerAllowed) return Response.json({ error: "এই record update করার অনুমতি নেই।" }, { status: 403 });
@@ -96,7 +98,7 @@ async function updateStatus(data: Record<string, unknown>, familyId: string, use
   if (entity === "capsule" && status === "opened" && new Date(String(existing.unlock_at)).getTime() > Date.now()) return Response.json({ error: "Time capsule এখনও locked।" }, { status: 409 });
   const changes: Record<string, unknown> = { status, updated_at: new Date().toISOString() }; if (entity === "capsule" && status === "opened") changes.opened_at = new Date().toISOString();
   const filter = new URLSearchParams({ id: `eq.${id}`, family_id: `eq.${familyId}` }); const [updated] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${filter}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
-  await audit(familyId, userId, `archive_${entity}_${status}`, table, id); return Response.json({ record: updated });
+  await audit(familyId, userId, `archive_${entity}_${status}`, table, id, String(existing.visibility)); return Response.json({ record: updated });
 }
 
-async function audit(familyId: string, userId: string, action: string, entityType: string, entityId: string) { await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: familyId, actor_user_id: userId, action, entity_type: entityType, entity_id: entityId, metadata: { module: "archives" } }) }); }
+async function audit(familyId: string, userId: string, action: string, entityType: string, entityId: string, visibility: string) { await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: familyId, actor_user_id: userId, action, entity_type: entityType, entity_id: entityId, metadata: { module: "archives", visibility } }) }); }

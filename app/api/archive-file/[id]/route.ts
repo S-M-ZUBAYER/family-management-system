@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 
 import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { canMutateArchiveRecord } from "@/lib/archive-access";
 import { canManageArchives, canViewAdministration, getActiveFamilyMembership } from "@/lib/family-access";
 import { canViewDirectoryProfile, PROFILE_PHOTO_MARKER } from "@/lib/member-privacy";
 import type { DirectoryVisibility } from "@/lib/privacy-types";
@@ -58,14 +59,33 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
     const membership = await getActiveFamilyMembership(user.userId); if (!membership) return Response.json({ error: "Family membership required." }, { status: 403 });
     const bucket = (env as RuntimeEnv).BUCKET; if (!bucket) return Response.json({ error: "Private storage unavailable." }, { status: 503 });
     const { id } = await context.params;
-    const file = (await supabaseRest<Array<{ storage_key: string; uploaded_by_user_id: string; entity_type: "memory" | "vault_document"; entity_id: string }>>(`archive_files?${new URLSearchParams({ select: "storage_key,uploaded_by_user_id,entity_type,entity_id", id: `eq.${id}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
+    const file = (await supabaseRest<Array<{ storage_key: string; visibility: string; uploaded_by_user_id: string; entity_type: "memory" | "vault_document"; entity_id: string }>>(`archive_files?${new URLSearchParams({ select: "storage_key,visibility,uploaded_by_user_id,entity_type,entity_id", id: `eq.${id}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
     if (!file) return Response.json({ error: "Archive file পাওয়া যায়নি।" }, { status: 404 });
-    if (!canManageArchives(membership.role) && file.uploaded_by_user_id !== user.userId) return Response.json({ error: "File delete করার permission নেই।" }, { status: 403 });
-    await bucket.delete(file.storage_key);
     const entityTable = file.entity_type === "memory" ? "archive_memories" : "archive_vault_documents";
-    await supabaseRest(`${entityTable}?${new URLSearchParams({ id: `eq.${file.entity_id}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    await supabaseRest(`archive_files?${new URLSearchParams({ id: `eq.${id}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: `archive_${file.entity_type}_deleted`, entity_type: entityTable, entity_id: file.entity_id, metadata: { module: "archives", file_id: id } }) });
-    return Response.json({ message: `${file.entity_type.replaceAll("_", " ")} এবং file স্থায়ীভাবে delete হয়েছে।` });
+    const canManage = canManageArchives(membership.role);
+    if (!canMutateArchiveRecord(file.visibility, file.uploaded_by_user_id, user.userId, canManage)) return Response.json({ error: "File delete করার permission নেই।" }, { status: 403 });
+    const parent = (await supabaseRest<Array<{ id: string; visibility: string; uploaded_by_user_id: string; collection_id?: string; place?: string | null }>>(`${entityTable}?${new URLSearchParams({ select: file.entity_type === "memory" ? "id,visibility,uploaded_by_user_id,collection_id,place" : "id,visibility,uploaded_by_user_id", id: `eq.${file.entity_id}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
+    if (parent?.place === PROFILE_PHOTO_MARKER) return Response.json({ error: "Profile photos must be changed from the member directory." }, { status: 409 });
+    if (parent && !canMutateArchiveRecord(parent.visibility, parent.uploaded_by_user_id, user.userId, canManage)) return Response.json({ error: "Record delete করার permission নেই।" }, { status: 403 });
+    if (parent?.collection_id) {
+      const collection = (await supabaseRest<Array<{ visibility: string; created_by_user_id: string }>>(`archive_collections?${new URLSearchParams({ select: "visibility,created_by_user_id", id: `eq.${parent.collection_id}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
+      if (!collection || !canMutateArchiveRecord(collection.visibility, collection.created_by_user_id, user.userId, canManage)) return Response.json({ error: "Collection delete করার permission নেই।" }, { status: 403 });
+    }
+    const attachedFiles = await supabaseRest<Array<{ id: string }>>(`archive_files?${new URLSearchParams({ select: "id", family_id: `eq.${membership.family_id}`, entity_type: `eq.${file.entity_type}`, entity_id: `eq.${file.entity_id}`, limit: "2" })}`);
+    if (attachedFiles.length !== 1 || attachedFiles[0].id !== id) return Response.json({ error: "This record has multiple files. Delete them through an approved archive cleanup workflow." }, { status: 409 });
+    if (parent) {
+      const parentFilter = new URLSearchParams({ id: `eq.${file.entity_id}`, family_id: `eq.${membership.family_id}` });
+      if (!canManage) parentFilter.set("uploaded_by_user_id", `eq.${user.userId}`);
+      const deletedParent = await supabaseRest<Array<{ id: string }>>(`${entityTable}?${parentFilter}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+      if (!deletedParent.length) return Response.json({ error: "Archive record পাওয়া যায়নি।" }, { status: 404 });
+    }
+    const deletedFile = await supabaseRest<Array<{ id: string }>>(`archive_files?${new URLSearchParams({ id: `eq.${id}`, family_id: `eq.${membership.family_id}`, entity_type: `eq.${file.entity_type}`, entity_id: `eq.${file.entity_id}` })}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+    if (!deletedFile.length) return Response.json({ error: "Archive file পাওয়া যায়নি।" }, { status: 404 });
+    let cleanupPending = false;
+    try { await bucket.delete(file.storage_key); } catch (error) { cleanupPending = true; console.error("Archive file storage cleanup pending", error); }
+    try {
+      await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: `archive_${file.entity_type}_deleted`, entity_type: entityTable, entity_id: file.entity_id, metadata: { module: "archives", visibility: file.visibility, file_id: id, cleanup_pending: cleanupPending, ...(cleanupPending ? { storage_key: file.storage_key } : {}) } }) });
+    } catch (error) { console.error("Unable to audit archive deletion", error); }
+    return Response.json(cleanupPending ? { message: "Archive record removed. Private storage cleanup is pending.", cleanupPending: true } : { message: `${file.entity_type.replaceAll("_", " ")} এবং file স্থায়ীভাবে delete হয়েছে।` }, { status: cleanupPending ? 202 : 200 });
   } catch (error) { if (error instanceof BackendNotConfiguredError) return Response.json({ error: "Backend unavailable." }, { status: 503 }); if (error instanceof SupabaseRequestError) console.error("Unable to delete archive file", error.status, error.message); else console.error("Unable to delete archive file", error); return Response.json({ error: "Archive file delete হয়নি।" }, { status: 500 }); }
 }

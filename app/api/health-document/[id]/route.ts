@@ -60,10 +60,26 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
     const query = new URLSearchParams({ select: "id,storage_key", id: `eq.${id}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}`, limit: "1" });
     const document = (await supabaseRest<Array<{ id: string; storage_key: string }>>(`health_documents?${query}`))[0];
     if (!document) return Response.json({ error: "Document পাওয়া যায়নি।" }, { status: 404 });
-    await bucket.delete(document.storage_key);
-    await supabaseRest(`health_documents?${new URLSearchParams({ id: `eq.${id}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: "health_document_deleted", entity_type: "health_documents", entity_id: id, metadata: { module: "health", private: true } }) });
-    return Response.json({ message: "Medical document স্থায়ীভাবে delete হয়েছে।" });
+    const deleted = await supabaseRest<Array<{ id: string }>>(`health_documents?${new URLSearchParams({ id: `eq.${id}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}` })}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+    if (!deleted.length) return Response.json({ error: "Document পাওয়া যায়নি।" }, { status: 404 });
+    let cleanupPending = false;
+    try {
+      await bucket.delete(document.storage_key);
+    } catch (error) {
+      cleanupPending = true;
+      console.error("Health document storage cleanup pending", error);
+    }
+    try {
+      await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: "health_document_deleted", entity_type: "health_documents", entity_id: id, metadata: { module: "health", private: true, cleanup_pending: cleanupPending, ...(cleanupPending ? { storage_key: document.storage_key } : {}) } }) });
+    } catch (error) {
+      console.error("Unable to audit health document deletion", error);
+    }
+    return Response.json(
+      cleanupPending
+        ? { message: "Medical document access removed. Private storage cleanup is pending.", cleanupPending: true }
+        : { message: "Medical document স্থায়ীভাবে delete হয়েছে।" },
+      { status: cleanupPending ? 202 : 200 },
+    );
   } catch (error) {
     if (error instanceof BackendNotConfiguredError) return Response.json({ error: "Backend unavailable." }, { status: 503 });
     if (error instanceof SupabaseRequestError) console.error("Unable to delete health document", error.status, error.message);

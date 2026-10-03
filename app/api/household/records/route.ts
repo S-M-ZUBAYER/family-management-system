@@ -89,6 +89,11 @@ export async function DELETE(request: Request) {
     if (!canManage && ownerId !== user.userId) return Response.json({ error: "এই record delete করার permission নেই।" }, { status: 403 });
     if (kind === "household") return Response.json({ error: "Linked history রক্ষার জন্য household delete নয়—Archive করুন।" }, { status: 409 });
     if ((kind === "bill" && existing.status === "paid") || (kind === "maintenance" && existing.status === "completed")) return Response.json({ error: "Paid/completed record audit history-এর জন্য delete করা যাবে না।" }, { status: 409 });
+    const documentEntity = kind === "list" ? "shopping_list" : kind === "bill" || kind === "maintenance" ? kind : null;
+    if (documentEntity) {
+      const attached = (await supabaseRest<Array<{ id: string }>>(`household_documents?${new URLSearchParams({ select: "id", family_id: `eq.${membership.family_id}`, entity_type: `eq.${documentEntity}`, entity_id: `eq.${recordId}`, limit: "1" })}`))[0];
+      if (attached) return Response.json({ error: "Attached documents must be removed before this record can be deleted." }, { status: 409 });
+    }
     await supabaseRest(`${table}?${new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
     await audit(membership.family_id, user.userId, `household_${kind}_deleted`, table, recordId); return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।` });
   } catch (error) { return householdErrorResponse(error, "Unable to delete household record"); }

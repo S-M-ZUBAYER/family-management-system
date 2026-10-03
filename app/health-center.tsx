@@ -2,6 +2,7 @@
 
 import { useActionFeedback } from "@/components/action-modal-provider";
 import { useLocale, type AppLocale } from "@/components/locale-provider";
+import { useCurrentTime } from "@/components/use-current-time";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -179,7 +180,7 @@ export function HealthCenter() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadForm, setUploadForm] = useState<FormState>({ category: "prescription", documentDate: today() });
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [now] = useState(Date.now);
+  const now = useCurrentTime();
   const [sosOpen, setSosOpen] = useState(false);
   const [sosForm, setSosForm] = useState<FormState>({ alertType: "medical" });
   const [location, setLocation] = useState<LocationState>(null);
@@ -191,12 +192,21 @@ export function HealthCenter() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadHealth = useCallback(async () => {
-    setFeedback(null);
     try {
       const response = await fetch("/api/health", { cache: "no-store" });
       const payload = (await response.json()) as HealthPayload;
       if (payload.code === "FAMILY_SETUP_REQUIRED") {
         setSetupRequired(true);
+        setFamily(undefined);
+        setProfile(null);
+        setMedications([]);
+        setAppointments([]);
+        setMeasurements([]);
+        setDocuments([]);
+        setDirectory([]);
+        setAlerts([]);
+        setResponses([]);
+        setCanManageSos(false);
         return;
       }
       if (!response.ok) throw new Error(payload.error ?? pick("স্বাস্থ্য কর্মক্ষেত্র পাওয়া যায়নি।", "Health workspace could not be loaded."));
@@ -213,6 +223,16 @@ export function HealthCenter() {
       setMigrationRequired(Boolean(payload.migrationRequired));
       setSetupRequired(false);
     } catch (error) {
+      setFamily(undefined);
+      setProfile(null);
+      setMedications([]);
+      setAppointments([]);
+      setMeasurements([]);
+      setDocuments([]);
+      setDirectory([]);
+      setAlerts([]);
+      setResponses([]);
+      setCanManageSos(false);
       setFeedback(error instanceof Error ? error.message : pick("স্বাস্থ্য কর্মক্ষেত্র লোড হয়নি।", "Health workspace could not be loaded."));
     } finally {
       setLoading(false);
@@ -230,7 +250,7 @@ export function HealthCenter() {
 
   const activeAlerts = useMemo(() => alerts.filter((alert) => ["active", "acknowledged"].includes(alert.status)), [alerts]);
   const activeMedications = useMemo(() => medications.filter((item) => item.status === "active"), [medications]);
-  const upcomingAppointments = useMemo(() => appointments.filter((item) => item.status === "scheduled" && new Date(item.scheduled_at).getTime() >= now), [appointments, now]);
+  const upcomingAppointments = useMemo(() => appointments.filter((item) => now !== null && item.status === "scheduled" && new Date(item.scheduled_at).getTime() >= now), [appointments, now]);
   const donors = useMemo(() => directory.filter((item) => item.donor_available), [directory]);
   const recentMeasurements = useMemo(() => measurements.slice(0, 6), [measurements]);
   const nextAppointment = upcomingAppointments[0];
@@ -289,6 +309,7 @@ export function HealthCenter() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, data }),
     });
+    if (response.status === 499) return null;
     const payload = (await response.json()) as { record?: unknown; error?: string };
     if (!response.ok || !payload.record) throw new Error(payload.error ?? pick("স্বাস্থ্য রেকর্ড সংরক্ষণ হয়নি।", "Health record could not be saved."));
     return payload.record;
@@ -297,10 +318,9 @@ export function HealthCenter() {
   async function saveProfile() {
     setSaving(true);
     try {
-      await postAction("save_profile", { ...profileForm, donorAvailable });
+      if (!(await postAction("save_profile", { ...profileForm, donorAvailable }))) return;
       setProfileOpen(false);
       await loadHealth();
-      setFeedback(pick("ব্যক্তিগত স্বাস্থ্য প্রোফাইল হালনাগাদ হয়েছে।", "Private health profile was updated."));
     } finally {
       setSaving(false);
     }
@@ -314,16 +334,16 @@ export function HealthCenter() {
       if (recordKind === "medication") data.reminderTimes = recordForm.reminderTimes?.split(",").map((value) => value.trim()).filter(Boolean) ?? [];
       if (editingRecord) {
         const response = await fetch("/api/health/records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: recordKind, recordId: editingRecord.id, data }) });
+        if (response.status === 499) return;
         const payload = await response.json() as { record?: unknown; error?: string };
         if (!response.ok || !payload.record) throw new Error(payload.error ?? pick("স্বাস্থ্য রেকর্ড হালনাগাদ হয়নি।", "Health record could not be updated."));
       } else {
         const action = recordKind === "medication" ? "create_medication" : recordKind === "appointment" ? "create_appointment" : "create_measurement";
-        await postAction(action, data);
+        if (!(await postAction(action, data))) return;
       }
       setRecordKind(null);
       setEditingRecord(null);
       await loadHealth();
-      setFeedback(editingRecord ? pick("স্বাস্থ্য রেকর্ড হালনাগাদ হয়েছে।", "Health record was updated.") : pick("স্বাস্থ্য রেকর্ড সংরক্ষণ হয়েছে।", "Health record was saved."));
     } finally {
       setSaving(false);
     }
@@ -354,10 +374,10 @@ export function HealthCenter() {
     setSaving(true);
     try {
       const response = await fetch("/api/health/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, recordId }) });
+      if (response.status === 499) return;
       const payload = await response.json() as { message?: string; error?: string };
       if (!response.ok) throw new Error(payload.error ?? pick("স্বাস্থ্য রেকর্ড মোছা যায়নি।", "Health record could not be deleted."));
       await loadHealth();
-      setFeedback(payload.message ?? pick("স্বাস্থ্য রেকর্ড মুছে ফেলা হয়েছে।", "Health record was deleted."));
     } finally { setSaving(false); }
   }
 
@@ -365,19 +385,18 @@ export function HealthCenter() {
     setSaving(true);
     try {
       const response = await fetch(`/api/health-document/${id}`, { method: "DELETE" });
+      if (response.status === 499) return;
       const payload = await response.json() as { message?: string; error?: string };
       if (!response.ok) throw new Error(payload.error ?? pick("নথি মোছা যায়নি।", "Document could not be deleted."));
       await loadHealth();
-      setFeedback(payload.message ?? pick("নথি মুছে ফেলা হয়েছে।", "Document was deleted."));
     } finally { setSaving(false); }
   }
 
   async function updateStatus(entity: "medication" | "appointment", id: string, status: string) {
     setSaving(true);
     try {
-      await postAction("update_status", { entity, id, status });
+      if (!(await postAction("update_status", { entity, id, status }))) return;
       await loadHealth();
-      setFeedback(pick("স্ট্যাটাস হালনাগাদ হয়েছে।", "Status was updated."));
     } finally {
       setSaving(false);
     }
@@ -391,6 +410,7 @@ export function HealthCenter() {
       formData.set("file", uploadFile);
       Object.entries(uploadForm).forEach(([key, value]) => formData.set(key, value));
       const response = await fetch("/api/health/upload", { method: "POST", body: formData });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { document?: HealthDocument; error?: string };
       if (!response.ok || !payload.document) throw new Error(payload.error ?? pick("নথি আপলোড হয়নি।", "Document could not be uploaded."));
       setUploadOpen(false);
@@ -398,7 +418,6 @@ export function HealthCenter() {
       setUploadForm({ category: "prescription", documentDate: today() });
       if (fileInputRef.current) fileInputRef.current.value = "";
       await loadHealth();
-      setFeedback(pick("চিকিৎসা ভল্টে নথি সংরক্ষণ হয়েছে।", "The document was saved to the medical vault."));
     } finally {
       setSaving(false);
     }
@@ -427,17 +446,16 @@ export function HealthCenter() {
   async function createSos() {
     setSaving(true);
     try {
-      await postAction("create_sos", {
+      if (!(await postAction("create_sos", {
         ...sosForm,
         latitude: location?.latitude ?? null,
         longitude: location?.longitude ?? null,
         locationAccuracyM: location?.accuracy ?? null,
-      });
+      }))) return;
       setSosOpen(false);
       setSosForm({ alertType: "medical" });
       setLocation(null);
       await loadHealth();
-      setFeedback(pick("SOS সতর্কতা পরিবারের ড্যাশবোর্ডে পাঠানো হয়েছে। স্থানীয় জরুরি সেবায় কল প্রয়োজন হলে নিজে কল করুন।", "The SOS alert was sent to the family dashboard. Call local emergency services yourself if needed."));
     } finally {
       setSaving(false);
     }
@@ -447,11 +465,10 @@ export function HealthCenter() {
     if (!responseTarget) return;
     setSaving(true);
     try {
-      await postAction("respond_sos", { alertId: responseTarget.id, responseType, note: responseNote });
+      if (!(await postAction("respond_sos", { alertId: responseTarget.id, responseType, note: responseNote }))) return;
       setResponseTarget(null);
       setResponseNote("");
       await loadHealth();
-      setFeedback(pick("SOS প্রতিক্রিয়া হালনাগাদ হয়েছে।", "The SOS response was updated."));
     } finally {
       setSaving(false);
     }
@@ -460,9 +477,8 @@ export function HealthCenter() {
   async function closeSos(alert: HealthSosAlert, status: "resolved" | "cancelled") {
     setSaving(true);
     try {
-      await postAction("update_sos", { alertId: alert.id, status, note: status === "resolved" ? "পরিবারের পক্ষ থেকে সমাধান হয়েছে" : "Reporter alert বাতিল করেছেন" });
+      if (!(await postAction("update_sos", { alertId: alert.id, status, note: status === "resolved" ? "পরিবারের পক্ষ থেকে সমাধান হয়েছে" : "Reporter alert বাতিল করেছেন" }))) return;
       await loadHealth();
-      setFeedback(status === "resolved" ? pick("SOS সমাধান হয়েছে।", "SOS was resolved.") : pick("SOS বাতিল হয়েছে।", "SOS was cancelled."));
     } finally {
       setSaving(false);
     }
@@ -615,7 +631,7 @@ export function HealthCenter() {
 
         <TabsContent value="emergency" className="space-y-4">
           <Card className="rounded-3xl shadow-none"><CardHeader><CardTitle>{pick("সক্রিয় ও সাম্প্রতিক SOS সতর্কতা", "Active & recent SOS alerts")}</CardTitle><p className="text-sm text-muted-foreground">{pick("এটি শুধু পারিবারিক সমন্বয়ের জন্য—প্রয়োজনে স্থানীয় জরুরি সেবায় সরাসরি কল করুন।", "For family coordination only—call local emergency services directly when needed.")}</p></CardHeader><CardContent className="space-y-3">{alerts.map((alert) => <SosCard key={alert.id} alert={alert} responses={responses.filter((item) => item.alert_id === alert.id)} onRespond={() => setResponseTarget(alert)} onClose={(status) => void closeSos(alert, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("SOS হালনাগাদ হয়নি।", "Could not update SOS.")))} canClose={alert.is_reporter || canManageSos} />)}{!alerts.length ? <Empty icon={<Ambulance />} title={pick("কোনো SOS ইতিহাস নেই", "No SOS history")} text={pick("জরুরি অবস্থায় SOS বোতাম ব্যবহার করলে সতর্কতা এখানে দেখা যাবে।", "Alerts will appear here when the SOS button is used.")} /> : null}</CardContent></Card>
-          <Card className="rounded-3xl shadow-none"><CardHeader className="flex-row items-center justify-between"><div><CardTitle>{pick("রক্ত ও জরুরি নির্দেশিকা", "Blood & emergency directory")}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{pick("সদস্যরা স্বেচ্ছায় শেয়ার করা তথ্য", "Information members have chosen to share")}</p></div><Badge variant="secondary">{donors.length} {pick("রক্তদাতা", "donors")}</Badge></CardHeader><CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{directory.map((item) => <EmergencyCard key={`${item.member_name}-${item.blood_group}`} item={item} />)}{!directory.length ? <div className="md:col-span-2 xl:col-span-3"><Empty icon={<Droplets />} title={pick("নির্দেশিকা খালি", "Directory is empty")} text={pick("স্বাস্থ্য প্রোফাইলে জরুরি বা ফ্যামিলি দৃশ্যমানতা চালু করলে তথ্য এখানে আসবে।", "Information appears here when emergency or family visibility is enabled in a health profile.")} /></div> : null}</CardContent></Card>
+          <Card className="rounded-3xl shadow-none"><CardHeader className="flex-row items-center justify-between"><div><CardTitle>{pick("রক্ত ও জরুরি নির্দেশিকা", "Blood & emergency directory")}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{pick("সদস্যের স্বাস্থ্য-শেয়ারিং ও Privacy পছন্দ মেনে দেখানো তথ্য", "Information shown according to each member's health sharing and privacy choices")}</p></div><Badge variant="secondary">{donors.length} {pick("রক্তদাতা", "donors")}</Badge></CardHeader><CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{directory.map((item) => <EmergencyCard key={`${item.member_name}-${item.blood_group}`} item={item} />)}{!directory.length ? <div className="md:col-span-2 xl:col-span-3"><Empty icon={<Droplets />} title={pick("নির্দেশিকা খালি", "Directory is empty")} text={pick("স্বাস্থ্য প্রোফাইলে তথ্য শেয়ার এবং Privacy-তে জরুরি নির্দেশিকার অনুমতি দিলে এখানে দেখা যাবে।", "Profiles appear here when health sharing and emergency-directory access are enabled.")} /></div> : null}</CardContent></Card>
         </TabsContent>
       </Tabs>
 
@@ -656,6 +672,6 @@ function SosCard({ alert, responses, onRespond, onClose, canClose }: { alert: He
 
 function EmergencyCard({ item }: { item: EmergencyHealthProfile }) { const { pick } = useLocale(); return <div className="rounded-2xl border p-4"><div className="flex items-center gap-3"><Avatar className="size-10"><AvatarFallback className="text-xs font-bold">{initials(item.member_name)}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="truncate font-semibold">{item.member_name}</p><div className="mt-1 flex gap-2"><Badge variant="outline">{item.blood_group || pick("রক্তের গ্রুপ অজানা", "Blood unknown")}</Badge>{item.donor_available ? <Badge className="bg-rose-600 text-white">{pick("রক্তদাতা", "Donor")}</Badge> : null}</div></div></div>{item.allergies || item.conditions || item.emergency_notes ? <div className="mt-3 space-y-1 rounded-xl bg-muted/60 p-3 text-xs"><p>{item.allergies ? `${pick("অ্যালার্জি", "Allergy")}: ${item.allergies}` : ""}</p><p>{item.conditions ? `${pick("অবস্থা", "Condition")}: ${item.conditions}` : ""}</p><p>{item.emergency_notes || ""}</p></div> : null}{item.emergency_contact_name ? <p className="mt-3 text-xs text-muted-foreground">{pick("জরুরি যোগাযোগ", "Emergency")}: {item.emergency_contact_name} · {item.emergency_contact_phone}</p> : null}</div>; }
 
-function ProfileForm({ form, setForm, donorAvailable, setDonorAvailable }: { form: FormState; setForm: (value: FormState) => void; donorAvailable: boolean; setDonorAvailable: (value: boolean) => void }) { const { pick } = useLocale(); const set = (key: string, value: string) => setForm({ ...form, [key]: value }); return <div className="grid gap-4 py-2 sm:grid-cols-2"><Field label="Blood group" id="health-blood"><Select value={form.bloodGroup} onValueChange={(value) => set("bloodGroup", value)}><SelectTrigger id="health-blood"><SelectValue /></SelectTrigger><SelectContent>{["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Unknown"].map((value) => <SelectItem key={value} value={value}>{value === "Unknown" ? pick("অজানা", "Unknown") : value}</SelectItem>)}</SelectContent></Select></Field><Field label="Date of birth" id="health-dob"><Input id="health-dob" type="date" value={form.dateOfBirth} onChange={(event) => set("dateOfBirth", event.target.value)} /></Field><Field label="Height (cm)" id="health-height"><Input id="health-height" type="number" value={form.heightCm} onChange={(event) => set("heightCm", event.target.value)} /></Field><Field label="Weight (kg)" id="health-weight"><Input id="health-weight" type="number" value={form.weightKg} onChange={(event) => set("weightKg", event.target.value)} /></Field><Field label="Conditions" id="health-conditions"><Textarea id="health-conditions" value={form.conditions} onChange={(event) => set("conditions", event.target.value)} /></Field><Field label="Allergies" id="health-allergies"><Textarea id="health-allergies" value={form.allergies} onChange={(event) => set("allergies", event.target.value)} /></Field><Field label="Primary doctor" id="health-doctor"><Input id="health-doctor" value={form.doctorName} onChange={(event) => set("doctorName", event.target.value)} /></Field><Field label="Doctor phone" id="health-doctor-phone"><Input id="health-doctor-phone" value={form.doctorPhone} onChange={(event) => set("doctorPhone", event.target.value)} /></Field><Field label="Emergency contact" id="health-emergency-name"><Input id="health-emergency-name" value={form.emergencyContactName} onChange={(event) => set("emergencyContactName", event.target.value)} /></Field><Field label="Emergency phone" id="health-emergency-phone"><Input id="health-emergency-phone" value={form.emergencyContactPhone} onChange={(event) => set("emergencyContactPhone", event.target.value)} /></Field><div className="sm:col-span-2"><Field label="Emergency notes" id="health-emergency-notes"><Textarea id="health-emergency-notes" value={form.emergencyNotes} onChange={(event) => set("emergencyNotes", event.target.value)} /></Field></div><div className="rounded-2xl border p-4"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold">{pick("রক্তদানে উপলভ্য", "Blood donor available")}</p><p className="text-xs text-muted-foreground">{pick("ফ্যামিলি ডিরেক্টরিতে নাম ও রক্তের গ্রুপ দেখাবে", "Shows your name and blood group in the family directory")}</p></div><Switch checked={donorAvailable} onCheckedChange={setDonorAvailable} /></div>{donorAvailable ? <Input className="mt-3" type="date" value={form.lastDonationDate} onChange={(event) => set("lastDonationDate", event.target.value)} /> : null}</div><div className="space-y-2 rounded-2xl border p-4"><Label>{pick("গোপনীয়তা ও শেয়ারিং", "Privacy & sharing")}</Label><Select value={form.visibility} onValueChange={(value) => set("visibility", value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="private">{pick("ব্যক্তিগত — শুধু আমি", "Private — only me")}</SelectItem><SelectItem value="emergency">{pick("জরুরি তথ্য পরিবার দেখতে পারবে", "Emergency details visible to family")}</SelectItem><SelectItem value="family">{pick("নির্বাচিত স্বাস্থ্য সারাংশ পরিবার দেখতে পারবে", "Selected health summary visible to family")}</SelectItem></SelectContent></Select></div></div>; }
+function ProfileForm({ form, setForm, donorAvailable, setDonorAvailable }: { form: FormState; setForm: (value: FormState) => void; donorAvailable: boolean; setDonorAvailable: (value: boolean) => void }) { const { pick } = useLocale(); const set = (key: string, value: string) => setForm({ ...form, [key]: value }); return <div className="grid gap-4 py-2 sm:grid-cols-2"><Field label="Blood group" id="health-blood"><Select value={form.bloodGroup} onValueChange={(value) => set("bloodGroup", value)}><SelectTrigger id="health-blood"><SelectValue /></SelectTrigger><SelectContent>{["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Unknown"].map((value) => <SelectItem key={value} value={value}>{value === "Unknown" ? pick("অজানা", "Unknown") : value}</SelectItem>)}</SelectContent></Select></Field><Field label="Date of birth" id="health-dob"><Input id="health-dob" type="date" value={form.dateOfBirth} onChange={(event) => set("dateOfBirth", event.target.value)} /></Field><Field label="Height (cm)" id="health-height"><Input id="health-height" type="number" value={form.heightCm} onChange={(event) => set("heightCm", event.target.value)} /></Field><Field label="Weight (kg)" id="health-weight"><Input id="health-weight" type="number" value={form.weightKg} onChange={(event) => set("weightKg", event.target.value)} /></Field><Field label="Conditions" id="health-conditions"><Textarea id="health-conditions" value={form.conditions} onChange={(event) => set("conditions", event.target.value)} /></Field><Field label="Allergies" id="health-allergies"><Textarea id="health-allergies" value={form.allergies} onChange={(event) => set("allergies", event.target.value)} /></Field><Field label="Primary doctor" id="health-doctor"><Input id="health-doctor" value={form.doctorName} onChange={(event) => set("doctorName", event.target.value)} /></Field><Field label="Doctor phone" id="health-doctor-phone"><Input id="health-doctor-phone" value={form.doctorPhone} onChange={(event) => set("doctorPhone", event.target.value)} /></Field><Field label="Emergency contact" id="health-emergency-name"><Input id="health-emergency-name" value={form.emergencyContactName} onChange={(event) => set("emergencyContactName", event.target.value)} /></Field><Field label="Emergency phone" id="health-emergency-phone"><Input id="health-emergency-phone" value={form.emergencyContactPhone} onChange={(event) => set("emergencyContactPhone", event.target.value)} /></Field><div className="sm:col-span-2"><Field label="Emergency notes" id="health-emergency-notes"><Textarea id="health-emergency-notes" value={form.emergencyNotes} onChange={(event) => set("emergencyNotes", event.target.value)} /></Field></div><div className="rounded-2xl border p-4"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold">{pick("রক্তদানে উপলভ্য", "Blood donor available")}</p><p className="text-xs text-muted-foreground">{pick("Privacy-তে জরুরি নির্দেশিকার অনুমতি থাকলে নাম ও রক্তের গ্রুপ দেখাবে", "Shows your name and blood group when emergency-directory access is allowed in Privacy")}</p></div><Switch checked={donorAvailable} onCheckedChange={setDonorAvailable} /></div>{donorAvailable ? <Input className="mt-3" type="date" value={form.lastDonationDate} onChange={(event) => set("lastDonationDate", event.target.value)} /> : null}</div><div className="space-y-2 rounded-2xl border p-4"><Label>{pick("গোপনীয়তা ও শেয়ারিং", "Privacy & sharing")}</Label><Select value={form.visibility} onValueChange={(value) => set("visibility", value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="private">{pick("ব্যক্তিগত — শুধু আমি", "Private — only me")}</SelectItem><SelectItem value="emergency">{pick("জরুরি তথ্য পরিবার দেখতে পারবে", "Emergency details visible to family")}</SelectItem><SelectItem value="family">{pick("নির্বাচিত স্বাস্থ্য সারাংশ পরিবার দেখতে পারবে", "Selected health summary visible to family")}</SelectItem></SelectContent></Select></div></div>; }
 
 function RecordForm({ kind, form, setForm }: { kind: RecordKind; form: FormState; setForm: (value: FormState) => void }) { const set = (key: string, value: string) => setForm({ ...form, [key]: value }); if (kind === "medication") return <div className="grid gap-4 py-2 sm:grid-cols-2"><Field label="Medicine" id="med-name"><Input id="med-name" value={form.medicineName ?? ""} onChange={(event) => set("medicineName", event.target.value)} /></Field><Field label="Dosage" id="med-dose"><Input id="med-dose" value={form.dosage ?? ""} onChange={(event) => set("dosage", event.target.value)} placeholder="যেমন: ১ tablet" /></Field><Field label="Frequency" id="med-frequency"><Input id="med-frequency" value={form.frequency ?? ""} onChange={(event) => set("frequency", event.target.value)} /></Field><Field label="Reminder times (comma separated)" id="med-times"><Input id="med-times" value={form.reminderTimes ?? ""} onChange={(event) => set("reminderTimes", event.target.value)} /></Field><Field label="Start date" id="med-start"><Input id="med-start" type="date" value={form.startDate ?? ""} onChange={(event) => set("startDate", event.target.value)} /></Field><Field label="End date" id="med-end"><Input id="med-end" type="date" value={form.endDate ?? ""} onChange={(event) => set("endDate", event.target.value)} /></Field><Field label="Prescribing doctor" id="med-doctor"><Input id="med-doctor" value={form.prescribingDoctor ?? ""} onChange={(event) => set("prescribingDoctor", event.target.value)} /></Field><Field label="Instructions" id="med-instructions"><Textarea id="med-instructions" value={form.instructions ?? ""} onChange={(event) => set("instructions", event.target.value)} /></Field></div>; if (kind === "appointment") return <div className="grid gap-4 py-2 sm:grid-cols-2"><Field label="Appointment title" id="appt-title"><Input id="appt-title" value={form.title ?? ""} onChange={(event) => set("title", event.target.value)} /></Field><Field label="Doctor" id="appt-doctor"><Input id="appt-doctor" value={form.doctorName ?? ""} onChange={(event) => set("doctorName", event.target.value)} /></Field><Field label="Facility" id="appt-facility"><Input id="appt-facility" value={form.facility ?? ""} onChange={(event) => set("facility", event.target.value)} /></Field><Field label="Schedule" id="appt-time"><Input id="appt-time" type="datetime-local" value={form.scheduledAt ?? ""} onChange={(event) => set("scheduledAt", event.target.value)} /></Field><Field label="Reminder minutes before" id="appt-reminder"><Input id="appt-reminder" type="number" value={form.reminderMinutes ?? "60"} onChange={(event) => set("reminderMinutes", event.target.value)} /></Field><Field label="Notes" id="appt-notes"><Textarea id="appt-notes" value={form.notes ?? ""} onChange={(event) => set("notes", event.target.value)} /></Field></div>; const measurementType = (form.measurementType || "blood_pressure") as HealthMeasurement["measurement_type"]; return <div className="grid gap-4 py-2 sm:grid-cols-2"><Field label="Measurement" id="log-type"><Select value={measurementType} onValueChange={(value) => setForm({ ...form, measurementType: value, unit: typeUnits[value as HealthMeasurement["measurement_type"]], valueSecondary: "" })}><SelectTrigger id="log-type"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(typeLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field><Field label="Primary value" id="log-primary"><Input id="log-primary" type="number" step="0.01" value={form.valuePrimary ?? ""} onChange={(event) => set("valuePrimary", event.target.value)} /></Field>{measurementType === "blood_pressure" ? <Field label="Secondary / diastolic" id="log-secondary"><Input id="log-secondary" type="number" value={form.valueSecondary ?? ""} onChange={(event) => set("valueSecondary", event.target.value)} /></Field> : null}<Field label="Unit" id="log-unit"><Input id="log-unit" value={form.unit ?? ""} onChange={(event) => set("unit", event.target.value)} /></Field><Field label="Measured at" id="log-time"><Input id="log-time" type="datetime-local" value={form.measuredAt ?? ""} onChange={(event) => set("measuredAt", event.target.value)} /></Field><Field label="Notes" id="log-notes"><Textarea id="log-notes" value={form.notes ?? ""} onChange={(event) => set("notes", event.target.value)} /></Field></div>; }

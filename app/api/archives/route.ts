@@ -2,6 +2,7 @@ import { getChatGPTUser } from "@/app/chatgpt-auth";
 import type { ArchiveCollection, ArchiveFile, ArchiveMemory, ArchivePayload, ArchiveStory, FamilyAsset, TimeCapsule, VaultDocument } from "@/lib/archive-types";
 import { canManageArchives, getActiveFamilyMembership } from "@/lib/family-access";
 import { PROFILE_PHOTO_COLLECTION, PROFILE_PHOTO_MARKER } from "@/lib/member-privacy";
+import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
 import { BackendNotConfiguredError, isBackendConfigured, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 
 type CollectionRow = Omit<ArchiveCollection, "is_mine">;
@@ -11,7 +12,20 @@ type DocumentRow = Omit<VaultDocument, "is_mine">;
 type CapsuleRow = Omit<TimeCapsule, "is_mine" | "is_unlocked">;
 type FileRow = Omit<ArchiveFile, "is_mine">;
 
+async function readAllArchiveRows<T>(table: string, query: URLSearchParams): Promise<T[]> {
+  return collectPaginatedRows(
+    (offset, limit) => {
+      const pageQuery = new URLSearchParams(query);
+      pageQuery.set("offset", String(offset));
+      pageQuery.set("limit", String(limit));
+      return supabaseRest<T[]>(`${table}?${pageQuery}`);
+    },
+    { pageSize: 500, maxRows: 20000 },
+  );
+}
+
 export function archiveErrorResponse(error: unknown, label: string) {
+  if (error instanceof PaginatedRowLimitError) return Response.json({ code: "ARCHIVE_ROW_LIMIT", maxRows: error.maxRows, error: `Archive history exceeds ${error.maxRows} rows in one section. No partial data was shown; contact support for a paged export.` }, { status: 413 });
   if (error instanceof BackendNotConfiguredError) return Response.json({ error: "PostgreSQL connection configured নয়।" }, { status: 503 });
   if (error instanceof SupabaseRequestError) { console.error(label, error.status, error.message); return Response.json({ error: "Archive data সাময়িকভাবে পাওয়া যাচ্ছে না।" }, { status: 502 }); }
   console.error(label, error); return Response.json({ error: "Archive request সম্পন্ন হয়নি।" }, { status: 500 });
@@ -29,15 +43,15 @@ export async function GET() {
     try {
       const family_id = `eq.${membership.family_id}`, query = (select: string, order: string) => new URLSearchParams({ select, family_id, order });
       [collections, memories, stories, documents, assets, capsules, files] = await Promise.all([
-        supabaseRest<CollectionRow[]>(`archive_collections?${query("id,name,description,collection_type,cover_color,visibility,status,created_by_user_id,created_by_name,created_at", "status.asc,created_at.desc")}`),
-        supabaseRest<MemoryRow[]>(`archive_memories?${query("id,collection_id,title,description,memory_type,memory_date,place,people_tags,visibility,status,uploaded_by_user_id,uploaded_by_name,created_at", "memory_date.desc.nullslast,created_at.desc")}`),
-        supabaseRest<StoryRow[]>(`archive_stories?${query("id,title,content,story_date,storyteller,people_tags,place,visibility,status,author_user_id,author_name,created_at,updated_at", "story_date.desc.nullslast,created_at.desc")}`),
-        supabaseRest<DocumentRow[]>(`archive_vault_documents?${query("id,title,category,owner_name,document_number_masked,issue_date,expiry_date,issuer,notes,visibility,uploaded_by_user_id,uploaded_by_name,created_at,updated_at", "expiry_date.asc.nullslast,created_at.desc")}`),
-        supabaseRest<FamilyAsset[]>(`family_assets?${query("id,title,asset_type,ownership,location,identifier_masked,acquisition_date,estimated_value,notes,visibility,status,created_at,updated_at", "status.asc,asset_type.asc,created_at.desc")}`),
-        supabaseRest<CapsuleRow[]>(`time_capsules?${query("id,title,message,recipient_names,unlock_at,visibility,status,created_by_user_id,created_by_name,opened_at,created_at", "unlock_at.asc,created_at.desc")}`),
-        supabaseRest<FileRow[]>(`archive_files?${query("id,entity_type,entity_id,file_name,mime_type,file_size,visibility,uploaded_by_user_id,uploaded_by_name,created_at", "created_at.desc")}`),
+        readAllArchiveRows<CollectionRow>("archive_collections", query("id,name,description,collection_type,cover_color,visibility,status,created_by_user_id,created_by_name,created_at", "status.asc,created_at.desc,id.asc")),
+        readAllArchiveRows<MemoryRow>("archive_memories", query("id,collection_id,title,description,memory_type,memory_date,place,people_tags,visibility,status,uploaded_by_user_id,uploaded_by_name,created_at", "memory_date.desc.nullslast,created_at.desc,id.asc")),
+        readAllArchiveRows<StoryRow>("archive_stories", query("id,title,content,story_date,storyteller,people_tags,place,visibility,status,author_user_id,author_name,created_at,updated_at", "story_date.desc.nullslast,created_at.desc,id.asc")),
+        readAllArchiveRows<DocumentRow>("archive_vault_documents", query("id,title,category,owner_name,document_number_masked,issue_date,expiry_date,issuer,notes,visibility,uploaded_by_user_id,uploaded_by_name,created_at,updated_at", "expiry_date.asc.nullslast,created_at.desc,id.asc")),
+        readAllArchiveRows<FamilyAsset>("family_assets", query("id,title,asset_type,ownership,location,identifier_masked,acquisition_date,estimated_value,notes,visibility,status,created_at,updated_at", "status.asc,asset_type.asc,created_at.desc,id.asc")),
+        readAllArchiveRows<CapsuleRow>("time_capsules", query("id,title,message,recipient_names,unlock_at,visibility,status,created_by_user_id,created_by_name,opened_at,created_at", "unlock_at.asc,created_at.desc,id.asc")),
+        readAllArchiveRows<FileRow>("archive_files", query("id,entity_type,entity_id,file_name,mime_type,file_size,visibility,uploaded_by_user_id,uploaded_by_name,created_at", "created_at.desc,id.asc")),
       ]);
-    } catch (error) { if (error instanceof SupabaseRequestError) migrationRequired = true; else throw error; }
+    } catch (error) { if (error instanceof SupabaseRequestError && /PGRST205|42P01|42703/.test(error.message)) migrationRequired = true; else throw error; }
     const allowed = (visibility: string, ownerId: string) => visibility === "family" || (visibility === "admins" && canManage) || ownerId === user.userId;
     // Profile images belong to the directory, not the general family archive.
     collections = collections.filter((item) => item.name !== PROFILE_PHOTO_COLLECTION && allowed(item.visibility, item.created_by_user_id));
