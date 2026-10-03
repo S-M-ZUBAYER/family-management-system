@@ -8,7 +8,7 @@ This is a scoped browser-test record, **not** a declaration that the product or 
 | --- | --- |
 | Families, locale, theme | Earlier in the same acceptance batch: switched between two synthetic families; switched Bengali/English and dark/light. Dark is the first-visit default. |
 | Directory/tree | Earlier: 2 families each seeded with 22 profiles and 36 parent/spouse relationships; created and edited 2 additional Nojir QA profiles. Member-profile hard delete is not exposed. |
-| Qurbani | Earlier: campaign created and participant/share created, read, edited, deleted. This session: vendor created, read, edited, deleted with confirmation and success dialogs. The empty 2027 QA campaign remains. |
+| Qurbani | Earlier: campaign created and participant/share created, read, edited, deleted; vendor created, read, edited, deleted. Latest pass: created QA animal `QA-COW-2027-01`, edited its health/price and confirmed its purchased status persisted after reload. Cancelled an animal edit and a permanent-delete confirmation; the record remained. Created QA miscellaneous collection `QA-COLL-2027-01` for ৳1,000.25, edited it to ৳1,200.50, then permanently deleted it; the ledger returned to zero. The QA animal remains in the 2027 campaign for later schedule/distribution tests. Animal hard deletion and expense/refund entries were not tested. |
 | Notices | Published a QA notice, read after reload, edited, then deleted. The edit-time UTC/local shift was fixed and the unchanged time retested. |
 | Events | Created a QA event, read, edited, RSVP'd, commented, and deleted it with its linked QA data. The edit-time UTC/local shift was fixed and the unchanged time retested. |
 | Personal finance | Created/edited/deleted a private QA wallet; created/edited/deleted an expense and checked balance 1000 → 900 → 880 → 1000. |
@@ -33,14 +33,17 @@ All tested mutations used a confirmation dialog and a closeable result dialog, e
 - `app/health-center.tsx`: remove redundant mutation success feedback; stop SOS create/respond/close processing if its confirmation is declined.
 - `app/privacy-center.tsx`: remove redundant success feedback from consent, policy and data-rights request mutations.
 - `app/magazine-center.tsx` and `app/governance-center.tsx`: accessible labels for action-menu buttons.
+- `lib/qurbani-action-copy.ts` and `components/action-modal-provider.tsx`: make Qurbani record create/edit/delete confirmations identify the record and operation; warn explicitly when deletion is permanent; show locale-specific success messages instead of mixed-language API copy. `scripts/test-qurbani-action-copy.mjs` covers both locales and unknown kinds. The updated Bengali animal edit success and cancelled delete warning were browser-verified.
 
 ## Checks passed after code changes
 
 `npm.cmd run lint`, `npx.cmd tsc --noEmit --incremental false`, `npm.cmd run build`, `npm.cmd run security:audit`, `npm.cmd run cancellation:audit` (76 client handlers), `npm.cmd run i18n:audit` (2884 reviewed literal pairs), all 19 configured `test:*` scripts, and `git diff --check` passed on 2026-10-03. Lint, typecheck, build and audits were rerun after the final Privacy patch; the 19 scripts were run before that patch, which did not change their imported policy/utility code. The first incremental TypeScript attempt could not write `tsconfig.tsbuildinfo` under the local sandbox; the nonincremental typecheck passed. Build was run with approved write permission and passed. These are local checks, not a deployed test.
 
+After the latest Qurbani-dialog change, the new focused action-copy test (2 cases), nonincremental TypeScript check, full lint, security/cancellation/i18n audits, all 20 configured `test:*` scripts, diff check and production build passed. The first sandboxed build hit the same Windows `spawn EPERM` restriction; the approved unrestricted rerun passed. This does not constitute deployed or two-user acceptance.
+
 ## Still required before claiming full acceptance
 
-1. Test each remaining Qurbani submodule (animal/health, payments and expenses, schedules, volunteer tasks, meat/package distribution, settlement/finalization) with valid and invalid amounts/dates, status transitions, cancellation, exports and role restrictions. Preserve the existing finalization guard.
+1. Continue Qurbani acceptance: animal creation/edit/purchased status and a miscellaneous collection create/edit/delete are now covered, but animal hard delete, participant-linked payments, expenses/refunds, schedules, volunteer tasks, meat/package distribution, settlement/finalization, invalid inputs, actual XLSX contents and role restrictions are still open. Preserve the existing finalization guard.
 2. UI-test member join request → pending → approval/rejection/suspension with **separate real authenticated accounts**, and repeat representative direct-ID reads/mutations across both families. The current mock owner cannot prove isolation or member privacy.
 3. UI-test Household bills, tasks, maintenance, service contacts, receipts; Welfare assistance, expenses, pledges and documents; Health appointments, measurements, real SOS response/resolve; Archives vault files, stories, assets and time capsules; Governance formal decisions; Admin member-role changes, Privacy policy/data fulfillment and Contact ticket role isolation/exports.
 4. Download and inspect actual XLSX contents/headers/totals from every major section, not merely confirm buttons exist. Test file upload/download/access revocation and failure recovery with a configured private storage binding.

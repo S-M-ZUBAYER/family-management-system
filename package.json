@@ -18,6 +18,7 @@
     "test:notifications": "node scripts/test-notification-visibility.mjs",
     "test:feedback": "node scripts/test-action-feedback.mjs",
     "test:qurbani": "node scripts/test-qurbani-policy.mjs",
+    "test:qurbani-action-copy": "node scripts/test-qurbani-action-copy.mjs",
     "test:qurbani-validation": "node scripts/test-qurbani-validation.mjs",
     "test:qurbani-money-total": "node scripts/test-qurbani-money-total.mjs",
     "test:pagination": "node scripts/test-paginated-rows.mjs",

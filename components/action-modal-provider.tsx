@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useLocale, type AppLocale } from "@/components/locale-provider";
 import { feedbackResult, mutationResponseResult, type ResultState } from "@/lib/action-feedback";
+import { qurbaniRecordActionCopy } from "@/lib/qurbani-action-copy";
 import {
   Dialog,
   DialogClose,
@@ -196,6 +197,10 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
 
   const action = typeof body.action === "string" ? body.action : "";
   if (pathname === "/api/chat" && action === "mark_read") return null;
+  if (pathname === "/api/qurbani/records") {
+    const recordCopy = qurbaniRecordActionCopy(body.kind, method, locale);
+    if (recordCopy) return recordCopy;
+  }
 
   const nested = typeof body.data === "object" && body.data ? body.data as Record<string, unknown> : {};
   const decision = typeof body.decision === "string" ? body.decision : "";
@@ -339,7 +344,9 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
       try {
         const response = await originalFetch(input, init);
         if (mounted.current) {
-          const message = await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."));
+          const message = response.ok && url.pathname === "/api/qurbani/records"
+            ? copy.successMessage
+            : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."));
           const nextResult = mutationResponseResult(response.status, message, locale);
           lastMutationResult.current = { kind: nextResult.kind, at: Date.now() };
           showResult(nextResult);
