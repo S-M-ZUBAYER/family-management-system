@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useLocale, type AppLocale } from "@/components/locale-provider";
 import { feedbackResult, mutationResponseResult, repeatsMutationFeedback, type ResultState } from "@/lib/action-feedback";
+import { householdActionCopy } from "@/lib/household-action-copy";
 import { qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "@/lib/qurbani-action-copy";
 import {
   Dialog,
@@ -205,6 +206,10 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
     const statusCopy = qurbaniStatusActionCopy(body.entity, body.status, method, locale);
     if (statusCopy) return statusCopy;
   }
+  if (pathname === "/api/household/records") {
+    const householdCopy = householdActionCopy(body, method, locale);
+    if (householdCopy) return householdCopy;
+  }
 
   const nested = typeof body.data === "object" && body.data ? body.data as Record<string, unknown> : {};
   const decision = typeof body.decision === "string" ? body.decision : "";
@@ -347,7 +352,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
       try {
         const response = await originalFetch(input, init);
         if (mounted.current) {
-          const message = response.ok && url.pathname === "/api/qurbani/records"
+          const message = response.ok && ["/api/qurbani/records", "/api/household/records"].includes(url.pathname)
             ? copy.successMessage
             : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."));
           const nextResult = mutationResponseResult(response.status, message, locale);

@@ -638,6 +638,8 @@ If deployment fails, preserve the source and record the exact stage/error. Do no
 
 ## 16. Definition of done for the complete product
 
+For the current page-by-page acceptance state and remaining routes, read `QA_ROUTE_MATRIX.md` alongside `QA_ACCEPTANCE_2026-10-03.md`. The latest Household slice fixed date-input reversion, local timestamp drift and mixed-language copy; a skipped QA utility bill and completed QA household task remain in the Nojir fixture. The owner explicitly requested that the QA bill be kept. Local acceptance is still partial, and the existing hosted Site has not been updated from this checkout by this account.
+
 The project is truly complete only when:
 
 - Every promised module works end-to-end with real persistent data and correct authorization.
