@@ -5,6 +5,7 @@ import { useLocale, type AppLocale } from "@/components/locale-provider";
 import { qurbaniIsoToLocalDateTime, qurbaniLocalDateTimeToIso } from "@/lib/qurbani-validation";
 import { qurbaniMoneyOutstanding, qurbaniMoneyTotal } from "@/lib/qurbani-money-total";
 import { qurbaniDistributionTotals } from "@/lib/qurbani-distribution-totals";
+import { qurbaniPaymentReconciliation } from "@/lib/qurbani-payment-reconciliation";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
@@ -279,6 +280,10 @@ export function QurbaniSuite() {
     () => transactions.filter((item) => item.campaign_id === selectedCampaignId),
     [transactions, selectedCampaignId],
   );
+  const paymentReconciliation = useMemo(
+    () => qurbaniPaymentReconciliation(campaignParticipants, campaignTransactions),
+    [campaignParticipants, campaignTransactions],
+  );
   const campaignVendors = useMemo(
     () => vendors.filter((item) => item.campaign_id === selectedCampaignId),
     [vendors, selectedCampaignId],
@@ -485,7 +490,8 @@ export function QurbaniSuite() {
         body: JSON.stringify({ entity, id, status }),
       });
       if (response.status === 499) return;
-      const payload = (await response.json()) as { record?: unknown; error?: string };
+      const payload = (await response.json()) as { record?: unknown; error?: string; code?: string };
+      if (payload.code === "QURBANI_PAYMENT_RECONCILIATION_REQUIRED") throw new Error(pick("অংশগ্রহণকারীর নথিভুক্ত পরিশোধ ও সংযুক্ত খতিয়ান মিলছে না। আগে হিসাব মিলিয়ে নিন।", "Participant recorded payments do not match linked ledger entries. Reconcile them before settlement."));
       if (!response.ok || !payload.record) throw new Error(payload.error ?? pick("স্ট্যাটাস হালনাগাদ হয়নি।", "Status could not be updated."));
       if (!(await loadQurbani())) return;
       setFeedback(pick("স্ট্যাটাস হালনাগাদ হয়েছে।", "Status updated."));
@@ -509,7 +515,10 @@ export function QurbaniSuite() {
           [pick("লক্ষ্য শেয়ার", "Target shares")]: numberOf(campaign.target_shares),
           [pick("নিবন্ধিত শেয়ার", "Registered shares")]: totals.shares,
           [pick("অংশগ্রহণকারীর পাওনা", "Participant dues")]: totals.due,
-          [pick("অংশগ্রহণকারীর পরিশোধ", "Participant paid")]: totals.paid,
+          [pick("অংশগ্রহণকারীর নথিভুক্ত পরিশোধ", "Participant recorded paid")]: totals.paid,
+          [pick("সংযুক্ত খতিয়ানে পরিশোধ", "Linked ledger paid")]: paymentReconciliation.ledgerPaidTotal,
+          [pick("পরিশোধ অমিলের সংখ্যা", "Payment mismatch count")]: paymentReconciliation.mismatchCount,
+          [pick("অসংযুক্ত শেয়ার এন্ট্রি", "Unmatched share entries")]: paymentReconciliation.unmatchedEntries,
           [pick("বকেয়া", "Outstanding")]: totals.outstanding,
           [pick("খতিয়ান সংগ্রহ", "Ledger collection")]: totals.collected,
           [pick("খরচ", "Expenses")]: totals.expenses,
@@ -533,7 +542,9 @@ export function QurbaniSuite() {
     [pick("পশু", "Animal")]: campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code ?? "",
     [pick("শেয়ার", "Shares")]: numberOf(item.share_count),
     [pick("পাওনা", "Due")]: numberOf(item.amount_due),
-    [pick("পরিশোধিত", "Paid")]: numberOf(item.amount_paid),
+    [pick("নথিভুক্ত পরিশোধ", "Recorded paid")]: numberOf(item.amount_paid),
+    [pick("খতিয়ানে পরিশোধ", "Ledger paid")]: paymentReconciliation.byParticipant.get(item.id)?.ledgerPaid ?? 0,
+    [pick("পরিশোধ অমিল", "Payment difference")]: paymentReconciliation.byParticipant.get(item.id)?.difference ?? 0,
     [pick("বকেয়া", "Outstanding")]: qurbaniMoneyOutstanding(item.amount_due, item.amount_paid),
     [pick("স্ট্যাটাস", "Status")]: statusLabel(item.status, locale),
     [pick("নোট", "Notes")]: item.notes ?? "",
@@ -625,6 +636,7 @@ export function QurbaniSuite() {
         const refunds = total("refund");
         const due = qurbaniMoneyTotal(active.map((entry) => entry.amount_due));
         const paid = qurbaniMoneyTotal(active.map((entry) => entry.amount_paid));
+        const annualPayments = qurbaniPaymentReconciliation(participants.filter((entry) => entry.campaign_id === item.id), entries);
         const annualDistribution = qurbaniDistributionTotals(distributions.filter((entry) => entry.campaign_id === item.id));
         return {
           [pick("বছর", "Year")]: item.year,
@@ -633,7 +645,10 @@ export function QurbaniSuite() {
           [pick("স্ট্যাটাস", "Status")]: campaignStatusLabels[item.status],
           [pick("শেয়ার", "Shares")]: active.reduce((sum, entry) => sum + numberOf(entry.share_count), 0),
           [pick("পাওনা", "Due")]: due,
-          [pick("পরিশোধিত", "Paid")]: paid,
+          [pick("নথিভুক্ত পরিশোধ", "Recorded paid")]: paid,
+          [pick("সংযুক্ত খতিয়ানে পরিশোধ", "Linked ledger paid")]: annualPayments.ledgerPaidTotal,
+          [pick("পরিশোধ অমিলের সংখ্যা", "Payment mismatch count")]: annualPayments.mismatchCount,
+          [pick("অসংযুক্ত শেয়ার এন্ট্রি", "Unmatched share entries")]: annualPayments.unmatchedEntries,
           [pick("বকেয়া", "Outstanding")]: qurbaniMoneyOutstanding(due, paid),
           [pick("সংগ্রহ", "Collections")]: collected,
           [pick("খরচ", "Expenses")]: expenses,
@@ -715,6 +730,9 @@ export function QurbaniSuite() {
             finance: {
               participantDue: totals.due,
               participantPaid: totals.paid,
+              participantLedgerPaid: paymentReconciliation.ledgerPaidTotal,
+              paymentMismatchCount: paymentReconciliation.mismatchCount,
+              unmatchedShareEntries: paymentReconciliation.unmatchedEntries,
               ledgerCollection: totals.collected,
               expense: totals.expenses,
               balance: totals.balance,
@@ -728,7 +746,7 @@ export function QurbaniSuite() {
       ),
     ).catch(() => undefined);
     return () => lifecycle.abort();
-  }, [campaign, campaignAnimals.length, totals]);
+  }, [campaign, campaignAnimals.length, paymentReconciliation, totals]);
 
   if (setupRequired) {
     return (
@@ -845,12 +863,20 @@ export function QurbaniSuite() {
         <>
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
             <Metric icon={<Users />} label={pick("নিবন্ধিত শেয়ার", "Registered shares")} value={numberFormatter.format(totals.shares) + " / " + numberFormatter.format(numberOf(campaign.target_shares))} note={pick(Math.round(shareProgress) + "% পূর্ণ", Math.round(shareProgress) + "% filled")} />
-            <Metric icon={<HandCoins />} label={pick("পরিশোধ", "Payments")} value={moneyFormatter.format(totals.paid)} note={pick(moneyFormatter.format(totals.outstanding) + " বকেয়া", moneyFormatter.format(totals.outstanding) + " outstanding")} />
+            <Metric icon={<HandCoins />} label={pick("নথিভুক্ত পরিশোধ", "Recorded payments")} value={moneyFormatter.format(totals.paid)} note={pick(moneyFormatter.format(paymentReconciliation.ledgerPaidTotal) + " সংযুক্ত খতিয়ান · " + moneyFormatter.format(totals.outstanding) + " বকেয়া", moneyFormatter.format(paymentReconciliation.ledgerPaidTotal) + " linked ledger · " + moneyFormatter.format(totals.outstanding) + " outstanding")} />
             <Metric icon={<CircleDollarSign />} label={pick("Ledger balance", "Ledger balance")} value={moneyFormatter.format(totals.balance)} note={pick(moneyFormatter.format(totals.expenses) + " খরচ", moneyFormatter.format(totals.expenses) + " expenses")} />
             <Metric icon={<Truck />} label={pick("মোট পশু", "Total animals")} value={numberFormatter.format(campaignAnimals.length)} note={pick(moneyFormatter.format(totals.animalBudget) + " ক্রয় বাজেট", moneyFormatter.format(totals.animalBudget) + " procurement")} />
             <Metric icon={<Scale />} label={pick("মাংস বণ্টনের অগ্রগতি", "Meat progress")} value={numberFormatter.format(totals.distributed) + " kg"} note={pick(numberFormatter.format(totals.pendingKg) + " kg সংগ্রহ বাকি · " + numberFormatter.format(totals.meatEstimate) + " kg আনুমানিক", numberFormatter.format(totals.pendingKg) + " kg pending collection · " + numberFormatter.format(totals.meatEstimate) + " kg estimated")} />
             <Metric icon={<ClipboardCheck />} label={pick("বাকি কাজ", "Open tasks")} value={numberFormatter.format(totals.openTasks)} note={pick(numberFormatter.format(campaignTasks.length) + "টি মোট কাজ", numberFormatter.format(campaignTasks.length) + " total tasks")} />
           </section>
+
+          {!paymentReconciliation.isBalanced ? (
+            <div role="alert" className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-sm text-foreground">
+              <p className="font-semibold">{pick("অংশগ্রহণকারীর পরিশোধ ও খতিয়ানে অমিল", "Participant payments and ledger do not match")}</p>
+              <p className="mt-1 text-muted-foreground">{pick(`${numberFormatter.format(paymentReconciliation.mismatchCount)} জনের পরিশোধে অমিল, ${numberFormatter.format(paymentReconciliation.unmatchedEntries)}টি অসংযুক্ত শেয়ার এন্ট্রি। নথিভুক্ত পরিশোধ স্বয়ংক্রিয়ভাবে খতিয়ানের সঙ্গে বদলায় না। যাচাই করে মিল না হওয়া পর্যন্ত হিসাব নিষ্পত্তি করা যাবে না।`, `${numberFormatter.format(paymentReconciliation.mismatchCount)} participant payment mismatches and ${numberFormatter.format(paymentReconciliation.unmatchedEntries)} unmatched share entries. Recorded paid does not automatically sync with the ledger. Reconcile them before settlement.`)}</p>
+              <div className="mt-3 flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => setActiveTab("participants")}>{pick("শেয়ার দেখুন", "View shares")}</Button><Button variant="outline" size="sm" onClick={() => setActiveTab("ledger")}>{pick("খতিয়ান দেখুন", "View ledger")}</Button></div>
+            </div>
+          ) : null}
 
           <Card className="gap-0 overflow-hidden rounded-3xl border-border/75 py-0 shadow-none">
             <CardContent className="p-0">
@@ -940,9 +966,9 @@ export function QurbaniSuite() {
 
             <TabsContent value="participants">
               <DataSection title={pick("অংশগ্রহণকারী, শেয়ার ও পাওনা", "Participants, shares and dues")} description={pick("সদস্যভিত্তিক বরাদ্দ, পাওনা ও পরিশোধের অবস্থা", "Member-wise allocation, dues and payment status")} canAdd={canManageRecords} onAdd={() => openRecord("participant")} onExport={() => void exportWorkbook({ name: pick("অংশগ্রহণকারী", "Participants"), rows: participantRows })}>
-                <Table><TableHeader><TableRow><TableHead>{pick("অংশগ্রহণকারী", "Participant")}</TableHead><TableHead>{pick("পশু", "Animal")}</TableHead><TableHead>{pick("শেয়ার", "Shares")}</TableHead><TableHead>{pick("পাওনা", "Due")}</TableHead><TableHead>{pick("পরিশোধিত", "Paid")}</TableHead><TableHead>{pick("স্ট্যাটাস", "Status")}</TableHead>{canManageRecords ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
-                  {campaignParticipants.map((item) => <TableRow key={item.id}><TableCell><p className="font-semibold">{item.member_name}</p><p className="text-xs text-muted-foreground">{item.phone || pick("ফোন ব্যক্তিগত", "Phone private")}</p></TableCell><TableCell>{campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code || pick("বরাদ্দ হয়নি", "Unassigned")}</TableCell><TableCell>{numberFormatter.format(numberOf(item.share_count))}</TableCell><TableCell>{moneyFormatter.format(numberOf(item.amount_due))}</TableCell><TableCell>{moneyFormatter.format(numberOf(item.amount_paid))}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManageRecords ? <TableCell><div className="flex"><StatusMenu disabled={saving} values={["pending", "confirmed", "cancelled"]} onSelect={(status) => void updateStatus("participant", item.id, status)} /><RecordActions disabled={saving} onEdit={() => openEditRecord("participant", item)} onDelete={() => void deleteRecord("participant", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("মোছা যায়নি।", "Delete failed.")))} /></div></TableCell> : null}</TableRow>)}
-                  <EmptyRows show={!campaignParticipants.length} columns={canManageRecords ? 7 : 6} />
+                <Table><TableHeader><TableRow><TableHead>{pick("অংশগ্রহণকারী", "Participant")}</TableHead><TableHead>{pick("পশু", "Animal")}</TableHead><TableHead>{pick("শেয়ার", "Shares")}</TableHead><TableHead>{pick("পাওনা", "Due")}</TableHead><TableHead>{pick("নথিভুক্ত", "Recorded")}</TableHead><TableHead>{pick("খতিয়ানে", "Ledger")}</TableHead><TableHead>{pick("অমিল", "Difference")}</TableHead><TableHead>{pick("স্ট্যাটাস", "Status")}</TableHead>{canManageRecords ? <TableHead /> : null}</TableRow></TableHeader><TableBody>
+                  {campaignParticipants.map((item) => <TableRow key={item.id}><TableCell><p className="font-semibold">{item.member_name}</p><p className="text-xs text-muted-foreground">{item.phone || pick("ফোন ব্যক্তিগত", "Phone private")}</p></TableCell><TableCell>{campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code || pick("বরাদ্দ হয়নি", "Unassigned")}</TableCell><TableCell>{numberFormatter.format(numberOf(item.share_count))}</TableCell><TableCell>{moneyFormatter.format(numberOf(item.amount_due))}</TableCell><TableCell>{moneyFormatter.format(numberOf(item.amount_paid))}</TableCell><TableCell>{moneyFormatter.format(paymentReconciliation.byParticipant.get(item.id)?.ledgerPaid ?? 0)}</TableCell><TableCell className={paymentReconciliation.byParticipant.get(item.id)?.difference ? "font-semibold text-amber-700 dark:text-amber-300" : undefined}>{moneyFormatter.format(paymentReconciliation.byParticipant.get(item.id)?.difference ?? 0)}</TableCell><TableCell><StatusBadge value={item.status} /></TableCell>{canManageRecords ? <TableCell><div className="flex"><StatusMenu disabled={saving} values={["pending", "confirmed", "cancelled"]} onSelect={(status) => void updateStatus("participant", item.id, status)} /><RecordActions disabled={saving} onEdit={() => openEditRecord("participant", item)} onDelete={() => void deleteRecord("participant", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("মোছা যায়নি।", "Delete failed.")))} /></div></TableCell> : null}</TableRow>)}
+                  <EmptyRows show={!campaignParticipants.length} columns={canManageRecords ? 9 : 8} />
                 </TableBody></Table>
               </DataSection>
             </TabsContent>
@@ -1150,7 +1176,7 @@ function RecordFields({ kind, form, setForm, animals, participants }: { kind: Qu
   const animalItems: Array<[string, string]> = [["none", pick("বরাদ্দ হয়নি", "Unassigned")], ...animals.map((item) => [item.id, item.tag_code] as [string, string])];
   const participantItems: Array<[string, string]> = [["none", pick("সাধারণ / কেউ নয়", "General / none")], ...participants.map((item) => [item.id, item.member_name] as [string, string])];
 
-  if (kind === "participant") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("memberName", pick("অংশগ্রহণকারীর নাম", "Participant name"))}{input("phone", pick("ফোন", "Phone"))}{input("shareCount", pick("শেয়ার সংখ্যা", "Share count"), "number", { min: "0.01", step: "0.01" })}{select("animalId", pick("পশু বরাদ্দ", "Animal assignment"), animalItems)}{input("amountDue", pick("প্রাপ্য টাকা (ফাঁকা রাখলে স্বয়ংক্রিয়)", "Amount due (blank = auto)"), "number", { min: "0", step: "0.01" })}{input("amountPaid", pick("পরিশোধিত টাকা", "Amount paid"), "number", { min: "0", step: "0.01" })}{select("status", pick("স্ট্যাটাস", "Status"), [["pending", pick("অপেক্ষমাণ", "Pending")], ["confirmed", pick("নিশ্চিত", "Confirmed")], ["cancelled", pick("বাতিল", "Cancelled")]])}{notes}</div>;
+  if (kind === "participant") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("memberName", pick("অংশগ্রহণকারীর নাম", "Participant name"))}{input("phone", pick("ফোন", "Phone"))}{input("shareCount", pick("শেয়ার সংখ্যা", "Share count"), "number", { min: "0.01", step: "0.01" })}{select("animalId", pick("পশু বরাদ্দ", "Animal assignment"), animalItems)}{input("amountDue", pick("প্রাপ্য টাকা (ফাঁকা রাখলে স্বয়ংক্রিয়)", "Amount due (blank = auto)"), "number", { min: "0", step: "0.01" })}{input("amountPaid", pick("নথিভুক্ত পরিশোধ (খতিয়ান থেকে স্বয়ংক্রিয় নয়)", "Recorded paid (not synced from ledger)"), "number", { min: "0", step: "0.01" })}{select("status", pick("স্ট্যাটাস", "Status"), [["pending", pick("অপেক্ষমাণ", "Pending")], ["confirmed", pick("নিশ্চিত", "Confirmed")], ["cancelled", pick("বাতিল", "Cancelled")]])}{notes}</div>;
   if (kind === "animal") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("tagCode", pick("ট্যাগ কোড", "Tag code"))}{select("animalType", pick("পশুর ধরন", "Animal type"), [["cow", pick("গরু", "Cow")], ["goat", pick("ছাগল", "Goat")], ["sheep", pick("ভেড়া", "Sheep")], ["buffalo", pick("মহিষ", "Buffalo")]])}{input("breed", pick("জাত", "Breed"))}{input("color", pick("রং", "Color"))}{input("liveWeightKg", pick("জীবিত ওজন (কেজি)", "Live weight kg"), "number", { min: "0", step: "0.01" })}{input("estimatedMeatKg", pick("আনুমানিক মাংস (কেজি)", "Estimated meat kg"), "number", { min: "0", step: "0.01" })}{input("purchasePrice", pick("ক্রয়মূল্য", "Purchase price"), "number", { min: "0", step: "0.01" })}{input("vendorName", pick("বিক্রেতার নাম", "Vendor name"))}{input("transportCost", pick("পরিবহন খরচ", "Transport cost"), "number", { min: "0", step: "0.01" })}{input("feedCost", pick("খাদ্য খরচ", "Feed cost"), "number", { min: "0", step: "0.01" })}{input("purchaseDate", pick("ক্রয়ের তারিখ", "Purchase date"), "date")}{select("healthStatus", pick("স্বাস্থ্য অবস্থা", "Health status"), [["pending", pick("পরীক্ষা বাকি", "Pending check")], ["fit", pick("উপযুক্ত", "Fit")], ["observation", pick("পর্যবেক্ষণে", "Observation")], ["rejected", pick("প্রত্যাখ্যাত", "Rejected")]])}{select("status", pick("ক্রয় স্ট্যাটাস", "Procurement status"), [["shortlisted", pick("বাছাইকৃত", "Shortlisted")], ["purchased", pick("ক্রয় করা", "Purchased")], ["received", pick("গ্রহণ করা", "Received")], ["slaughtered", pick("কোরবানি সম্পন্ন", "Slaughtered")], ["cancelled", pick("বাতিল", "Cancelled")]])}{input("vetNotes", pick("পশু চিকিৎসকের নোট", "Veterinary notes"))}{notes}</div>;
   if (kind === "transaction") return <div className="grid gap-4 py-2 sm:grid-cols-2">{select("transactionType", pick("লেনদেনের ধরন", "Transaction type"), [["collection", pick("সংগ্রহ", "Collection")], ["expense", pick("খরচ", "Expense")], ["refund", pick("ফেরত", "Refund")]])}{select("category", pick("ক্যাটাগরি", "Category"), [["share_payment", pick("শেয়ার পরিশোধ", "Share payment")], ["animal_purchase", pick("পশু ক্রয়", "Animal purchase")], ["transport", pick("পরিবহন", "Transport")], ["feed", pick("খাদ্য", "Feed")], ["butcher", pick("কসাই", "Butcher")], ["logistics", pick("লজিস্টিকস", "Logistics")], ["equipment", pick("সরঞ্জাম", "Equipment")], ["distribution", pick("বণ্টন", "Distribution")], ["misc", pick("বিবিধ", "Miscellaneous")]])}{input("amount", pick("পরিমাণ", "Amount"), "number", { min: "0.01", step: "0.01" })}{select("paymentMethod", pick("পরিশোধ পদ্ধতি", "Payment method"), [["cash", pick("নগদ", "Cash")], ["bank", pick("ব্যাংক", "Bank")], ["mobile", pick("মোবাইল ব্যাংকিং", "Mobile banking")], ["other", pick("অন্যান্য", "Other")]])}{input("transactionDate", pick("লেনদেনের তারিখ", "Transaction date"), "date")}{input("reference", pick("রেফারেন্স", "Reference"))}{select("participantId", pick("অংশগ্রহণকারী", "Participant"), participantItems)}{select("animalId", pick("পশু", "Animal"), animalItems)}{notes}</div>;
   if (kind === "vendor") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("name", pick("বিক্রেতা / সেবাদাতার নাম", "Vendor / provider name"))}{select("vendorType", pick("সেবাদাতার ধরন", "Provider type"), [["animal_seller", pick("পশু বিক্রেতা", "Animal seller")], ["butcher", pick("কসাই", "Butcher")], ["transport", pick("পরিবহন", "Transport")], ["feed", pick("খাদ্য", "Feed")], ["equipment", pick("সরঞ্জাম", "Equipment")], ["other", pick("অন্যান্য", "Other")]])}{input("phone", pick("ফোন", "Phone"))}{input("address", pick("ঠিকানা", "Address"))}{input("agreedAmount", pick("চুক্তির পরিমাণ", "Agreed amount"), "number", { min: "0", step: "0.01" })}{input("paidAmount", pick("পরিশোধিত", "Paid amount"), "number", { min: "0", step: "0.01" })}{select("status", pick("স্ট্যাটাস", "Status"), [["planned", pick("পরিকল্পিত", "Planned")], ["confirmed", pick("নিশ্চিত", "Confirmed")], ["completed", pick("সম্পন্ন", "Completed")], ["cancelled", pick("বাতিল", "Cancelled")]])}{notes}</div>;

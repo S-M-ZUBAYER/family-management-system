@@ -1,8 +1,10 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageQurbani, getActiveFamilyMembership } from "@/lib/family-access";
 import { editableFamilyQurbaniCampaign, findFamilyQurbaniCampaign, qurbaniDatabaseConflict } from "@/lib/qurbani-access";
+import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
+import { qurbaniPaymentReconciliation } from "@/lib/qurbani-payment-reconciliation";
 import { canTransitionQurbaniCampaign } from "@/lib/qurbani-policy";
-import type { QurbaniCampaignStatus } from "@/lib/qurbani-types";
+import type { QurbaniCampaignStatus, QurbaniParticipant, QurbaniTransaction } from "@/lib/qurbani-types";
 import {
   BackendNotConfiguredError,
   SupabaseRequestError,
@@ -38,6 +40,17 @@ const statusConfig = {
 
 type StatusEntity = keyof typeof statusConfig;
 
+async function readCampaignPaymentRows<T>(table: string, familyId: string, campaignId: string, select: string): Promise<T[]> {
+  return collectPaginatedRows((offset, limit) => supabaseRest<T[]>(`${table}?${new URLSearchParams({
+    select,
+    family_id: `eq.${familyId}`,
+    campaign_id: `eq.${campaignId}`,
+    order: "id.asc",
+    limit: String(limit),
+    offset: String(offset),
+  })}`), { pageSize: 500, maxRows: 20000 });
+}
+
 export async function PATCH(request: Request) {
   try {
     const user = await getChatGPTUser();
@@ -65,6 +78,16 @@ export async function PATCH(request: Request) {
       if (!campaign) return Response.json({ error: "Campaign পাওয়া যায়নি।" }, { status: 404 });
       if (!canTransitionQurbaniCampaign(campaign.status, status as QurbaniCampaignStatus)) {
         return Response.json({ error: "Settled campaign শুধু close করা যাবে; closed campaign আর পরিবর্তন করা যাবে না।" }, { status: 409 });
+      }
+      if (status === "settled") {
+        const [participants, transactions] = await Promise.all([
+          readCampaignPaymentRows<Pick<QurbaniParticipant, "id" | "amount_paid">>("qurbani_participants", membership.family_id, id, "id,amount_paid"),
+          readCampaignPaymentRows<Pick<QurbaniTransaction, "participant_id" | "transaction_type" | "category" | "amount">>("qurbani_transactions", membership.family_id, id, "participant_id,transaction_type,category,amount"),
+        ]);
+        const reconciliation = qurbaniPaymentReconciliation(participants, transactions);
+        if (!reconciliation.isBalanced) {
+          return Response.json({ code: "QURBANI_PAYMENT_RECONCILIATION_REQUIRED", error: "অংশগ্রহণকারীর নথিভুক্ত পরিশোধ ও সংযুক্ত খতিয়ান মিলছে না। হিসাব মিলিয়ে তারপর নিষ্পত্তি করুন।", mismatches: reconciliation.mismatchCount, unmatchedEntries: reconciliation.unmatchedEntries }, { status: 409 });
+        }
       }
       query.set("status", `eq.${campaign.status}`);
     } else {
@@ -96,6 +119,9 @@ export async function PATCH(request: Request) {
     });
     return Response.json({ record: rows[0] });
   } catch (error) {
+    if (error instanceof PaginatedRowLimitError) {
+      return Response.json({ code: "QURBANI_ROW_LIMIT", error: "কোরবানি হিসাব ২০,০০০ রেকর্ডের সীমা ছাড়িয়েছে; আংশিক হিসাব দিয়ে নিষ্পত্তি করা যাবে না।" }, { status: 413 });
+    }
     const conflict = qurbaniDatabaseConflict(error);
     if (conflict) return conflict;
     if (error instanceof BackendNotConfiguredError) {

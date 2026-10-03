@@ -22,6 +22,7 @@
     "test:qurbani-validation": "node scripts/test-qurbani-validation.mjs",
     "test:qurbani-money-total": "node scripts/test-qurbani-money-total.mjs",
     "test:qurbani-distribution-totals": "node scripts/test-qurbani-distribution-totals.mjs",
+    "test:qurbani-payment-reconciliation": "node scripts/test-qurbani-payment-reconciliation.mjs",
     "test:pagination": "node scripts/test-paginated-rows.mjs",
     "test:welfare-visibility": "node scripts/test-welfare-visibility.mjs",
     "test:governance-visibility": "node scripts/test-governance-visibility.mjs",
