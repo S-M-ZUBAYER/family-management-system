@@ -249,6 +249,7 @@ declare
   request_row public.family_member_requests%rowtype;
   reviewer_role text;
   new_profile_id uuid;
+  new_membership_id uuid;
 begin
   if p_decision not in ('approve', 'reject') then
     raise exception 'Unsupported review decision';
@@ -277,6 +278,14 @@ begin
   end if;
 
   if p_decision = 'approve' then
+    if exists (
+      select 1 from public.family_memberships
+      where family_id = request_row.family_id
+        and auth_user_id = request_row.requester_user_id
+    ) then
+      raise exception 'Membership already exists; explicit restoration is required';
+    end if;
+
     insert into public.member_profiles (
       family_id,
       auth_user_id,
@@ -317,12 +326,12 @@ begin
       request_row.requested_role,
       'active'
     )
-    on conflict (family_id, auth_user_id)
-    do update set
-      member_profile_id = excluded.member_profile_id,
-      role = excluded.role,
-      status = 'active',
-      updated_at = now();
+    on conflict (family_id, auth_user_id) do nothing
+    returning id into new_membership_id;
+
+    if new_membership_id is null then
+      raise exception 'Membership already exists; explicit restoration is required';
+    end if;
   end if;
 
   update public.family_member_requests
@@ -1139,6 +1148,198 @@ alter table public.welfare_requests enable row level security;
 alter table public.welfare_pledges enable row level security;
 alter table public.welfare_documents enable row level security;
 
+-- Apply after 20260930_welfare_disbursement_guard.sql. All application paths
+-- that reduce a fund's available balance must use this transaction function.
+-- It serializes those paths on the fund row and updates the ledger atomically.
+create or replace function public.settle_welfare_outflow(
+  p_family_id uuid,
+  p_entity text,
+  p_record_id uuid,
+  p_actor_user_id text,
+  p_actor_name text,
+  p_approved_amount numeric default null,
+  p_admin_note text default null,
+  p_payment_method text default 'cash',
+  p_reference text default null
+) returns jsonb
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_fund_id uuid;
+  v_fund_status text;
+  v_opening_balance numeric(14,2);
+  v_available numeric;
+  v_approved_amount numeric(14,2);
+  v_expense public.welfare_expenses%rowtype;
+  v_request public.welfare_requests%rowtype;
+  v_contribution public.welfare_contributions%rowtype;
+  v_linked public.welfare_expenses%rowtype;
+  v_result jsonb;
+  v_table text;
+  v_action text;
+begin
+  if not exists (
+    select 1 from public.family_memberships m
+    where m.family_id = p_family_id and m.auth_user_id = p_actor_user_id
+      and m.status = 'active' and m.role in ('owner', 'family_admin', 'manager')
+  ) then
+    raise exception using errcode = 'P0001', message = 'WELFARE_UNAUTHORIZED';
+  end if;
+
+  -- Read the fund ID first, then lock the fund before any record row. Every
+  -- outflow uses this order, including requests that later inspect an expense.
+  -- Recheck fund_id after the record lock in case it changed meanwhile.
+  if p_entity = 'expense' then
+    select fund_id into v_fund_id from public.welfare_expenses
+    where id = p_record_id and family_id = p_family_id;
+  elsif p_entity = 'request' then
+    select fund_id into v_fund_id from public.welfare_requests
+    where id = p_record_id and family_id = p_family_id;
+  elsif p_entity = 'contribution' then
+    select fund_id into v_fund_id from public.welfare_contributions
+    where id = p_record_id and family_id = p_family_id;
+  else
+    raise exception using errcode = 'P0001', message = 'WELFARE_INVALID_ENTITY';
+  end if;
+  if v_fund_id is null then
+    raise exception using errcode = 'P0001', message = 'WELFARE_FUND_REQUIRED';
+  end if;
+
+  select status, opening_balance into v_fund_status, v_opening_balance
+  from public.welfare_funds
+  where id = v_fund_id and family_id = p_family_id for update;
+  if not found then
+    raise exception using errcode = 'P0001', message = 'WELFARE_INVALID_TRANSITION';
+  end if;
+
+  if p_entity = 'expense' then
+    select * into v_expense from public.welfare_expenses
+    where id = p_record_id and family_id = p_family_id for update;
+    if v_expense.id is null or v_expense.status <> 'approved' then
+      raise exception using errcode = 'P0001', message = 'WELFARE_INVALID_TRANSITION';
+    end if;
+    if v_expense.fund_id is distinct from v_fund_id then
+      raise exception using errcode = 'P0001', message = 'WELFARE_INVALID_TRANSITION';
+    end if;
+  elsif p_entity = 'request' then
+    select * into v_request from public.welfare_requests
+    where id = p_record_id and family_id = p_family_id for update;
+    if v_request.id is null or v_request.status <> 'approved' then
+      raise exception using errcode = 'P0001', message = 'WELFARE_INVALID_TRANSITION';
+    end if;
+    if v_request.fund_id is null then
+      raise exception using errcode = 'P0001', message = 'WELFARE_FUND_REQUIRED';
+    end if;
+    if v_request.fund_id is distinct from v_fund_id then
+      raise exception using errcode = 'P0001', message = 'WELFARE_INVALID_TRANSITION';
+    end if;
+  elsif p_entity = 'contribution' then
+    select * into v_contribution from public.welfare_contributions
+    where id = p_record_id and family_id = p_family_id for update;
+    if v_contribution.id is null or v_contribution.status <> 'approved' then
+      raise exception using errcode = 'P0001', message = 'WELFARE_INVALID_TRANSITION';
+    end if;
+    if v_contribution.fund_id is distinct from v_fund_id then
+      raise exception using errcode = 'P0001', message = 'WELFARE_INVALID_TRANSITION';
+    end if;
+  end if;
+
+  -- Under READ COMMITTED, the aggregate below sees the prior holder's
+  -- committed rows after waiting for the shared fund-row lock.
+  if v_fund_status is distinct from 'active'
+    and not (p_entity = 'contribution' and v_fund_status = 'paused') then
+    raise exception using errcode = 'P0001', message = 'WELFARE_FUND_INACTIVE';
+  end if;
+
+  select v_opening_balance
+    + coalesce((select sum(c.amount) from public.welfare_contributions c
+        where c.family_id = p_family_id and c.fund_id = v_fund_id and c.status = 'approved'), 0)
+    - coalesce((select sum(e.amount) from public.welfare_expenses e
+        where e.family_id = p_family_id and e.fund_id = v_fund_id and e.status = 'paid'), 0)
+  into v_available;
+
+  if p_entity = 'expense' then
+    if v_expense.amount > v_available then
+      raise exception using errcode = 'P0001', message = 'WELFARE_INSUFFICIENT_BALANCE';
+    end if;
+    update public.welfare_expenses set status = 'paid', paid_at = now(),
+      approved_by_user_id = p_actor_user_id, approved_by_name = p_actor_name,
+      approved_at = now(), updated_at = now()
+    where id = p_record_id and family_id = p_family_id
+    returning * into v_expense;
+    v_result := to_jsonb(v_expense);
+    v_table := 'welfare_expenses';
+    v_action := 'welfare_expense_paid';
+  elsif p_entity = 'contribution' then
+    if v_contribution.amount > v_available then
+      raise exception using errcode = 'P0001', message = 'WELFARE_INSUFFICIENT_BALANCE';
+    end if;
+    update public.welfare_contributions set status = 'refunded', updated_at = now()
+    where id = p_record_id and family_id = p_family_id
+    returning * into v_contribution;
+    v_result := to_jsonb(v_contribution);
+    v_table := 'welfare_contributions';
+    v_action := 'welfare_contribution_refunded';
+  else
+    v_approved_amount := coalesce(p_approved_amount, v_request.approved_amount);
+    if v_approved_amount <= 0 or v_approved_amount > v_request.requested_amount then
+      raise exception using errcode = 'P0001', message = 'WELFARE_INVALID_AMOUNT';
+    end if;
+    if coalesce(p_payment_method, '') not in ('cash', 'bank', 'mobile', 'card', 'other') then
+      raise exception using errcode = 'P0001', message = 'WELFARE_INVALID_PAYMENT_METHOD';
+    end if;
+
+    select * into v_linked from public.welfare_expenses
+    where family_id = p_family_id and linked_request_id = p_record_id for update;
+    if v_linked.id is not null then
+      if v_linked.fund_id <> v_fund_id or v_linked.amount <> v_approved_amount
+        or v_linked.status <> 'paid' then
+        raise exception using errcode = 'P0001', message = 'WELFARE_DISBURSEMENT_CONFLICT';
+      end if;
+    else
+      if v_approved_amount > v_available then
+        raise exception using errcode = 'P0001', message = 'WELFARE_INSUFFICIENT_BALANCE';
+      end if;
+      insert into public.welfare_expenses (
+        family_id, fund_id, linked_request_id, title, beneficiary_name,
+        category, amount, expense_date, payment_method, reference, notes,
+        status, requested_by_user_id, approved_by_user_id, approved_by_name,
+        approved_at, paid_at
+      ) values (
+        p_family_id, v_fund_id, p_record_id, 'সহায়তা: ' || v_request.title,
+        v_request.requester_name,
+        case when v_request.request_type in ('medical', 'education', 'emergency', 'charity')
+          then v_request.request_type else 'other' end,
+        v_approved_amount, current_date, p_payment_method, left(p_reference, 180),
+        left(p_admin_note, 3000), 'paid', p_actor_user_id, p_actor_user_id,
+        p_actor_name, now(), now()
+      );
+    end if;
+    update public.welfare_requests set status = 'disbursed',
+      approved_amount = v_approved_amount, admin_note = left(p_admin_note, 3000),
+      reviewed_by_user_id = p_actor_user_id, reviewed_by_name = p_actor_name,
+      reviewed_at = now(), updated_at = now()
+    where id = p_record_id and family_id = p_family_id
+    returning * into v_request;
+    v_result := to_jsonb(v_request);
+    v_table := 'welfare_requests';
+    v_action := 'welfare_request_disbursed';
+  end if;
+
+  insert into public.audit_logs (family_id, actor_user_id, action, entity_type, entity_id, metadata)
+  values (p_family_id, p_actor_user_id, v_action, v_table, p_record_id::text,
+    jsonb_build_object('module', 'welfare', 'atomic_outflow', true));
+  return v_result;
+end;
+$$;
+
+revoke all on function public.settle_welfare_outflow(uuid,text,uuid,text,text,numeric,text,text,text)
+  from public, anon, authenticated;
+grant execute on function public.settle_welfare_outflow(uuid,text,uuid,text,text,numeric,text,text,text)
+  to service_role;
+
 -- Shared households, shopping, bills, tasks, trusted services and maintenance.
 
 create table if not exists public.households (
@@ -1707,3 +1908,247 @@ create index if not exists family_data_requests_requester_idx on public.family_d
 alter table public.family_privacy_settings enable row level security;
 alter table public.family_privacy_consents enable row level security;
 alter table public.family_data_requests enable row level security;
+
+-- Finalized Qurbani campaigns are immutable across concurrent requests.
+-- Apply after 20260926_qurbani_a_to_z.sql. Never run this in a production
+-- database until the rollback-only staging test has passed.
+
+create or replace function public.guard_qurbani_campaign_finalization()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    if new.status not in ('planning', 'registration') then
+      raise exception using errcode = '23514', message = 'QURBANI_FINALIZED: a new campaign must start in planning or registration';
+    end if;
+    return new;
+  end if;
+
+  if tg_op = 'DELETE' then
+    if old.status <> 'planning'
+      or exists (select 1 from public.qurbani_participants where campaign_id = old.id)
+      or exists (select 1 from public.qurbani_animals where campaign_id = old.id)
+      or exists (select 1 from public.qurbani_transactions where campaign_id = old.id)
+      or exists (select 1 from public.qurbani_vendors where campaign_id = old.id)
+      or exists (select 1 from public.qurbani_schedules where campaign_id = old.id)
+      or exists (select 1 from public.qurbani_tasks where campaign_id = old.id)
+      or exists (select 1 from public.qurbani_distributions where campaign_id = old.id)
+    then
+      raise exception using errcode = '23514', message = 'QURBANI_DRAFT_NOT_EMPTY: only an empty planning campaign may be deleted';
+    end if;
+    return old;
+  end if;
+
+  if new.id is distinct from old.id or new.family_id is distinct from old.family_id then
+    raise exception using errcode = '23514', message = 'QURBANI_CAMPAIGN_LINK_IMMUTABLE';
+  end if;
+
+  if old.status = 'closed' then
+    raise exception using errcode = '23514', message = 'QURBANI_FINALIZED: closed campaigns are immutable';
+  end if;
+
+  if old.status = 'settled' then
+    if new.status <> 'closed'
+      or (to_jsonb(new) - 'status' - 'updated_at')
+         is distinct from (to_jsonb(old) - 'status' - 'updated_at')
+    then
+      raise exception using errcode = '23514', message = 'QURBANI_FINALIZED: settled campaigns may only be closed';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists qurbani_campaign_finalization_guard on public.qurbani_campaigns;
+create trigger qurbani_campaign_finalization_guard
+before insert or update or delete on public.qurbani_campaigns
+for each row execute function public.guard_qurbani_campaign_finalization();
+
+create or replace function public.guard_qurbani_child_finalization()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+declare
+  row_campaign_id uuid;
+  row_family_id uuid;
+  campaign_status text;
+begin
+  if tg_op = 'DELETE' then
+    row_campaign_id := old.campaign_id;
+    row_family_id := old.family_id;
+  else
+    row_campaign_id := new.campaign_id;
+    row_family_id := new.family_id;
+  end if;
+
+  if tg_op = 'UPDATE' and
+     (new.campaign_id is distinct from old.campaign_id
+      or new.family_id is distinct from old.family_id) then
+    raise exception using errcode = '23514', message = 'QURBANI_CAMPAIGN_LINK_IMMUTABLE';
+  end if;
+
+  -- FOR SHARE conflicts with campaign UPDATE/DELETE. A finalization waits for
+  -- an in-flight child change; a later child change sees the finalized status.
+  select status into campaign_status
+  from public.qurbani_campaigns
+  where id = row_campaign_id and family_id = row_family_id
+  for share;
+
+  if not found then
+    raise exception using errcode = '23503', message = 'QURBANI_CAMPAIGN_NOT_FOUND: family/campaign mismatch';
+  end if;
+  if campaign_status in ('settled', 'closed') then
+    raise exception using errcode = '23514', message = 'QURBANI_FINALIZED: campaign records are read-only';
+  end if;
+
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists qurbani_participants_finalization_guard on public.qurbani_participants;
+create trigger qurbani_participants_finalization_guard
+before insert or update or delete on public.qurbani_participants
+for each row execute function public.guard_qurbani_child_finalization();
+
+drop trigger if exists qurbani_animals_finalization_guard on public.qurbani_animals;
+create trigger qurbani_animals_finalization_guard
+before insert or update or delete on public.qurbani_animals
+for each row execute function public.guard_qurbani_child_finalization();
+
+drop trigger if exists qurbani_transactions_finalization_guard on public.qurbani_transactions;
+create trigger qurbani_transactions_finalization_guard
+before insert or update or delete on public.qurbani_transactions
+for each row execute function public.guard_qurbani_child_finalization();
+
+drop trigger if exists qurbani_vendors_finalization_guard on public.qurbani_vendors;
+create trigger qurbani_vendors_finalization_guard
+before insert or update or delete on public.qurbani_vendors
+for each row execute function public.guard_qurbani_child_finalization();
+
+drop trigger if exists qurbani_schedules_finalization_guard on public.qurbani_schedules;
+create trigger qurbani_schedules_finalization_guard
+before insert or update or delete on public.qurbani_schedules
+for each row execute function public.guard_qurbani_child_finalization();
+
+drop trigger if exists qurbani_tasks_finalization_guard on public.qurbani_tasks;
+create trigger qurbani_tasks_finalization_guard
+before insert or update or delete on public.qurbani_tasks
+for each row execute function public.guard_qurbani_child_finalization();
+
+drop trigger if exists qurbani_distributions_finalization_guard on public.qurbani_distributions;
+create trigger qurbani_distributions_finalization_guard
+before insert or update or delete on public.qurbani_distributions
+for each row execute function public.guard_qurbani_child_finalization();
+
+-- Welfare evidence may be added to an existing parent at any status. Reviewed
+-- evidence cannot be hard-deleted; parents cannot be deleted with attached files.
+create or replace function public.guard_welfare_document_relation()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_family_id uuid;
+  v_entity_id uuid;
+  v_entity_type text;
+  v_status text;
+begin
+  if tg_op = 'UPDATE' then
+    if (new.family_id, new.entity_type, new.entity_id) is distinct from
+       (old.family_id, old.entity_type, old.entity_id) then
+      raise exception 'WELFARE_DOCUMENT_LINK_IMMUTABLE';
+    end if;
+  end if;
+
+  if tg_op = 'DELETE' then
+    v_family_id := old.family_id;
+    v_entity_id := old.entity_id;
+    v_entity_type := old.entity_type;
+  else
+    v_family_id := new.family_id;
+    v_entity_id := new.entity_id;
+    v_entity_type := new.entity_type;
+  end if;
+
+  if v_entity_type = 'fund' then
+    select status into v_status from public.welfare_funds
+    where id = v_entity_id and family_id = v_family_id for share;
+  elsif v_entity_type = 'contribution' then
+    select status into v_status from public.welfare_contributions
+    where id = v_entity_id and family_id = v_family_id for share;
+  elsif v_entity_type = 'expense' then
+    select status into v_status from public.welfare_expenses
+    where id = v_entity_id and family_id = v_family_id for share;
+  elsif v_entity_type = 'request' then
+    select status into v_status from public.welfare_requests
+    where id = v_entity_id and family_id = v_family_id for share;
+  else
+    raise exception 'WELFARE_DOCUMENT_PARENT_MISSING';
+  end if;
+
+  if v_status is null then
+    raise exception 'WELFARE_DOCUMENT_PARENT_MISSING';
+  end if;
+
+  if tg_op in ('UPDATE', 'DELETE') and not (
+    (v_entity_type = 'fund' and v_status in ('active', 'paused')) or
+    (v_entity_type in ('contribution', 'expense') and v_status = 'pending') or
+    (v_entity_type = 'request' and v_status = 'submitted')
+  ) then
+    raise exception 'WELFARE_DOCUMENT_FINALIZED';
+  end if;
+
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists welfare_document_relation_guard on public.welfare_documents;
+create trigger welfare_document_relation_guard
+before insert or update or delete on public.welfare_documents
+for each row execute function public.guard_welfare_document_relation();
+
+create or replace function public.guard_welfare_parent_with_documents()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_entity_type text;
+begin
+  v_entity_type := case tg_table_name
+    when 'welfare_funds' then 'fund'
+    when 'welfare_contributions' then 'contribution'
+    when 'welfare_expenses' then 'expense'
+    when 'welfare_requests' then 'request'
+    else null
+  end;
+  if v_entity_type is null then raise exception 'WELFARE_DOCUMENT_PARENT_MISSING'; end if;
+  if exists (
+    select 1 from public.welfare_documents
+    where family_id = old.family_id and entity_type = v_entity_type and entity_id = old.id
+  ) then
+    raise exception 'WELFARE_DOCUMENTS_ATTACHED';
+  end if;
+  return old;
+end;
+$$;
+
+drop trigger if exists welfare_fund_document_delete_guard on public.welfare_funds;
+create trigger welfare_fund_document_delete_guard before delete on public.welfare_funds
+for each row execute function public.guard_welfare_parent_with_documents();
+
+drop trigger if exists welfare_contribution_document_delete_guard on public.welfare_contributions;
+create trigger welfare_contribution_document_delete_guard before delete on public.welfare_contributions
+for each row execute function public.guard_welfare_parent_with_documents();
+
+drop trigger if exists welfare_expense_document_delete_guard on public.welfare_expenses;
+create trigger welfare_expense_document_delete_guard before delete on public.welfare_expenses
+for each row execute function public.guard_welfare_parent_with_documents();
+
+drop trigger if exists welfare_request_document_delete_guard on public.welfare_requests;
+create trigger welfare_request_document_delete_guard before delete on public.welfare_requests
+for each row execute function public.guard_welfare_parent_with_documents();
