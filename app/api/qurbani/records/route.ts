@@ -103,7 +103,7 @@ export async function POST(request: Request) {
         amountDue === undefined ||
         amountDue < 0 ||
         amountPaid === undefined ||
-        amountPaid < 0 ||
+        amountPaid !== 0 ||
         !(await referenceBelongsToCampaign("qurbani_animals", animalId, campaignId, membership.family_id))
       ) {
         return Response.json({ error: "Participant, share, payment বা animal assignment সঠিক নয়।" }, { status: 400 });
@@ -116,7 +116,7 @@ export async function POST(request: Request) {
         phone: textValue(data.phone, 40),
         share_count: shareCount,
         amount_due: amountDue,
-        amount_paid: amountPaid,
+        amount_paid: 0,
         status: enumValue(data.status, ["pending", "confirmed", "cancelled"] as const, "pending"),
         notes: textValue(data.notes, 2000),
       };
@@ -160,6 +160,8 @@ export async function POST(request: Request) {
       const transactionDate = qurbaniDate(data.transactionDate);
       const animalId = textValue(data.animalId, 80);
       const participantId = textValue(data.participantId, 80);
+      const transactionType = enumValue(data.transactionType, ["collection", "expense", "refund"] as const, "collection");
+      const category = enumValue(data.category, ["share_payment", "animal_purchase", "transport", "feed", "butcher", "logistics", "equipment", "distribution", "misc"] as const, "share_payment");
       const refsAreValid = await Promise.all([
         referenceBelongsToCampaign("qurbani_animals", animalId, campaignId, membership.family_id),
         referenceBelongsToCampaign("qurbani_participants", participantId, campaignId, membership.family_id),
@@ -167,17 +169,16 @@ export async function POST(request: Request) {
       if (!amount || amount <= 0 || transactionDate === undefined || refsAreValid.includes(false)) {
         return Response.json({ error: "Transaction amount বা linked record সঠিক নয়।" }, { status: 400 });
       }
+      if (category === "share_payment" && (!participantId || transactionType === "expense")) {
+        return Response.json({ error: "শেয়ার পরিশোধের জন্য অংশগ্রহণকারী এবং collection/refund ধরন প্রয়োজন।" }, { status: 400 });
+      }
       table = "qurbani_transactions";
       record = {
         ...base,
         participant_id: participantId,
         animal_id: animalId,
-        transaction_type: enumValue(data.transactionType, ["collection", "expense", "refund"] as const, "collection"),
-        category: enumValue(
-          data.category,
-          ["share_payment", "animal_purchase", "transport", "feed", "butcher", "logistics", "equipment", "distribution", "misc"] as const,
-          "share_payment",
-        ),
+        transaction_type: transactionType,
+        category,
         amount,
         payment_method: enumValue(data.paymentMethod, ["cash", "bank", "mobile", "other"] as const, "cash"),
         reference: textValue(data.reference, 180),
@@ -355,9 +356,9 @@ export async function DELETE(request: Request) {
 
 async function qurbaniRecordChanges(kind: QurbaniRecordKind, data: Record<string, unknown>, campaignId: string, familyId: string, sharePrice: number): Promise<Record<string, unknown> | Response> {
   if (kind === "participant") {
-    const memberName = textValue(data.memberName, 180), shareCount = qurbaniShares(data.shareCount), amountPaid = qurbaniMoney(data.amountPaid, 0), amountDue = qurbaniMoney(data.amountDue, shareCount === undefined ? undefined : qurbaniAutoAmountDue(shareCount, sharePrice)), animalId = textValue(data.animalId, 80);
-    if (!memberName || shareCount === undefined || shareCount <= 0 || shareCount > 100 || amountDue === undefined || amountDue < 0 || amountPaid === undefined || amountPaid < 0 || !(await referenceBelongsToCampaign("qurbani_animals", animalId, campaignId, familyId))) return Response.json({ error: "Participant, share, payment বা animal assignment সঠিক নয়।" }, { status: 400 });
-    return { animal_id: animalId, member_name: memberName, phone: textValue(data.phone, 40), share_count: shareCount, amount_due: amountDue, amount_paid: amountPaid, status: enumValue(data.status, ["pending", "confirmed", "cancelled"] as const, "pending"), notes: textValue(data.notes, 2000) };
+    const memberName = textValue(data.memberName, 180), shareCount = qurbaniShares(data.shareCount), amountDue = qurbaniMoney(data.amountDue, shareCount === undefined ? undefined : qurbaniAutoAmountDue(shareCount, sharePrice)), animalId = textValue(data.animalId, 80);
+    if (!memberName || shareCount === undefined || shareCount <= 0 || shareCount > 100 || amountDue === undefined || amountDue < 0 || !(await referenceBelongsToCampaign("qurbani_animals", animalId, campaignId, familyId))) return Response.json({ error: "Participant, share, amount due বা animal assignment সঠিক নয়।" }, { status: 400 });
+    return { animal_id: animalId, member_name: memberName, phone: textValue(data.phone, 40), share_count: shareCount, amount_due: amountDue, status: enumValue(data.status, ["pending", "confirmed", "cancelled"] as const, "pending"), notes: textValue(data.notes, 2000) };
   }
   if (kind === "animal") {
     const tagCode = textValue(data.tagCode, 60), purchasePrice = qurbaniMoney(data.purchasePrice, 0), liveWeight = qurbaniWeight(data.liveWeightKg, 0), estimatedMeat = qurbaniWeight(data.estimatedMeatKg, 0), transportCost = qurbaniMoney(data.transportCost, 0), feedCost = qurbaniMoney(data.feedCost, 0);
@@ -367,10 +368,13 @@ async function qurbaniRecordChanges(kind: QurbaniRecordKind, data: Record<string
   }
   if (kind === "transaction") {
     const amount = qurbaniMoney(data.amount), animalId = textValue(data.animalId, 80), participantId = textValue(data.participantId, 80);
+    const transactionType = enumValue(data.transactionType, ["collection", "expense", "refund"] as const, "collection");
+    const category = enumValue(data.category, ["share_payment", "animal_purchase", "transport", "feed", "butcher", "logistics", "equipment", "distribution", "misc"] as const, "share_payment");
     const transactionDate = qurbaniDate(data.transactionDate);
     const refs = await Promise.all([referenceBelongsToCampaign("qurbani_animals", animalId, campaignId, familyId), referenceBelongsToCampaign("qurbani_participants", participantId, campaignId, familyId)]);
     if (!amount || amount <= 0 || transactionDate === undefined || refs.includes(false)) return Response.json({ error: "Transaction amount, date বা linked record সঠিক নয়।" }, { status: 400 });
-    return { participant_id: participantId, animal_id: animalId, transaction_type: enumValue(data.transactionType, ["collection", "expense", "refund"] as const, "collection"), category: enumValue(data.category, ["share_payment", "animal_purchase", "transport", "feed", "butcher", "logistics", "equipment", "distribution", "misc"] as const, "share_payment"), amount, payment_method: enumValue(data.paymentMethod, ["cash", "bank", "mobile", "other"] as const, "cash"), reference: textValue(data.reference, 180), transaction_date: transactionDate ?? new Date().toISOString().slice(0, 10), notes: textValue(data.notes, 2000) };
+    if (category === "share_payment" && (!participantId || transactionType === "expense")) return Response.json({ error: "শেয়ার পরিশোধের জন্য অংশগ্রহণকারী এবং collection/refund ধরন প্রয়োজন।" }, { status: 400 });
+    return { participant_id: participantId, animal_id: animalId, transaction_type: transactionType, category, amount, payment_method: enumValue(data.paymentMethod, ["cash", "bank", "mobile", "other"] as const, "cash"), reference: textValue(data.reference, 180), transaction_date: transactionDate ?? new Date().toISOString().slice(0, 10), notes: textValue(data.notes, 2000) };
   }
   if (kind === "vendor") {
     const name = textValue(data.name, 180), agreedAmount = qurbaniMoney(data.agreedAmount, 0), paidAmount = qurbaniMoney(data.paidAmount, 0);

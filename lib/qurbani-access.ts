@@ -16,6 +16,18 @@ export function qurbaniDatabaseConflict(error: unknown): Response | null {
   if (error.message.includes("QURBANI_CAMPAIGN_NOT_FOUND")) {
     return Response.json({ error: "Campaign পাওয়া যায়নি।" }, { status: 404 });
   }
+  if (error.message.includes("QURBANI_PAYMENT_RECONCILIATION_REQUIRED")) {
+    return Response.json({ error: "অংশগ্রহণকারীর পরিশোধিত টাকা এবং খতিয়ান মিলছে না। আগে হিসাব মিলিয়ে নিন।" }, { status: 409 });
+  }
+  if (error.message.includes("QURBANI_PAYMENT_LINKED")) {
+    return Response.json({ error: "অংশগ্রহণকারী মুছতে হলে আগে তার সংযুক্ত শেয়ার পরিশোধের খতিয়ান মুছুন।" }, { status: 409 });
+  }
+  if (error.message.includes("QURBANI_PAYMENT_LINK_INVALID")) {
+    return Response.json({ error: "শেয়ার পরিশোধের ধরন বা সংযুক্ত অংশগ্রহণকারী সঠিক নয়।" }, { status: 409 });
+  }
+  if (error.message.includes("qurbani_participants_amount_paid_check")) {
+    return Response.json({ error: "ফেরতের পরে পরিশোধিত টাকা ঋণাত্মক হতে পারে না।" }, { status: 409 });
+  }
   return null;
 }
 

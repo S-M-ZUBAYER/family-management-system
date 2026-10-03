@@ -2,6 +2,10 @@
 
 This is a scoped browser-test record, **not** a declaration that the product or live Site is complete. The UI was exercised at `http://localhost:5173` as the local mock owner `local_seedy`, mostly in Nojir Poramanik Family. The production Supabase project contains only the owner's explicitly requested synthetic fixture plus clearly named QA records. No second authenticated user, external message provider, private object-storage failure, or deployed Site was used in this session.
 
+## Later database payment-sync verification
+
+On 2026-10-03, `supabase/migrations/20261003_qurbani_payment_sync.sql` was applied in staging and production SQL Editors. The rollback-only `supabase/qurbani_payment_sync_test.sql` passed in each project (SQL Editor: “Success. No rows returned”). It exercised linked collection/refund create, edit, reassignment and delete; blocked invalid links, over-refunds and participant deletion while a payment is linked; and blocked settlement when recorded balance differs from ledger. The production read-only preflight reported one QA campaign with zero participants and zero mismatches, and a separate count confirmed zero transactions/share entries before migration. Existing balances were not rewritten. The source/UI changes were typechecked, linted, built and passed 22 test scripts plus security/cancellation/i18n audits. This is SQL-level synthetic verification, not a live UI payment test, concurrent-session proof, or deployment acceptance. The older reconciliation entry below records the bug as it existed *before* this migration.
+
 ## Verified through the local UI
 
 | Area | Actions actually observed |
