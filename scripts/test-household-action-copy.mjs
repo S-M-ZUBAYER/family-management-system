@@ -22,9 +22,16 @@ test("status dialog names entity and target status", () => {
   const paid = householdActionCopy({ action: "update_status", data: { entity: "bill", status: "paid" } }, "POST", "bn");
   assert.match(paid.description, /ইউটিলিটি বিল রেকর্ডের স্ট্যাটাস “পরিশোধিত”/);
   assert.match(paid.successMessage, /“পরিশোধিত” করা হয়েছে/);
+  assert.match(paid.description, /স্থায়ীভাবে মুছতে পারবেন না/);
+  assert.equal(paid.destructive, true);
 
   const completed = householdActionCopy({ action: "update_status", data: { entity: "task", status: "completed" } }, "POST", "en");
   assert.match(completed.description, /shared task status to “completed”/);
+  assert.equal(completed.destructive, false);
+
+  const maintenance = householdActionCopy({ action: "update_status", data: { entity: "maintenance", status: "completed" } }, "POST", "en");
+  assert.match(maintenance.description, /cannot be permanently deleted afterward/);
+  assert.equal(maintenance.destructive, true);
 });
 
 test("unknown kinds and status values fall back to generic copy", () => {

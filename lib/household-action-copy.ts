@@ -38,17 +38,18 @@ export function householdActionCopy(body: Record<string, unknown>, method: strin
     if (typeof entity !== "string" || typeof status !== "string" || !Object.hasOwn(names, entity) || !Object.hasOwn(statuses, status)) return null;
     const name = names[entity as keyof typeof names][locale];
     const value = statuses[status as keyof typeof statuses][locale];
+    const locksDeletion = (entity === "bill" && status === "paid") || (entity === "maintenance" && status === "completed");
     return locale === "bn" ? {
-      title: "স্ট্যাটাস পরিবর্তন করবেন?",
-      description: `${name} রেকর্ডের স্ট্যাটাস “${value}” করবেন?`,
+      title: locksDeletion ? "চূড়ান্ত স্ট্যাটাস নিশ্চিত করুন" : "স্ট্যাটাস পরিবর্তন করবেন?",
+      description: `${name} রেকর্ডের স্ট্যাটাস “${value}” করবেন?${locksDeletion ? " এরপর audit history রক্ষার জন্য এই রেকর্ড স্থায়ীভাবে মুছতে পারবেন না।" : ""}`,
       confirmLabel: "হ্যাঁ, পরিবর্তন করুন",
-      destructive: false,
+      destructive: locksDeletion,
       successMessage: `${name} রেকর্ডের স্ট্যাটাস “${value}” করা হয়েছে।`,
     } : {
-      title: "Change status?",
-      description: `Set the ${name} status to “${value}”?`,
+      title: locksDeletion ? "Confirm final status" : "Change status?",
+      description: `Set the ${name} status to “${value}”?${locksDeletion ? " This record cannot be permanently deleted afterward because its audit history must be retained." : ""}`,
       confirmLabel: "Yes, change status",
-      destructive: false,
+      destructive: locksDeletion,
       successMessage: `${name.charAt(0).toUpperCase()}${name.slice(1)} status changed to “${value}”.`,
     };
   }
