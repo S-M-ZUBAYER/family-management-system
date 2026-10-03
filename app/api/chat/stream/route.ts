@@ -1,5 +1,6 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getActiveFamilyMembership } from "@/lib/family-access";
+import { formatChatCursor, parseChatCursor } from "@/lib/chat-cursor";
 import { getAccessibleChatChannel, loadChatMessages } from "@/lib/family-chat";
 
 const encoder = new TextEncoder();
@@ -15,10 +16,11 @@ export async function GET(request: Request) {
   if (!membership) return new Response("Family membership required.", { status: 403 });
   const url = new URL(request.url);
   const channelId = url.searchParams.get("channelId");
-  let cursor = url.searchParams.get("after");
+  let cursor = request.headers.get("last-event-id") || url.searchParams.get("after");
   if (!channelId || !/^[0-9a-f-]{36}$/i.test(channelId)) {
     return new Response("Valid channel is required.", { status: 400 });
   }
+  if (!parseChatCursor(cursor)) return new Response("Valid chat cursor is required.", { status: 400 });
   const channel = await getAccessibleChatChannel(membership, user.userId, channelId);
   if (!channel) return new Response("Channel not found.", { status: 404 });
 
@@ -29,19 +31,29 @@ export async function GET(request: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const emit = (event: string, value: unknown) => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`));
+      const emit = (event: string, value: unknown, eventId?: string) => {
+        controller.enqueue(encoder.encode(`event: ${event}\n${eventId ? `id: ${eventId}\n` : ""}data: ${JSON.stringify(value)}\n\n`));
       };
       emit("ready", { channelId: channel.id });
       try {
         for (let iteration = 0; iteration < 20 && !cancelled; iteration += 1) {
           if (iteration > 0) await wait(2500);
           if (cancelled) break;
+          const currentMembership = await getActiveFamilyMembership(user.userId);
+          const currentChannel = currentMembership?.id === membership.id
+            && currentMembership.family_id === membership.family_id
+            ? await getAccessibleChatChannel(currentMembership, user.userId, channel.id)
+            : null;
+          if (cancelled) break;
+          if (!currentChannel) {
+            emit("access_revoked", { channelId: channel.id });
+            break;
+          }
           if (cursor) {
-            const feed = await loadChatMessages(membership, user, channel.id, cursor);
+            const feed = await loadChatMessages(currentMembership, user, channel.id, cursor);
             if (feed.messages.length) {
-              cursor = feed.messages[feed.messages.length - 1].created_at;
-              emit("messages", feed);
+              cursor = formatChatCursor(feed.messages[feed.messages.length - 1]);
+              emit("messages", feed, cursor);
             }
           }
           if (iteration % 5 === 0) emit("heartbeat", { at: new Date().toISOString() });

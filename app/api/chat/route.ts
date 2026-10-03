@@ -1,4 +1,7 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { canAccessChatChannel } from "@/lib/chat-access-policy";
+import { countUnreadChatMessages } from "@/lib/chat-unread-counts";
+import { parseChatCursor } from "@/lib/chat-cursor";
 import {
   canManageChat,
   getActiveFamilyMembership,
@@ -8,6 +11,7 @@ import {
   chatErrorResponse,
   getChatAuthorName,
   getAccessibleChatChannel,
+  loadChatExport,
   loadChatMessages,
   type ChatChannelMemberRow,
   type ChatChannelRow,
@@ -17,8 +21,10 @@ import {
   BackendNotConfiguredError,
   isBackendConfigured,
   SupabaseRequestError,
+  supabaseExactCount,
   supabaseRest,
 } from "@/lib/supabase-rest";
+import { readAllSupabaseRows } from "@/lib/supabase-pagination";
 
 type SafeMember = {
   authUserId: string;
@@ -49,23 +55,24 @@ function initials(name: string) {
 
 async function getSafeFamilyMembers(familyId: string, currentUser: { userId: string; displayName: string }) {
   const membershipQuery = new URLSearchParams({
-    select: "auth_user_id,member_profile_id,role",
+    select: "id,auth_user_id,member_profile_id,role",
     family_id: `eq.${familyId}`,
     status: "eq.active",
-    order: "created_at.asc",
+    order: "created_at.asc,id.asc",
   });
   const profileQuery = new URLSearchParams({
-    select: "auth_user_id,name_bn,name_en",
+    select: "id,auth_user_id,name_bn,name_en",
     family_id: `eq.${familyId}`,
     auth_user_id: "not.is.null",
     profile_status: "eq.active",
+    order: "id.asc",
   });
   const [memberships, profiles] = await Promise.all([
-    supabaseRest<Array<{ auth_user_id: string; member_profile_id: string | null; role: FamilyRole }>>(
-      `family_memberships?${membershipQuery}`,
+    readAllSupabaseRows<{ auth_user_id: string; member_profile_id: string | null; role: FamilyRole }>(
+      "family_memberships", membershipQuery,
     ),
-    supabaseRest<Array<{ auth_user_id: string; name_bn: string; name_en: string | null }>>(
-      `member_profiles?${profileQuery}`,
+    readAllSupabaseRows<{ auth_user_id: string; name_bn: string; name_en: string | null }>(
+      "member_profiles", profileQuery,
     ),
   ]);
   const names = new Map(profiles.map((profile) => [profile.auth_user_id, profile.name_bn || profile.name_en || "Family member"]));
@@ -96,14 +103,19 @@ export async function GET(request: Request) {
 
     const url = new URL(request.url);
     const channelId = uuidValue(url.searchParams.get("channelId"));
-    const after = textValue(url.searchParams.get("after"), 50);
+    const after = textValue(url.searchParams.get("after"), 100);
+    if (url.searchParams.has("after") && !parseChatCursor(after)) {
+      return Response.json({ error: "Chat cursor সঠিক নয়।" }, { status: 400 });
+    }
     if (url.searchParams.has("channelId") && !channelId) {
       return Response.json({ error: "Channel id সঠিক নয়।" }, { status: 400 });
     }
     if (channelId) {
       const channel = await getAccessibleChatChannel(membership, user.userId, channelId);
       if (!channel) return Response.json({ error: "Channel পাওয়া যায়নি।" }, { status: 404 });
-      const feed = await loadChatMessages(membership, user, channel.id, after);
+      const feed = url.searchParams.get("export") === "1"
+        ? await loadChatExport(membership, user, channel.id)
+        : await loadChatMessages(membership, user, channel.id, after);
       return Response.json({ channel, ...feed });
     }
 
@@ -116,43 +128,37 @@ export async function GET(request: Request) {
       select: "id,family_id,name,description,channel_type,visibility,direct_key,status,created_by_user_id,created_at,updated_at",
       family_id: `eq.${membership.family_id}`,
       status: "eq.active",
-      order: "updated_at.desc",
+      order: "updated_at.desc,id.asc",
     });
     const channelMemberQuery = new URLSearchParams({
       select: "id,channel_id,auth_user_id,role,notification_level,status",
       family_id: `eq.${membership.family_id}`,
       status: "eq.active",
+      order: "id.asc",
     });
     const receiptQuery = new URLSearchParams({
       select: "channel_id,last_read_at,last_read_message_id",
       family_id: `eq.${membership.family_id}`,
       auth_user_id: `eq.${user.userId}`,
-    });
-    const recentMessageQuery = new URLSearchParams({
-      select: "id,channel_id,auth_user_id,created_at",
-      family_id: `eq.${membership.family_id}`,
-      order: "created_at.desc",
-      limit: "1000",
+      order: "id.asc",
     });
 
     let migrationRequired = false;
     let channels: ChatChannelRow[] = [];
     let channelMembers: ChatChannelMemberRow[] = [];
     let receipts: Array<{ channel_id: string; last_read_at: string; last_read_message_id: string | null }> = [];
-    let recentMessages: Array<{ id: string; channel_id: string; auth_user_id: string; created_at: string }> = [];
     const [family, members] = await Promise.all([
       supabaseRest<Array<{ id: string; name_bn: string; name_en: string }>>(`families?${familyQuery}`),
       getSafeFamilyMembers(membership.family_id, user),
     ]);
     try {
-      [channels, channelMembers, receipts, recentMessages] = await Promise.all([
-        supabaseRest<ChatChannelRow[]>(`chat_channels?${channelQuery}`),
-        supabaseRest<ChatChannelMemberRow[]>(`chat_channel_members?${channelMemberQuery}`),
-        supabaseRest<typeof receipts>(`chat_read_receipts?${receiptQuery}`),
-        supabaseRest<typeof recentMessages>(`chat_messages?${recentMessageQuery}`),
+      [channels, channelMembers, receipts] = await Promise.all([
+        readAllSupabaseRows<ChatChannelRow>("chat_channels", channelQuery),
+        readAllSupabaseRows<ChatChannelMemberRow>("chat_channel_members", channelMemberQuery),
+        readAllSupabaseRows<(typeof receipts)[number]>("chat_read_receipts", receiptQuery),
       ]);
     } catch (error) {
-      if (error instanceof SupabaseRequestError) migrationRequired = true;
+      if (error instanceof SupabaseRequestError && /PGRST205|42P01|42703/.test(error.message)) migrationRequired = true;
       else throw error;
     }
 
@@ -162,22 +168,18 @@ export async function GET(request: Request) {
         .map((item) => item.channel_id),
     );
     const accessible = channels.filter((channel) =>
-      channel.visibility === "family"
-      || (channel.visibility === "admins" && canManageChat(membership.role))
-      || memberChannelIds.has(channel.id),
+      canAccessChatChannel(channel.visibility, membership.role, memberChannelIds.has(channel.id)),
     );
     const receiptsByChannel = new Map(receipts.map((receipt) => [receipt.channel_id, receipt]));
     const membersById = new Map(members.map((member) => [member.authUserId, member]));
 
+    const unreadCounts = migrationRequired ? new Map<string, number>() : await countUnreadChatMessages(
+      accessible, receiptsByChannel, membership.family_id, user.userId, supabaseExactCount,
+    );
+
     const safeChannels = accessible.map((channel) => {
       const explicitMembers = channelMembers.filter((item) => item.channel_id === channel.id);
-      const readAt = receiptsByChannel.get(channel.id)?.last_read_at;
-      const unreadCount = recentMessages.filter(
-        (message) =>
-          message.channel_id === channel.id
-          && message.auth_user_id !== user.userId
-          && (!readAt || new Date(message.created_at).getTime() > new Date(readAt).getTime()),
-      ).length;
+      const unreadCount = unreadCounts.get(channel.id) ?? 0;
       const otherDirectMember = channel.channel_type === "direct"
         ? explicitMembers
             .map((item) => membersById.get(item.auth_user_id))

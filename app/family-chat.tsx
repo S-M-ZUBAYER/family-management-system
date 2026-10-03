@@ -26,6 +26,7 @@ import {
   ImageIcon,
   LoaderCircle,
   LockKeyhole,
+  MessageCircle,
   MessageCircleMore,
   Mic,
   Paperclip,
@@ -203,6 +204,8 @@ export function FamilyChat() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recorderChunksRef = useRef<Blob[]>([]);
   const recorderStreamRef = useRef<MediaStream | null>(null);
+  const activeChannelIdRef = useRef<string | null>(null);
+  const lastReadMessageIdRef = useRef(new Map<string, string>());
 
   const selected = useMemo(
     () => channels.find((channel) => channel.id === selectedId) ?? null,
@@ -233,8 +236,16 @@ export function FamilyChat() {
       const payload = (await response.json()) as ChatPayload;
       if (payload.code === "FAMILY_SETUP_REQUIRED") {
         setSetupRequired(true);
+        setFamily(undefined);
+        setViewer(undefined);
+        setMembers([]);
         setChannels([]);
-        return;
+        setMessages([]);
+        setReactions([]);
+        setAttachments([]);
+        setSelectedId(null);
+        setMigrationRequired(false);
+        return false;
       }
       if (!response.ok) throw new Error(payload.error ?? "Family chat পাওয়া যায়নি।");
       const nextChannels = payload.channels ?? [];
@@ -249,62 +260,109 @@ export function FamilyChat() {
         if (candidate && nextChannels.some((channel) => channel.id === candidate)) return candidate;
         return nextChannels.find((channel) => channel.channelType === "general")?.id ?? nextChannels[0]?.id ?? null;
       });
+      return true;
     } catch (error) {
+      setFamily(undefined);
+      setViewer(undefined);
+      setMembers([]);
+      setChannels([]);
+      setMessages([]);
+      setReactions([]);
+      setAttachments([]);
+      setSelectedId(null);
+      setMigrationRequired(false);
       setFeedback(error instanceof Error ? error.message : pick("ফ্যামিলি চ্যাট পাওয়া যায়নি।", "Family chat could not be loaded."));
+      return false;
     } finally {
       setLoading(false);
     }
   }, [pick, setFeedback]);
 
+  const handleLostChatAccess = useCallback((channelId: string) => {
+    if (activeChannelIdRef.current !== channelId) return;
+    activeChannelIdRef.current = null;
+    setSelectedId(null);
+    setMessages([]);
+    setReactions([]);
+    setAttachments([]);
+    setMessagesLoading(false);
+    setLive(false);
+    void loadMetadata().then((loaded) => {
+      if (loaded) setFeedback(pick("এই চ্যাটে আপনার প্রবেশাধিকার বদলেছে। উপলব্ধ চ্যানেলগুলো আবার লোড করা হয়েছে।", "Your access to this chat changed. Available channels have been reloaded."));
+    });
+  }, [loadMetadata, pick, setFeedback]);
+
   const markRead = useCallback(async (channelId: string, lastMessageId: string) => {
     try {
-      await fetch("/api/chat", {
+      const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "mark_read", channelId, lastReadMessageId: lastMessageId }),
       });
+      // Automatic read receipts are exempt from the confirmation dialog.
+      if (!response.ok) throw new Error("Read state was not saved.");
       setChannels((current) => current.map((channel) =>
         channel.id === channelId ? { ...channel, unreadCount: 0 } : channel,
       ));
     } catch {
       // Read state is retried on the next successful channel load.
+      if (lastReadMessageIdRef.current.get(channelId) === lastMessageId) {
+        lastReadMessageIdRef.current.delete(channelId);
+      }
     }
   }, []);
 
-  const applyFeed = useCallback((payload: ChatPayload, replace = false) => {
+  const applyFeed = useCallback((payload: ChatPayload, channelId: string, notify = false) => {
+    if (activeChannelIdRef.current !== channelId) return;
     const incomingMessages = payload.messages ?? [];
-    setMessages((current) => replace ? incomingMessages : mergeById(current, incomingMessages));
-    setReactions((current) => replace ? (payload.reactions ?? []) : mergeById(current, payload.reactions ?? []));
-    setAttachments((current) => replace ? (payload.attachments ?? []) : mergeById(current, payload.attachments ?? []));
+    setMessages((current) => mergeById(current, incomingMessages).sort((a, b) =>
+      a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id),
+    ));
+    const refreshedMessageIds = new Set(incomingMessages.map((message) => message.id));
+    setReactions((current) => mergeById(
+      current.filter((reaction) => !refreshedMessageIds.has(reaction.message_id)),
+      payload.reactions ?? [],
+    ));
+    setAttachments((current) => mergeById(
+      current.filter((attachment) => !refreshedMessageIds.has(attachment.message_id)),
+      payload.attachments ?? [],
+    ));
     const newestIncoming = incomingMessages[incomingMessages.length - 1];
-    if (newestIncoming && selectedId) {
-      void markRead(selectedId, newestIncoming.id);
+    if (newestIncoming && lastReadMessageIdRef.current.get(channelId) !== newestIncoming.id) {
+      lastReadMessageIdRef.current.set(channelId, newestIncoming.id);
+      void markRead(channelId, newestIncoming.id);
       if (
+        notify
+        &&
         !newestIncoming.is_mine
         && document.hidden
         && typeof Notification !== "undefined"
         && Notification.permission === "granted"
       ) {
-        new Notification(selected?.name ?? "Family chat", {
+        new Notification("Family chat", {
           body: `${newestIncoming.author_name}: ${newestIncoming.body ?? pick("নতুন সংযুক্তি", "New attachment")}`,
         });
       }
     }
-  }, [markRead, pick, selected?.name, selectedId]);
+  }, [markRead, pick]);
 
   const loadMessages = useCallback(async (channelId: string, silent = false) => {
     if (!silent) setMessagesLoading(true);
     try {
       const response = await fetch(`/api/chat?channelId=${encodeURIComponent(channelId)}`, { cache: "no-store" });
+      if ([401, 403, 404, 409].includes(response.status)) {
+        handleLostChatAccess(channelId);
+        return;
+      }
       const payload = (await response.json()) as ChatPayload;
       if (!response.ok) throw new Error(payload.error ?? "Messages পাওয়া যায়নি।");
-      applyFeed(payload, true);
+      applyFeed(payload, channelId);
     } catch (error) {
-      if (!silent) setFeedback(error instanceof Error ? error.message : pick("বার্তাগুলো পাওয়া যায়নি।", "Messages could not be loaded."));
+      if (!silent && activeChannelIdRef.current === channelId) setFeedback(error instanceof Error ? error.message : pick("বার্তাগুলো পাওয়া যায়নি।", "Messages could not be loaded."));
     } finally {
-      if (!silent) setMessagesLoading(false);
+      if (!silent && activeChannelIdRef.current === channelId) setMessagesLoading(false);
     }
-  }, [applyFeed, pick, setFeedback]);
+  }, [applyFeed, handleLostChatAccess, pick, setFeedback]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -315,6 +373,7 @@ export function FamilyChat() {
   }, [loadMetadata]);
 
   useEffect(() => {
+    activeChannelIdRef.current = selectedId;
     if (!selectedId || migrationRequired) {
       queueMicrotask(() => {
         setMessages([]);
@@ -335,10 +394,10 @@ export function FamilyChat() {
     return () => window.clearInterval(timer);
   }, [loadMessages, migrationRequired, selectedId]);
 
-  const latestCreatedAt = messages[messages.length - 1]?.created_at;
   useEffect(() => {
     if (!selectedId || migrationRequired) return;
-    const cursor = latestCreatedAt ?? new Date().toISOString();
+    // The snapshot request and stream overlap at this boundary, then message IDs deduplicate them.
+    const cursor = new Date().toISOString();
     const source = new EventSource(
       `/api/chat/stream?channelId=${encodeURIComponent(selectedId)}&after=${encodeURIComponent(cursor)}`,
     );
@@ -346,12 +405,16 @@ export function FamilyChat() {
     source.addEventListener("heartbeat", () => setLive(true));
     source.addEventListener("messages", (event) => {
       setLive(true);
-      applyFeed(JSON.parse((event as MessageEvent).data) as ChatPayload);
+      applyFeed(JSON.parse((event as MessageEvent).data) as ChatPayload, selectedId, true);
     });
     source.addEventListener("recover", () => setLive(false));
+    source.addEventListener("access_revoked", () => {
+      source.close();
+      handleLostChatAccess(selectedId);
+    });
     source.onerror = () => setLive(false);
     return () => source.close();
-  }, [applyFeed, latestCreatedAt, migrationRequired, selectedId]);
+  }, [applyFeed, handleLostChatAccess, migrationRequired, selectedId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: messagesLoading ? "auto" : "smooth" });
@@ -375,6 +438,7 @@ export function FamilyChat() {
           memberIds: createMemberIds,
         }),
       });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { channelId?: string; existing?: boolean; error?: string };
       if (!response.ok || !payload.channelId) throw new Error(payload.error ?? pick("চ্যানেল তৈরি হয়নি।", "Channel could not be created."));
       setCreateOpen(false);
@@ -402,6 +466,7 @@ export function FamilyChat() {
         body.set("caption", draft);
         if (replyingTo) body.set("replyToId", replyingTo.id);
         const response = await fetch("/api/chat/upload", { method: "POST", body });
+        if (response.status === 499) return;
         const payload = (await response.json()) as { message?: ChatMessage; attachment?: ChatAttachment; error?: string };
         if (!response.ok || !payload.message || !payload.attachment) throw new Error(payload.error ?? pick("সংযুক্তি পাঠানো যায়নি।", "The attachment could not be sent."));
         setMessages((current) => mergeById(current, [payload.message!]));
@@ -417,6 +482,7 @@ export function FamilyChat() {
             replyToId: replyingTo?.id,
           }),
         });
+        if (response.status === 499) return;
         const payload = (await response.json()) as { message?: ChatMessage; error?: string };
         if (!response.ok || !payload.message) throw new Error(payload.error ?? pick("বার্তা পাঠানো যায়নি।", "The message could not be sent."));
         setMessages((current) => mergeById(current, [payload.message!]));
@@ -441,6 +507,7 @@ export function FamilyChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "toggle_reaction", channelId: selected.id, messageId, emoji }),
       });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { active?: boolean; error?: string };
       if (!response.ok) throw new Error(payload.error ?? pick("প্রতিক্রিয়া হালনাগাদ হয়নি।", "The reaction could not be updated."));
       await loadMessages(selected.id, true);
@@ -457,6 +524,7 @@ export function FamilyChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "update_notification", channelId: selected.id, level }),
       });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? pick("নোটিফিকেশন হালনাগাদ হয়নি।", "Notifications could not be updated."));
       setChannels((current) => current.map((channel) => channel.id === selected.id
@@ -523,16 +591,28 @@ export function FamilyChat() {
     if (!selected) return;
     setExporting(true);
     try {
+      const response = await fetch(`/api/chat?channelId=${encodeURIComponent(selected.id)}&export=1`, { cache: "no-store" });
+      const history = await response.json() as ChatPayload;
+      if (!response.ok) throw new Error(history.error ?? pick("চ্যাট ইতিহাস লোড হয়নি।", "Chat history could not be loaded."));
+      const exportMessages = history.messages ?? [];
+      const exportReactions = history.reactions ?? [];
+      const exportAttachments = history.attachments ?? [];
       const XLSX = await import("xlsx");
-      const messageRows = messages.map((message, index) => {
-        const reply = message.reply_to_id ? messages.find((item) => item.id === message.reply_to_id) : null;
-        const messageAttachments = attachments.filter((item) => item.message_id === message.id);
-        const reactionSummary = reactions
-          .filter((item) => item.message_id === message.id)
-          .reduce<Record<string, number>>((summary, reaction) => ({
-            ...summary,
-            [reaction.emoji]: (summary[reaction.emoji] ?? 0) + 1,
-          }), {});
+      const messageById = new Map(exportMessages.map((message) => [message.id, message]));
+      const attachmentsByMessage = new Map<string, string[]>();
+      for (const attachment of exportAttachments) {
+        attachmentsByMessage.set(attachment.message_id, [...(attachmentsByMessage.get(attachment.message_id) ?? []), attachment.file_name]);
+      }
+      const reactionsByMessage = new Map<string, Record<string, number>>();
+      for (const reaction of exportReactions) {
+        const summary = reactionsByMessage.get(reaction.message_id) ?? {};
+        summary[reaction.emoji] = (summary[reaction.emoji] ?? 0) + 1;
+        reactionsByMessage.set(reaction.message_id, summary);
+      }
+      const messageRows = exportMessages.map((message, index) => {
+        const reply = message.reply_to_id ? messageById.get(message.reply_to_id) : null;
+        const messageAttachments = attachmentsByMessage.get(message.id) ?? [];
+        const reactionSummary = reactionsByMessage.get(message.id) ?? {};
         return {
           [pick("ক্রমিক", "SL")]: index + 1,
           [pick("সময়", "Time")]: new Date(message.created_at).toLocaleString(locale === "bn" ? "bn-BD" : "en-BD"),
@@ -540,7 +620,7 @@ export function FamilyChat() {
           [pick("ধরন", "Type")]: message.message_type,
           [pick("বার্তা", "Message")]: message.body ?? "",
           [pick("যার উত্তর", "Reply to")]: reply ? `${reply.author_name}: ${reply.body ?? pick("সংযুক্তি", "Attachment")}` : "",
-          [pick("সংযুক্তি", "Attachment")]: messageAttachments.map((item) => item.file_name).join(", "),
+          [pick("সংযুক্তি", "Attachment")]: messageAttachments.join(", "),
           [pick("প্রতিক্রিয়া", "Reactions")]: Object.entries(reactionSummary).map(([emoji, count]) => `${emoji} ${count}`).join(" · "),
         };
       });
@@ -554,6 +634,9 @@ export function FamilyChat() {
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(memberRows), pick("সদস্য", "Members"));
       const fileName = selected.name.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "family-chat";
       XLSX.writeFile(workbook, `${fileName}-chat.xlsx`);
+      setFeedback(pick("পুরো চ্যাট XLSX তৈরি হয়েছে।", "The full chat XLSX was created."));
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : pick("চ্যাট XLSX তৈরি হয়নি।", "The chat XLSX could not be created."));
     } finally {
       setExporting(false);
     }
@@ -618,6 +701,8 @@ export function FamilyChat() {
       </main>
     );
   }
+
+  if (!family) return <main className="mx-auto max-w-3xl p-6 md:p-10"><Card className="rounded-3xl border-dashed"><CardContent className="p-8 text-center"><MessageCircle className="mx-auto size-10 text-muted-foreground" /><h1 className="mt-4 text-2xl font-bold">{pick("চ্যাটের তথ্য লোড হয়নি", "Chat data did not load")}</h1><p className="mt-2 text-muted-foreground">{pick("পুরোনো চ্যাট দেখানো হচ্ছে না। আবার চেষ্টা করুন।", "Previous chat data has been cleared. Please try again.")}</p><Button className="mt-5" onClick={() => void loadMetadata()}>{pick("আবার চেষ্টা করুন", "Retry")}</Button></CardContent></Card></main>;
 
   return (
     <main className="mx-auto w-full max-w-[1600px] p-3 sm:p-4 md:p-6">

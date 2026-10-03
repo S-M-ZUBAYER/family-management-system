@@ -1,6 +1,9 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageGovernance, getActiveFamilyMembership } from "@/lib/family-access";
 import type { FamilyDecision, FamilyPoll, GovernancePayload, PollComment, PollOption } from "@/lib/governance-types";
+import { decisionVisibleForPoll } from "@/lib/governance-visibility";
+import { PaginatedRowLimitError } from "@/lib/paginated-rows";
+import { readAllSupabaseRows } from "@/lib/supabase-pagination";
 import { BackendNotConfiguredError, isBackendConfigured, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 
 type PollRow = Omit<FamilyPoll, "options" | "eligible_voters" | "participant_count" | "quorum_reached" | "results_visible" | "has_voted" | "my_option_ids" | "is_mine">;
@@ -9,6 +12,7 @@ type VoteRow = { poll_id: string; option_id: string; voter_user_id: string };
 type CommentRow = Omit<PollComment, "is_mine">;
 
 export function governanceErrorResponse(error: unknown, label: string) {
+  if (error instanceof PaginatedRowLimitError) return Response.json({ code: "GOVERNANCE_ROW_LIMIT", maxRows: error.maxRows, error: `Governance history exceeds ${error.maxRows} rows in one section. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });
   if (error instanceof BackendNotConfiguredError) return Response.json({ error: "PostgreSQL connection configured নয়।" }, { status: 503 });
   if (error instanceof SupabaseRequestError) {
     console.error(label, error.status, error.message);
@@ -35,17 +39,17 @@ export async function GET() {
 
     try {
       const familyFilter = `eq.${membership.family_id}`;
-      const query = (select: string, order: string) => new URLSearchParams({ select, family_id: familyFilter, order });
+      const query = (select: string, order: string) => new URLSearchParams({ select, family_id: familyFilter, order: `${order},id.asc` });
       [polls, options, votes, comments, decisions, memberRoles] = await Promise.all([
-        supabaseRest<PollRow[]>(`family_polls?${query("id,title,description,category,decision_type,voting_mode,max_choices,is_anonymous,results_visibility,audience,quorum_percent,opens_at,closes_at,status,created_by_user_id,created_by_name,created_at,updated_at", "created_at.desc")}`),
-        supabaseRest<OptionRow[]>(`poll_options?${query("id,poll_id,label,description,position", "poll_id.asc,position.asc")}`),
-        supabaseRest<VoteRow[]>(`poll_votes?${query("poll_id,option_id,voter_user_id", "created_at.asc")}`),
-        supabaseRest<CommentRow[]>(`poll_comments?${query("id,poll_id,body,author_user_id,author_name,status,created_at", "created_at.asc")}`),
-        supabaseRest<FamilyDecision[]>(`family_decisions?${query("id,poll_id,title,summary,final_outcome,effective_date,status,decided_by_user_id,decided_by_name,created_at,updated_at", "effective_date.desc.nullslast,created_at.desc")}`),
-        supabaseRest<Array<{ role: string }>>(`family_memberships?${new URLSearchParams({ select: "role", family_id: familyFilter, status: "eq.active" })}`),
+        readAllSupabaseRows<PollRow>("family_polls", query("id,title,description,category,decision_type,voting_mode,max_choices,is_anonymous,results_visibility,audience,quorum_percent,opens_at,closes_at,status,created_by_user_id,created_by_name,created_at,updated_at", "created_at.desc")),
+        readAllSupabaseRows<OptionRow>("poll_options", query("id,poll_id,label,description,position", "poll_id.asc,position.asc")),
+        readAllSupabaseRows<VoteRow>("poll_votes", query("id,poll_id,option_id,voter_user_id", "created_at.asc")),
+        readAllSupabaseRows<CommentRow>("poll_comments", query("id,poll_id,body,author_user_id,author_name,status,created_at", "created_at.asc")),
+        readAllSupabaseRows<FamilyDecision>("family_decisions", query("id,poll_id,title,summary,final_outcome,effective_date,status,decided_by_user_id,decided_by_name,created_at,updated_at", "effective_date.desc.nullslast,created_at.desc")),
+        readAllSupabaseRows<{ id: string; role: string }>("family_memberships", new URLSearchParams({ select: "id,role", family_id: familyFilter, status: "eq.active", order: "id.asc" })),
       ]);
     } catch (error) {
-      if (error instanceof SupabaseRequestError) migrationRequired = true;
+      if (error instanceof SupabaseRequestError && /PGRST205|42P01|42703/.test(error.message)) migrationRequired = true;
       else throw error;
     }
 
@@ -93,7 +97,7 @@ export async function GET() {
       viewer: { displayName: user.displayName, role: membership.role },
       polls: hydratedPolls,
       comments: comments.filter((comment) => visiblePollIds.has(comment.poll_id) && (comment.status === "visible" || canManage)).map((comment) => ({ ...comment, is_mine: comment.author_user_id === user.userId })),
-      decisions,
+      decisions: decisions.filter((decision) => decisionVisibleForPoll(decision, visiblePollIds)),
       permissions: { canManage },
       migrationRequired,
     };
