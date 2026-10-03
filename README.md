@@ -1,126 +1,99 @@
-# vinext-starter
+# Family Management System
 
-A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
+A bilingual (বাংলা/English), multi-family web application for family records and day-to-day coordination. The first family is Sheikh Monsuf Family, but the application is designed so each registered family has its own workspace and approval process.
 
-## Prerequisites
+> **Project status:** This is an active, partially tested project—not a finished or newly deployed release. Code in this checkout, database migrations applied to Supabase, and the version currently hosted on Sites may differ. Read [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) and [the latest local QA log](QA_ACCEPTANCE_2026-10-03.md) before continuing or deploying.
 
-- Node.js `>=22.13.0`
-- Portable: Windows, macOS, or Linux; no Bash required
-- Managed Linux: managed Linux runtime with Bash, `flock`, `curl`, `sha256sum`, and GNU `timeout`
-- Git is required only for publishing
+## What is in the application
 
-## Sites Lifecycle
+- Member profiles, family directory, multi-generation tree and per-family membership approval.
+- Notices, events/tours, a family magazine, group chat and in-app notifications.
+- Extensive year-by-year Qurbani planning: participants/shares, animals, financial records, vendors, schedules, tasks and meat distribution.
+- Private personal finance, health records and SOS, welfare funds, shared household management, family archives and governance/polls.
+- Privacy/data-rights, admin/audit, Contact & Support and a step-by-step Help Center.
+- Bengali/English UI, dark/light mode, selectable color palettes and XLSX exports in major modules.
 
-The Sites initializer copies the shared starter and selects managed-linux only when `SITES_MANAGED_LINUX_CONTAINER=1`; otherwise it selects portable. It saves the selection only in ignored `.sites-runtime/execution-profile.json`. Both profiles copy/configure first, then use the plugin's separate `install-dependencies.mjs` step to measure installation independently. Edit source under `app/` and follow the Sites skill for installation, preview, builds, and publishing.
+Features have different acceptance levels. In particular, external SMS/email/WhatsApp delivery, billing/custom domains, complete two-user access testing, every XLSX's contents, and the latest deployment have **not** been verified. The Contact page's email link opens the visitor's email app; submitting an in-app support ticket does not itself send email.
 
-Run `node <plugin-root>/scripts/configure-execution-profile.mjs` only when the profile is unknown for the current checkout and environment. Profile changes do not alter tracked source or require reinstalling otherwise-valid dependencies; restart an existing preview to use the new selection. Do not commit or upload `.sites-runtime/`.
+## Technology
 
-This starter does not use `wrangler.jsonc`.
+| Layer | Current implementation |
+| --- | --- |
+| Web app | React 19, TypeScript, Vinext (Next-compatible app routing), Vite and Tailwind CSS |
+| API | Server-side route handlers under `app/api/` |
+| Data | Supabase-hosted PostgreSQL, accessed by server-only HTTPS Data API code |
+| Identity | ChatGPT/Sites sign-in on the hosted Site; loopback-only mock identity in portable local development |
+| Files | Private Sites R2 binding named `BUCKET` for supported media/documents |
+| Hosting | Existing Sites project configured in `.openai/hosting.json` |
 
-`install:ci` runs `npm ci` once against the shared lockfile, disables parent-workspace discovery, and includes required dev/optional dependencies despite production/omit settings. Sharp defaults to prebuilt binaries unless explicitly configured otherwise. Do not overlap installers.
+The `SUPABASE_SECRET_KEY` is server-only. Never put it in client code, a `NEXT_PUBLIC_` variable, a screenshot, a commit or a chat message.
 
-- **Portable:** Preserve host HOME, npm cache, registry, proxy, temporary paths, retry/concurrency settings, and lifecycle-script policy. Use `--prefer-offline --no-audit --no-fund`.
-- **Managed Linux:** Use the existing project-local HOME/cache/tmp setup and Linux install lock, tarball preflight, and timeout. Restore the image-seeded npm cache only when its lockfile hash matches; retain network fallback. Builds keep their existing timeout. These helpers are not invoked by the portable profile.
+## Local setup (Windows PowerShell)
 
-`scripts/sites-env.mjs` preserves the caller's HOME, npm cache, proxy, XDG, and temporary-directory configuration while defaulting Wrangler and Miniflare state to the checkout. If npm reports an unwritable cache, select a writable path with `npm_config_cache` for that install. The `dev` and `start` scripts also keep Wrangler logs inside the checkout. Generated `.sites-runtime/` and `.wrangler/` directories are disposable and ignored by Git.
+Requirements: Node.js 22.13 or later, npm and Git. Commands below run from the repository root.
 
-On portable, `npm run dev` uses `vinext dev` with HMR, starting at port 5173. Vinext records the running server in ignored `.vinext/` state, rejects an ordinary duplicate launch, and recovers stale state after a stopped process; exactly simultaneous starts can race. Pass `--port <port>` or `--hostname <host>` after `npm run dev --` when needed; keep portable previews on loopback.
+1. Install locked dependencies:
 
-For browser QA on managed Linux, use `sites-preview start`. The project's dev script runs Vite and accepts the supervisor's `--host 0.0.0.0 --port 4173 --strictPort` arguments. The internal browser uses `http://terminal.local:4173/`; it is not a user-facing URL. The supervisor owns the preview lifecycle. The ignored local profile survives the supervisor's cleared process environment.
+   ```powershell
+   npm.cmd ci
+   ```
 
-The portable profile simulates ChatGPT sign-in only for loopback development requests. Visit `/signin-with-chatgpt?return_to=/` to sign in as `local_seedy` (`seedy@sites.test`, display name `Seedy`) and `/signout-with-chatgpt?return_to=/` to sign out. The development cookie preserves that identity across server restarts. Mock auth is disabled in the managed-linux profile and is not included in production builds; hosted authentication remains dispatch-owned.
+2. For a **new, empty** Supabase project, run `supabase/schema.sql` once in its SQL Editor. For an **existing** database, do **not** rerun the full schema or every migration. Read [supabase/README.md](supabase/README.md), inspect the timestamped files in `supabase/migrations/`, and run `supabase/verify_existing_project_readonly.sql` before deciding whether any particular migration is missing. Some migrations change financial or membership guards.
 
-The Worker uses `vinext/server/fetch-handler`, including Vinext's config-aware image handling. After building, `npm start` runs that Worker locally through Wrangler on `127.0.0.1`, sharing `.wrangler/state` with dev preview and local D1 migrations; it does not deploy the site or simulate sign-in. Use the URL printed by the server. Pass `npm start -- --port <port>` to select a different built-preview port.
+3. Copy `.env.example` to `.env.local`, then set your own project's values locally:
 
-Local previews use Miniflare's placeholder `Request.cf` metadata without a network lookup. Set `CLOUDFLARE_CF_FETCH_ENABLED=true` to opt into fetching preview metadata; this setting does not change hosted request metadata.
+   ```dotenv
+   SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+   SUPABASE_SECRET_KEY=YOUR_SERVER_ONLY_SECRET
+   ```
 
-Local tool usage metrics are disabled by default. Set `WRANGLER_SEND_METRICS=true` to opt in.
+   `.env.local` is Git-ignored. Do not reuse the example placeholder. Never paste the real key into GitHub or chat.
 
-## Included Shape
+4. Start the app:
 
-- edit site code under `app/`
-- `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
-- `@cloudflare/workers-types` provides Worker types; `cloudflare-env.d.ts` declares optional `DB`/`BUCKET` bindings—update these declarations if binding names change
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+   ```powershell
+   npm.cmd run dev
+   ```
 
-## Workspace Auth Headers
+   In portable local development, open `http://localhost:5173/signin-with-chatgpt?return_to=/`. This signs in a **mock** `local_seedy` user; it does not prove hosted authentication or cross-user permissions. The default port is 5173 unless the dev server prints another one.
 
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
+The R2 file flows require a configured private `BUCKET` binding. Database-only pages can be tested without claiming file upload/download has passed.
 
-The user ID is stable for the same user on the same Site and different across Sites. Use it as the durable user key; use email and name for display or contact purposes.
+## Verification commands
 
-SIWC-authenticated workspace sites may also receive `oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty `name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by `oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```powershell
+npm.cmd run lint
+npx.cmd tsc --noEmit --incremental false
+npm.cmd run security:audit
+npm.cmd run cancellation:audit
+npm.cmd run i18n:audit
+npm.cmd run build
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+The `package.json` scripts also include focused `test:*` suites for privacy, notifications, Qurbani, finance validation, pagination, chat access, welfare, archives and other policy helpers. Run the relevant suites when changing those areas. `QA_ACCEPTANCE_2026-10-03.md` distinguishes actual browser actions from static/unit checks and lists the remaining end-to-end tests.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs optional or required ChatGPT sign-in:
+## Database and security rules
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use the returned `userId` as the stable user key for user-owned records; do not use email as a durable identifier.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send anonymous visitors through Sign in with ChatGPT.
-- In a Server Component, start sign-in with `<a href={chatGPTSignInPath(returnTo)} target="_top">`. The auth helper module is server-only; do not import it into a Client Component.
-- Do not use `fetch`, XHR, a client-side router, or a framework link that can prefetch the sign-in route. SIWC must start as a top-level navigation.
-- Never request the AuthAPI authorization endpoint directly. The dispatch-owned `/signin-with-chatgpt` route must start the SIWC flow.
-- Use `chatGPTSignOutPath(returnTo)` for browser sign-out links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because they depend on per-request identity headers.
+- Every family-scoped read and mutation must enforce the selected family's active membership **on the server**. A client-side hidden button is not authorization.
+- A new member's join request remains pending until that family's owner/family admin approves it. Existing suspended/left access must not be silently reactivated.
+- Personal finance and private health/archive data must not become visible to another family or member. Check direct-ID routes and file downloads as well as list pages.
+- Money, shares, dates, Qurbani finalization and welfare outflows have validation/database guards. Do not bypass them for UI convenience.
+- Apply schema changes in migration order, test against staging first, and arrange a recoverable backup before changing production data. Do not run `supabase/dev_fixture_two_families.sql` against a database that already contains families; it is an intentional QA fixture.
+- Keep meaningful mutations behind confirmation and show a closeable success/error/info result. Some records intentionally use status changes or retained audit history rather than hard delete.
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the OAuth cookies, and identity header injection. Do not implement app routes for those reserved paths. Routes that do not import and call the helper remain anonymous-compatible.
+## Project map
 
-SIWC establishes identity only; it does not prove workspace membership. Use the Sites hosting platform's access policy controls for workspace-wide restrictions, or enforce explicit server-side membership or allowlist checks.
+- `app/` — pages, module UIs and authenticated API handlers.
+- `components/action-modal-provider.tsx` — shared confirmation/result dialogs.
+- `components/locale-provider.tsx` — persisted language selection.
+- `lib/family-access.ts`, `lib/family-selection.ts` — membership/tenant access rules.
+- `lib/supabase-rest.ts` — server-only Supabase Data API adapter.
+- `supabase/schema.sql` — fresh-project schema; `supabase/migrations/` — ordered existing-project changes.
+- `scripts/` — audits, focused tests and local/hosting helpers.
+- `.openai/hosting.json` — existing Sites project and private R2 binding configuration; it is **not** a deployment command.
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write actions tied to the current ChatGPT user. Leave public content anonymous.
+## Deployment and contribution
 
-## Local D1 migrations
+This repository does not automatically update the hosted Site. Deployment must target the **existing** Sites project with its current owner-private/custom audience, using the account that owns it or has editor access. Verify migrations, runtime secrets, tests and a production backup plan first; then smoke-test critical routes on the deployed URL. Do not create a replacement Site or make the existing Site public just to work around access.
 
-For a D1-backed local preview, generate SQL with `npm run db:generate`. Build once through the Sites skill's build entrypoint (or `npm run build` for standalone use) to generate `dist/server/wrangler.json`, rebuilding if bindings change. From the project root, apply each pending migration in order:
-
-```sh
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_example.sql
-```
-
-Replace the filename with the pending migration and `DB` with your D1 binding name if different. Use `.wrangler/state`, not `.wrangler/state/v3`; Wrangler adds the versioned directories. Do not replay migrations already applied locally. This updates only the preview database; publishing applies production migrations separately.
-
-## Diagnostic Commands
-
-- `npm run install:ci`: perform the one locked dependency install
-- `npm run dev`: start the Vite/Vinext development server
-- `npm run build`: build the deployable Sites artifact
-- `npm run start`: preview the built Worker locally with D1/R2 support
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-When using the Sites plugin, follow its skill instructions for installation, builds, and publishing. These npm commands remain available for standalone use.
-
-The portable build runs Vinext directly without a host `timeout` command. The managed-linux build uses `scripts/build-verified.sh` and its existing `SITES_BUILD_TIMEOUT` setting.
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+Before committing, inspect `git status`, keep `.env.local` and generated files out of Git, run the checks above, and update the handoff/QA record when a module's status changes. Prefer focused commits with clear messages. Do not rewrite existing history or discard another contributor's uncommitted work without explicit agreement.
