@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { feedbackResult, mutationResponseResult } from "../lib/action-feedback.ts";
+import { feedbackResult, mutationResponseResult, repeatsMutationFeedback } from "../lib/action-feedback.ts";
 
 test("common English and Bengali completions show success", () => {
   for (const message of ["Record deleted.", "Status changed to paid.", "Privacy request submitted.", "রেকর্ড সংরক্ষণ হয়েছে।"]) {
@@ -10,7 +10,7 @@ test("common English and Bengali completions show success", () => {
 });
 
 test("failed mutations and invalid household values show errors", () => {
-  for (const message of ["Could not save the record.", "Record not updated.", "Enter a valid actual cost.", "সঠিক সময়সূচি দিন।", "Contact & Support history exceeds 20000 rows.", "Contact support data is temporarily unavailable."]) {
+  for (const message of ["Could not save the record.", "Record not updated.", "Enter a valid actual cost.", "সঠিক সময়সূচি দিন।", "তারিখ ও সময় সঠিকভাবে দিন।", "Schedule time, sequence বা animal সঠিক নয়।", "Contact & Support history exceeds 20000 rows.", "Contact support data is temporarily unavailable."]) {
     assert.equal(feedbackResult(message, "bn").kind, "error", message);
   }
 });
@@ -31,4 +31,12 @@ test("accepted cleanup is informational rather than a false completed success", 
   });
   assert.equal(mutationResponseResult(200, "Document deleted.", "en").kind, "success");
   assert.equal(mutationResponseResult(403, "Access denied.", "bn").kind, "error");
+});
+
+test("duplicate mutation feedback is suppressed while distinct follow-up errors remain", () => {
+  const last = { kind: "success", message: "সময় সূচি রেকর্ড যোগ হয়েছে।", at: 1000 };
+  assert.equal(repeatsMutationFeedback(last, { kind: "success", title: "", message: "কোরবানির সময়সূচি রেকর্ড যোগ হয়েছে।" }, 5000), true);
+  assert.equal(repeatsMutationFeedback(last, { kind: "error", title: "", message: "Refresh failed." }, 5000), false);
+  assert.equal(repeatsMutationFeedback({ kind: "error", message: "Save failed.", at: 1000 }, { kind: "error", title: "", message: "Refresh failed." }, 5000), false);
+  assert.equal(repeatsMutationFeedback(last, { kind: "success", title: "", message: "কোরবানির সময়সূচি রেকর্ড যোগ হয়েছে।" }, 12000), false);
 });

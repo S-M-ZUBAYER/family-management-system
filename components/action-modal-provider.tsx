@@ -17,8 +17,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useLocale, type AppLocale } from "@/components/locale-provider";
-import { feedbackResult, mutationResponseResult, type ResultState } from "@/lib/action-feedback";
-import { qurbaniRecordActionCopy } from "@/lib/qurbani-action-copy";
+import { feedbackResult, mutationResponseResult, repeatsMutationFeedback, type ResultState } from "@/lib/action-feedback";
+import { qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "@/lib/qurbani-action-copy";
 import {
   Dialog,
   DialogClose,
@@ -201,6 +201,10 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
     const recordCopy = qurbaniRecordActionCopy(body.kind, method, locale);
     if (recordCopy) return recordCopy;
   }
+  if (pathname === "/api/qurbani/status") {
+    const statusCopy = qurbaniStatusActionCopy(body.entity, body.status, method, locale);
+    if (statusCopy) return statusCopy;
+  }
 
   const nested = typeof body.data === "object" && body.data ? body.data as Record<string, unknown> : {};
   const decision = typeof body.decision === "string" ? body.decision : "";
@@ -254,7 +258,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
   const pendingConfirmations = useRef<ConfirmationState[]>([]);
   const activeResult = useRef<ResultState | null>(null);
   const pendingResults = useRef<ResultState[]>([]);
-  const lastMutationResult = useRef<{ kind: ResultState["kind"]; at: number } | null>(null);
+  const lastMutationResult = useRef<{ kind: ResultState["kind"]; message: string; at: number } | null>(null);
 
   const showNextDialog = useCallback(() => {
     if (!mounted.current || activeConfirmation.current || activeResult.current) return;
@@ -302,7 +306,6 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
   const dismissResult = useCallback((expected: ResultState | null) => {
     if (!expected || activeResult.current !== expected) return;
     activeResult.current = null;
-    lastMutationResult.current = null;
     setResult(null);
     queueMicrotask(showNextDialog);
   }, [showNextDialog]);
@@ -348,18 +351,19 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
             ? copy.successMessage
             : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."));
           const nextResult = mutationResponseResult(response.status, message, locale);
-          lastMutationResult.current = { kind: nextResult.kind, at: Date.now() };
+          lastMutationResult.current = { kind: nextResult.kind, message: nextResult.message, at: Date.now() };
           showResult(nextResult);
         }
         return response;
       } catch (error) {
         if (mounted.current) {
-          lastMutationResult.current = { kind: "error", at: Date.now() };
-          showResult({
+          const nextResult: ResultState = {
             kind: "error",
             title: locale === "bn" ? "সংযোগজনিত error" : "Connection error",
             message: error instanceof Error ? error.message : (locale === "bn" ? "Server-এর সাথে যোগাযোগ করা যায়নি। আবার চেষ্টা করুন।" : "Could not contact the server. Please try again."),
-          });
+          };
+          lastMutationResult.current = { kind: nextResult.kind, message: nextResult.message, at: Date.now() };
+          showResult(nextResult);
         }
         throw error;
       }
@@ -374,10 +378,10 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
     const handleFeedback = (event: Event) => {
       const nextResult = (event as CustomEvent<ResultState>).detail;
       const lastMutation = lastMutationResult.current;
-      // Many route handlers also report the same outcome through useActionFeedback.
-      // The fetch interceptor has already shown that result; retain different-kind
-      // follow-up errors/warnings (for example a failed refresh after a save).
-      if (lastMutation && lastMutation.kind === nextResult.kind && Date.now() - lastMutation.at < 1500) return;
+      // Route handlers may repeat the mutation outcome through useActionFeedback.
+      // An identical message must not queue again even if its classifier picked a
+      // different kind. Keep distinct follow-up warnings/errors visible.
+      if (repeatsMutationFeedback(lastMutation, nextResult, Date.now())) return;
       showResult(nextResult);
     };
     window.addEventListener(feedbackEvent, handleFeedback);

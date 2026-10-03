@@ -6,6 +6,11 @@ export type ResultState = {
   message: string;
 };
 
+export function repeatsMutationFeedback(last: { kind: ResultState["kind"]; message: string; at: number } | null, next: ResultState, now: number): boolean {
+  return Boolean(last && now - last.at >= 0 && now - last.at < 10000 &&
+    (last.message === next.message || (last.kind === "success" && next.kind === "success")));
+}
+
 export function mutationResponseResult(status: number, message: string, locale: AppLocale): ResultState {
   if (status === 202) {
     return {
@@ -24,7 +29,7 @@ export function mutationResponseResult(status: number, message: string, locale: 
 
 export function feedbackResult(message: string, locale: AppLocale): ResultState {
   const normalized = message.toLowerCase();
-  const failed = ["হয়নি", "যায়নি", "পাওয়া যায়নি", "সীমা ছাড়িয়েছে", "সঠিক প্রকৃত খরচ দিন", "সঠিক সময়সূচি দিন", "error", "failed", "invalid", "required", "denied", "unable", "unavailable", "exceeds", "cannot", "could not", "not saved", "not updated", "not deleted", "not completed", "enter a valid"]
+  const failed = ["হয়নি", "যায়নি", "পাওয়া যায়নি", "সঠিক নয়", "সঠিকভাবে দিন", "সীমা ছাড়িয়েছে", "সঠিক প্রকৃত খরচ দিন", "সঠিক সময়সূচি দিন", "error", "failed", "invalid", "required", "denied", "unable", "unavailable", "exceeds", "cannot", "could not", "not saved", "not updated", "not deleted", "not completed", "enter a valid"]
     .some((word) => normalized.includes(word));
   const informational = ["সম্পন্ন করুন", "অনুমোদনের অপেক্ষায়", "approval-এর অপেক্ষায়", "যোগ দিন", "action cancelled", "no changes were saved", "কভার আপলোড বাতিল", "but the cover upload was cancelled"]
     .some((word) => normalized.includes(word));

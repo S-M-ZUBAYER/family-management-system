@@ -5,7 +5,7 @@ import { useLocale, type AppLocale } from "@/components/locale-provider";
 import { qurbaniIsoToLocalDateTime, qurbaniLocalDateTimeToIso } from "@/lib/qurbani-validation";
 import { qurbaniMoneyOutstanding, qurbaniMoneyTotal } from "@/lib/qurbani-money-total";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
   CalendarDays,
   CheckCircle2,
@@ -437,7 +437,7 @@ export function QurbaniSuite() {
       const timeKey = recordKind === "schedule" ? "scheduledAt" : recordKind === "task" ? "dueAt" : recordKind === "distribution" ? "collectedAt" : null;
       if (timeKey) {
         const time = qurbaniLocalDateTimeToIso(cleanData[timeKey] ?? "");
-        if (time === undefined) {
+        if (time === undefined || (recordKind === "schedule" && time === null)) {
           setFeedback(pick("তারিখ ও সময় সঠিকভাবে দিন।", "Enter a valid date and time."));
           return;
         }
@@ -1136,10 +1136,10 @@ function ValueSelect({ id, value, onChange, items }: { id: string; value: string
   return <Select value={value} onValueChange={onChange}><SelectTrigger id={id} className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent>{items.map(([itemValue, label]) => <SelectItem key={itemValue} value={itemValue}>{label}</SelectItem>)}</SelectContent></Select>;
 }
 
-function RecordFields({ kind, form, setForm, animals, participants }: { kind: QurbaniRecordKind; form: FormState; setForm: (value: FormState) => void; animals: QurbaniAnimal[]; participants: QurbaniParticipant[] }) {
+function RecordFields({ kind, form, setForm, animals, participants }: { kind: QurbaniRecordKind; form: FormState; setForm: Dispatch<SetStateAction<FormState>>; animals: QurbaniAnimal[]; participants: QurbaniParticipant[] }) {
   const { pick } = useLocale();
-  const set = (key: string, value: string) => setForm({ ...form, [key]: value });
-  const input = (key: string, label: string, type = "text", options?: { min?: string; step?: string }) => <FormField label={label} id={"record-" + key}><Input id={"record-" + key} type={type} min={options?.min} step={options?.step} value={form[key] ?? ""} onChange={(event) => set(key, event.target.value)} /></FormField>;
+  const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  const input = (key: string, label: string, type = "text", options?: { min?: string; step?: string }) => <FormField label={label} id={"record-" + key}><Input id={"record-" + key} type={type} min={options?.min} step={options?.step} value={form[key] ?? ""} onChange={(event) => set(key, event.target.value)} onInput={type === "datetime-local" ? (event) => set(key, event.currentTarget.value) : undefined} /></FormField>;
   const select = (key: string, label: string, items: Array<[string, string]>) => <FormField label={label} id={"record-" + key}><ValueSelect id={"record-" + key} value={form[key] ?? items[0]?.[0] ?? ""} onChange={(value) => set(key, value)} items={items} /></FormField>;
   const notes = <div className="sm:col-span-2"><FormField label={pick("নোট", "Notes")} id="record-notes"><Textarea id="record-notes" rows={3} value={form.notes ?? ""} onChange={(event) => set("notes", event.target.value)} /></FormField></div>;
   const animalItems: Array<[string, string]> = [["none", pick("বরাদ্দ হয়নি", "Unassigned")], ...animals.map((item) => [item.id, item.tag_code] as [string, string])];
