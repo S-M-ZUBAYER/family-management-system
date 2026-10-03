@@ -22,9 +22,9 @@ Features have different acceptance levels. In particular, external SMS/email/Wha
 | Web app | React 19, TypeScript, Vinext (Next-compatible app routing), Vite and Tailwind CSS |
 | API | Server-side route handlers under `app/api/` |
 | Data | Supabase-hosted PostgreSQL, accessed by server-only HTTPS Data API code |
-| Identity | ChatGPT/Sites sign-in on the hosted Site; loopback-only mock identity in portable local development |
+| Identity | Host-provided sign-in in production; loopback-only mock identity in portable local development |
 | Files | Private Sites R2 binding named `BUCKET` for supported media/documents |
-| Hosting | Existing Sites project configured in `.openai/hosting.json` |
+| Hosting | Existing hosted project with deployment configuration kept in the repository |
 
 The `SUPABASE_SECRET_KEY` is server-only. Never put it in client code, a `NEXT_PUBLIC_` variable, a screenshot, a commit or a chat message.
 
@@ -55,7 +55,7 @@ Requirements: Node.js 22.13 or later, npm and Git. Commands below run from the r
    npm.cmd run dev
    ```
 
-   In portable local development, open `http://localhost:5173/signin-with-chatgpt?return_to=/`. This signs in a **mock** `local_seedy` user; it does not prove hosted authentication or cross-user permissions. The default port is 5173 unless the dev server prints another one.
+   In portable local development, use the app's local sign-in route after starting the server. This signs in a **mock** `local_seedy` user; it does not prove hosted authentication or cross-user permissions. The default port is 5173 unless the dev server prints another one. The exact route is documented in `PROJECT_HANDOFF.md`.
 
 The R2 file flows require a configured private `BUCKET` binding. Database-only pages can be tested without claiming file upload/download has passed.
 
@@ -90,7 +90,7 @@ The `package.json` scripts also include focused `test:*` suites for privacy, not
 - `lib/supabase-rest.ts` — server-only Supabase Data API adapter.
 - `supabase/schema.sql` — fresh-project schema; `supabase/migrations/` — ordered existing-project changes.
 - `scripts/` — audits, focused tests and local/hosting helpers.
-- `.openai/hosting.json` — existing Sites project and private R2 binding configuration; it is **not** a deployment command.
+- Deployment configuration — existing hosted project and private R2 binding details; it is **not** a deployment command.
 
 ## Deployment and contribution
 
