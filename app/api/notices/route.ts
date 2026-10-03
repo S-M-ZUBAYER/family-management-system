@@ -3,6 +3,7 @@ import {
   canManageNotices,
   getActiveFamilyMembership,
 } from "@/lib/family-access";
+import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
 import {
   BackendNotConfiguredError,
   isBackendConfigured,
@@ -55,6 +56,18 @@ function optionalTimestamp(value: unknown) {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
+async function readAllNotices(query: URLSearchParams): Promise<FamilyNoticeRow[]> {
+  return collectPaginatedRows(
+    (offset, limit) => {
+      const pageQuery = new URLSearchParams(query);
+      pageQuery.set("offset", String(offset));
+      pageQuery.set("limit", String(limit));
+      return supabaseRest<FamilyNoticeRow[]>(`family_notices?${pageQuery}`);
+    },
+    { pageSize: 500, maxRows: 20000 },
+  );
+}
+
 export async function GET() {
   try {
     if (!isBackendConfigured()) throw new BackendNotConfiguredError();
@@ -87,11 +100,11 @@ export async function GET() {
       const noticeQuery = new URLSearchParams({
         select: "id,family_id,title_bn,title_en,body_bn,body_en,category,priority,status,is_pinned,publish_at,expires_at,created_by_user_id,created_at,updated_at",
         family_id: `eq.${membership.family_id}`,
-        order: "is_pinned.desc,publish_at.desc.nullslast,created_at.desc",
+        order: "is_pinned.desc,publish_at.desc.nullslast,created_at.desc,id.asc",
       });
-      notices = await supabaseRest<FamilyNoticeRow[]>(`family_notices?${noticeQuery}`);
+      notices = await readAllNotices(noticeQuery);
     } catch (error) {
-      if (error instanceof SupabaseRequestError) migrationRequired = true;
+      if (error instanceof SupabaseRequestError && /PGRST205|42P01|42703/.test(error.message)) migrationRequired = true;
       else throw error;
     }
 
@@ -199,6 +212,9 @@ export async function POST(request: Request) {
 }
 
 function noticeErrorResponse(error: unknown, logMessage: string) {
+  if (error instanceof PaginatedRowLimitError) {
+    return Response.json({ code: "NOTICES_ROW_LIMIT", maxRows: error.maxRows, error: `Notice history exceeds ${error.maxRows} rows. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });
+  }
   if (error instanceof BackendNotConfiguredError) {
     return Response.json(
       { error: "PostgreSQL connection has not been configured yet." },

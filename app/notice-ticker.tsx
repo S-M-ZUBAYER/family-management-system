@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Megaphone } from "lucide-react";
 import { useLocale } from "@/components/locale-provider";
+import { useCurrentTime } from "@/components/use-current-time";
 
 export type NoticeTickerItem = {
   id: string;
@@ -16,12 +17,12 @@ export type NoticeTickerItem = {
 
 export function NoticeTicker({ notices }: { notices: NoticeTickerItem[] }) {
   const { locale, pick } = useLocale();
-  const [now] = useState(Date.now);
+  const now = useCurrentTime();
   const activeNotices = useMemo(() => {
     return notices.filter((notice) => {
       const publishTime = notice.publish_at ? new Date(notice.publish_at).getTime() : 0;
       const expiryTime = notice.expires_at ? new Date(notice.expires_at).getTime() : null;
-      return notice.status === "published" && publishTime <= now && (!expiryTime || expiryTime > now);
+      return now !== null && notice.status === "published" && publishTime <= now && (!expiryTime || expiryTime > now);
     });
   }, [notices, now]);
 
@@ -56,15 +57,28 @@ export function DashboardNoticeTicker() {
 
   useEffect(() => {
     let active = true;
-    void fetch("/api/notices", { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) return;
-        const payload = (await response.json()) as { notices?: NoticeTickerItem[] };
-        if (active) setNotices(payload.notices ?? []);
-      })
-      .catch(() => undefined);
+    let pending: AbortController | null = null;
+    const refresh = () => {
+      pending?.abort();
+      pending = new AbortController();
+      const signal = pending.signal;
+      void fetch("/api/notices", { cache: "no-store", signal })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Notice feed unavailable");
+          const payload = (await response.json()) as { notices?: NoticeTickerItem[] };
+          if (active && !signal.aborted) setNotices(payload.notices ?? []);
+        })
+        .catch(() => { if (active && !signal.aborted) setNotices([]); });
+    };
+    const refreshWhenVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    refresh();
+    const interval = window.setInterval(refresh, 60_000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       active = false;
+      pending?.abort();
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, []);
 

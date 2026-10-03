@@ -1,6 +1,8 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageMagazine, getActiveFamilyMembership } from "@/lib/family-access";
 import type { MagazineArticle, MagazineComment, MagazineMedia, MagazinePayload } from "@/lib/magazine-types";
+import { PaginatedRowLimitError } from "@/lib/paginated-rows";
+import { readAllSupabaseRows } from "@/lib/supabase-pagination";
 import { BackendNotConfiguredError, isBackendConfigured, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 
 type ArticleRow = Omit<MagazineArticle, "reaction_count" | "comment_count" | "reacted_by_me" | "is_mine">;
@@ -9,6 +11,7 @@ type MediaRow = MagazineMedia & { storage_key: string; uploaded_by_user_id: stri
 type ReactionRow = { id: string; article_id: string; user_id: string };
 
 export function magazineErrorResponse(error: unknown, label: string) {
+  if (error instanceof PaginatedRowLimitError) return Response.json({ code: "MAGAZINE_ROW_LIMIT", maxRows: error.maxRows, error: `Magazine history exceeds ${error.maxRows} rows in one section. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });
   if (error instanceof BackendNotConfiguredError) return Response.json({ error: "PostgreSQL connection configured নয়।" }, { status: 503 });
   if (error instanceof SupabaseRequestError) { console.error(label, error.status, error.message); return Response.json({ error: "Magazine data সাময়িকভাবে পাওয়া যাচ্ছে না।" }, { status: 502 }); }
   console.error(label, error); return Response.json({ error: "Magazine request সম্পন্ন হয়নি।" }, { status: 500 });
@@ -28,13 +31,13 @@ export async function GET() {
     try {
       const familyId = `eq.${membership.family_id}`;
       [articleRows, commentRows, mediaRows, reactionRows] = await Promise.all([
-        supabaseRest<ArticleRow[]>(`family_magazine_articles?${new URLSearchParams({ select: "id,title,summary,content,category,tags,visibility,status,featured,published_at,author_user_id,author_name,created_at,updated_at", family_id: familyId, order: "featured.desc,published_at.desc.nullslast,created_at.desc" })}`),
-        supabaseRest<CommentRow[]>(`magazine_article_comments?${new URLSearchParams({ select: "id,article_id,body,author_user_id,author_name,status,created_at", family_id: familyId, order: "created_at.asc" })}`),
-        supabaseRest<MediaRow[]>(`magazine_media?${new URLSearchParams({ select: "id,article_id,media_type,file_name,mime_type,file_size,storage_key,uploaded_by_user_id,created_at", family_id: familyId, order: "created_at.desc" })}`),
-        supabaseRest<ReactionRow[]>(`magazine_article_reactions?${new URLSearchParams({ select: "id,article_id,user_id", family_id: familyId })}`),
+        readAllSupabaseRows<ArticleRow>("family_magazine_articles", new URLSearchParams({ select: "id,title,summary,content,category,tags,visibility,status,featured,published_at,author_user_id,author_name,created_at,updated_at", family_id: familyId, order: "featured.desc,published_at.desc.nullslast,created_at.desc,id.asc" })),
+        readAllSupabaseRows<CommentRow>("magazine_article_comments", new URLSearchParams({ select: "id,article_id,body,author_user_id,author_name,status,created_at", family_id: familyId, order: "created_at.asc,id.asc" })),
+        readAllSupabaseRows<MediaRow>("magazine_media", new URLSearchParams({ select: "id,article_id,media_type,file_name,mime_type,file_size,storage_key,uploaded_by_user_id,created_at", family_id: familyId, order: "created_at.desc,id.asc" })),
+        readAllSupabaseRows<ReactionRow>("magazine_article_reactions", new URLSearchParams({ select: "id,article_id,user_id", family_id: familyId, order: "id.asc" })),
       ]);
     } catch (error) {
-      if (error instanceof SupabaseRequestError) migrationRequired = true;
+      if (error instanceof SupabaseRequestError && /PGRST205|42P01|42703/.test(error.message)) migrationRequired = true;
       else throw error;
     }
     const visible = articleRows.filter((item) => item.author_user_id === user.userId || canManage || (item.status === "published" && item.visibility === "family"));

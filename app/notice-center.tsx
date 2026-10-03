@@ -2,6 +2,8 @@
 
 import { useActionFeedback } from "@/components/action-modal-provider";
 import { useLocale } from "@/components/locale-provider";
+import { useCurrentTime } from "@/components/use-current-time";
+import { qurbaniIsoToLocalDateTime, qurbaniLocalDateTimeToIso } from "@/lib/qurbani-validation";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -161,8 +163,12 @@ export function NoticeCenter() {
       if (payload.code === "FAMILY_SETUP_REQUIRED") {
         setSetupRequired(true);
         setNotices([]);
+        setFamily(undefined);
+        setCanManage(false);
+        setMigrationRequired(false);
         return;
       }
+      if (payload.code === "NOTICES_ROW_LIMIT") throw new Error(pick("নোটিশ ইতিহাস ২০,০০০ সারির সীমা ছাড়িয়েছে। অসম্পূর্ণ তথ্য দেখানো বা XLSX-এ রপ্তানি করা হয়নি।", "Notice history exceeds 20,000 rows. No partial data was shown or exported."));
       if (!response.ok) throw new Error(payload.error ?? pick("নোটিশ বোর্ড পাওয়া যায়নি।", "Could not load the notice board."));
       setFamily(payload.family);
       setNotices(payload.notices ?? []);
@@ -170,6 +176,11 @@ export function NoticeCenter() {
       setCanManage(Boolean(payload.permissions?.canManage));
       setSetupRequired(false);
     } catch (error) {
+      setNotices([]);
+      setFamily(undefined);
+      setCanManage(false);
+      setMigrationRequired(false);
+      setSetupRequired(false);
       setFeedback(error instanceof Error ? error.message : pick("নোটিশ বোর্ড পাওয়া যায়নি।", "Could not load the notice board."));
     } finally {
       setLoading(false);
@@ -179,11 +190,15 @@ export function NoticeCenter() {
   async function updateNoticeDetails(id: string, input: NoticeForm) {
     setSaving(true);
     try {
+      const publishAt = qurbaniLocalDateTimeToIso(input.publishAt);
+      const expiresAt = qurbaniLocalDateTimeToIso(input.expiresAt);
+      if (publishAt === undefined || expiresAt === undefined) throw new Error(pick("সঠিক প্রকাশ ও মেয়াদের সময় দিন।", "Enter valid publish and expiry times."));
       const response = await fetch(`/api/notices/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "edit", data: input }),
+        body: JSON.stringify({ action: "edit", data: { ...input, publishAt, expiresAt } }),
       });
+      if (response.status === 499) return;
       const payload = await response.json() as { notice?: FamilyNotice; error?: string; message?: string };
       if (!response.ok || !payload.notice) throw new Error(payload.error ?? pick("নোটিশ আপডেট হয়নি।", "The notice could not be updated."));
       setNotices((current) => current.map((notice) => notice.id === id ? payload.notice! : notice));
@@ -204,7 +219,6 @@ export function NoticeCenter() {
   }
 
   function openEditNotice(notice: FamilyNotice) {
-    const localDate = (value: string | null) => value ? new Date(value).toISOString().slice(0, 16) : "";
     setEditingNotice(notice);
     setForm({
       titleBn: notice.title_bn,
@@ -214,8 +228,8 @@ export function NoticeCenter() {
       category: notice.category,
       priority: notice.priority,
       status: notice.status === "archived" ? "draft" : notice.status,
-      publishAt: localDate(notice.publish_at),
-      expiresAt: localDate(notice.expires_at),
+      publishAt: qurbaniIsoToLocalDateTime(notice.publish_at),
+      expiresAt: qurbaniIsoToLocalDateTime(notice.expires_at),
       isPinned: notice.is_pinned,
     });
     setSelected(null);
@@ -226,6 +240,7 @@ export function NoticeCenter() {
     setUpdatingId(id);
     try {
       const response = await fetch(`/api/notices/${id}`, { method: "DELETE" });
+      if (response.status === 499) return;
       const payload = await response.json() as { error?: string; message?: string };
       if (!response.ok) throw new Error(payload.error ?? pick("নোটিশ মোছা যায়নি।", "The notice could not be deleted."));
       setNotices((current) => current.filter((notice) => notice.id !== id));
@@ -240,12 +255,12 @@ export function NoticeCenter() {
     queueMicrotask(() => void loadNotices());
   }, [loadNotices]);
 
-  const [now] = useState(Date.now);
+  const now = useCurrentTime();
   const activeNotices = useMemo(() => {
     return notices.filter((notice) => {
-      const starts = notice.publish_at ? new Date(notice.publish_at).getTime() <= now : true;
-      const valid = notice.expires_at ? new Date(notice.expires_at).getTime() > now : true;
-      return notice.status === "published" && starts && valid;
+      const starts = notice.publish_at && now !== null ? new Date(notice.publish_at).getTime() <= now : true;
+      const valid = notice.expires_at && now !== null ? new Date(notice.expires_at).getTime() > now : true;
+      return now !== null && notice.status === "published" && starts && valid;
     });
   }, [notices, now]);
 
@@ -268,11 +283,15 @@ export function NoticeCenter() {
     setSaving(true);
     setFeedback(null);
     try {
+      const publishAt = qurbaniLocalDateTimeToIso(input.publishAt);
+      const expiresAt = qurbaniLocalDateTimeToIso(input.expiresAt);
+      if (publishAt === undefined || expiresAt === undefined) throw new Error(pick("সঠিক প্রকাশ ও মেয়াদের সময় দিন।", "Enter valid publish and expiry times."));
       const response = await fetch("/api/notices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
+        body: JSON.stringify({ ...input, publishAt, expiresAt }),
       });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { notice?: FamilyNotice; error?: string };
       if (!response.ok || !payload.notice) throw new Error(payload.error ?? pick("নোটিশ সেভ হয়নি।", "The notice could not be saved."));
       setNotices((current) => [payload.notice!, ...current]);
@@ -294,6 +313,7 @@ export function NoticeCenter() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { notice?: FamilyNotice; error?: string };
       if (!response.ok || !payload.notice) throw new Error(payload.error ?? pick("নোটিশ আপডেট হয়নি।", "The notice could not be updated."));
       setNotices((current) => current.map((notice) => notice.id === id ? payload.notice! : notice));
@@ -326,6 +346,9 @@ export function NoticeCenter() {
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, pick("পারিবারিক নোটিশ", "Family Notices"));
       XLSX.writeFile(workbook, `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-notices.xlsx`);
+      setFeedback(pick("নোটিশ XLSX তৈরি হয়েছে।", "The notices XLSX was created."));
+    } catch {
+      setFeedback(pick("নোটিশ XLSX তৈরি হয়নি। আবার চেষ্টা করুন।", "The notices XLSX could not be created. Please try again."));
     } finally {
       setExporting(false);
     }

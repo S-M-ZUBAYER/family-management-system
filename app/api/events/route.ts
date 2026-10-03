@@ -1,5 +1,6 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageEvents, getActiveFamilyMembership } from "@/lib/family-access";
+import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
 import {
   BackendNotConfiguredError,
   isBackendConfigured,
@@ -105,6 +106,18 @@ function optionalTimestamp(value: unknown) {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
+async function readAllEventRows<T>(table: string, query: URLSearchParams): Promise<T[]> {
+  return collectPaginatedRows(
+    (offset, limit) => {
+      const pageQuery = new URLSearchParams(query);
+      pageQuery.set("offset", String(offset));
+      pageQuery.set("limit", String(limit));
+      return supabaseRest<T[]>(`${table}?${pageQuery}`);
+    },
+    { pageSize: 500, maxRows: 20000 },
+  );
+}
+
 export async function GET() {
   try {
     if (!isBackendConfigured()) throw new BackendNotConfiguredError();
@@ -141,31 +154,31 @@ export async function GET() {
       const eventQuery = new URLSearchParams({
         select: "id,family_id,title_bn,title_en,description_bn,description_en,event_type,start_at,end_at,venue,city,meeting_point,estimated_cost_per_person,total_budget,capacity,registration_deadline,status,created_by_user_id,created_at,updated_at",
         ...common,
-        order: "start_at.asc",
+        order: "start_at.asc,id.asc",
       });
       const rsvpQuery = new URLSearchParams({
         select: "id,event_id,auth_user_id,respondent_name,response,guest_count,note,updated_at",
         ...common,
-        order: "updated_at.desc",
+        order: "updated_at.desc,id.asc",
       });
       const commentQuery = new URLSearchParams({
         select: "id,event_id,auth_user_id,author_name,body,created_at",
         ...common,
-        order: "created_at.asc",
+        order: "created_at.asc,id.asc",
       });
       const mediaQuery = new URLSearchParams({
         select: "id,event_id,file_name,mime_type,file_size,caption,uploader_name,created_at",
         ...common,
-        order: "created_at.desc",
+        order: "created_at.desc,id.asc",
       });
       [events, rsvps, comments, media] = await Promise.all([
-        supabaseRest<FamilyEventRow[]>(`family_events?${eventQuery}`),
-        supabaseRest<EventRsvpRow[]>(`event_rsvps?${rsvpQuery}`),
-        supabaseRest<EventCommentRow[]>(`event_comments?${commentQuery}`),
-        supabaseRest<EventMediaRow[]>(`event_media?${mediaQuery}`),
+        readAllEventRows<FamilyEventRow>("family_events", eventQuery),
+        readAllEventRows<EventRsvpRow>("event_rsvps", rsvpQuery),
+        readAllEventRows<EventCommentRow>("event_comments", commentQuery),
+        readAllEventRows<EventMediaRow>("event_media", mediaQuery),
       ]);
     } catch (error) {
-      if (error instanceof SupabaseRequestError) migrationRequired = true;
+      if (error instanceof SupabaseRequestError && /PGRST205|42P01|42703/.test(error.message)) migrationRequired = true;
       else throw error;
     }
 
@@ -295,6 +308,9 @@ export async function POST(request: Request) {
 }
 
 function eventErrorResponse(error: unknown, logMessage: string) {
+  if (error instanceof PaginatedRowLimitError) {
+    return Response.json({ code: "EVENTS_ROW_LIMIT", maxRows: error.maxRows, error: `Event history exceeds ${error.maxRows} rows in one section. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });
+  }
   if (error instanceof BackendNotConfiguredError) {
     return Response.json({ error: "PostgreSQL connection has not been configured yet." }, { status: 503 });
   }

@@ -1,6 +1,8 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canViewAdministration, getActiveFamilyMembership } from "@/lib/family-access";
 import type { DirectoryVisibility, PrivacyConsent, PrivacyPayload, PrivacyPolicy, PrivacyRequest, PrivacyRequestStatus, PrivacyRequestType } from "@/lib/privacy-types";
+import { PaginatedRowLimitError } from "@/lib/paginated-rows";
+import { readAllSupabaseRows } from "@/lib/supabase-pagination";
 import { BackendNotConfiguredError, isBackendConfigured, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -18,6 +20,7 @@ const defaultConsent: PrivacyConsent = { directory_visibility: "family", show_em
 const defaultPolicy: PrivacyPolicy = { privacy_notice_bn: null, privacy_notice_en: null, record_retention_days: 3650, inactive_member_retention_days: 730, allow_member_data_requests: true, updated_at: null };
 
 function errorResponse(error: unknown, label: string) {
+  if (error instanceof PaginatedRowLimitError) return Response.json({ code: "PRIVACY_ROW_LIMIT", maxRows: error.maxRows, error: `Privacy request history exceeds ${error.maxRows} rows. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });
   if (error instanceof BackendNotConfiguredError) return Response.json({ error: "PostgreSQL connection is not configured." }, { status: 503 });
   if (error instanceof SupabaseRequestError) { console.error(label, error.status, error.message); return Response.json({ error: "Privacy data is temporarily unavailable." }, { status: 502 }); }
   console.error(label, error); return Response.json({ error: "The privacy request could not be completed." }, { status: 500 });
@@ -36,11 +39,11 @@ export async function GET() {
       if (storedConsent) consent = { ...defaultConsent, ...storedConsent };
       const storedPolicy = (await supabaseRest<PrivacyPolicy[]>(`family_privacy_settings?${new URLSearchParams({ select: "privacy_notice_bn,privacy_notice_en,record_retention_days,inactive_member_retention_days,allow_member_data_requests,updated_at", family_id: familyFilter, limit: "1" })}`))[0];
       if (storedPolicy) policy = { ...defaultPolicy, ...storedPolicy };
-      const query = new URLSearchParams({ select: "id,request_type,subject,details,status,requested_by_user_id,requested_by_name,admin_response,assigned_to_name,resolved_at,created_at,updated_at", family_id: familyFilter, order: "created_at.desc", limit: "500" });
+      const query = new URLSearchParams({ select: "id,request_type,subject,details,status,requested_by_user_id,requested_by_name,admin_response,assigned_to_name,resolved_at,created_at,updated_at", family_id: familyFilter, order: "created_at.desc,id.asc" });
       if (!canManage) query.set("requested_by_user_id", `eq.${user.userId}`);
-      const rows = await supabaseRest<Array<Omit<PrivacyRequest, "is_mine">>>(`family_data_requests?${query}`);
+      const rows = await readAllSupabaseRows<Omit<PrivacyRequest, "is_mine">>("family_data_requests", query);
       requests = rows.map((row) => ({ ...row, is_mine: row.requested_by_user_id === user.userId }));
-    } catch (error) { if (error instanceof SupabaseRequestError) migrationRequired = true; else throw error; }
+    } catch (error) { if (error instanceof SupabaseRequestError && /PGRST205|42P01|42703/.test(error.message)) migrationRequired = true; else throw error; }
     const payload: PrivacyPayload = { family, viewer: { displayName: user.displayName, role: membership.role }, consent, policy, requests, permissions: { canManage }, migrationRequired };
     return Response.json(payload);
   } catch (error) { return errorResponse(error, "Unable to load privacy center"); }

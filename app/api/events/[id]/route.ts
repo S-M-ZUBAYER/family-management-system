@@ -1,5 +1,6 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageEvents, getActiveFamilyMembership } from "@/lib/family-access";
+import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
 import { BackendNotConfiguredError, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 
 import type { FamilyEventRow } from "../route";
@@ -128,16 +129,36 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
     const { id } = await context.params;
     const existing = (await supabaseRest<FamilyEventRow[]>(`family_events?${new URLSearchParams({ select: "*", id: `eq.${id}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
     if (!existing) return Response.json({ error: "Event পাওয়া যায়নি।" }, { status: 404 });
-    const media = await supabaseRest<Array<{ storage_key: string }>>(`event_media?${new URLSearchParams({ select: "storage_key", event_id: `eq.${id}`, family_id: `eq.${membership.family_id}` })}`);
+    const media = await collectPaginatedRows(
+      (offset, limit) => supabaseRest<Array<{ storage_key: string }>>(`event_media?${new URLSearchParams({ select: "storage_key", event_id: `eq.${id}`, family_id: `eq.${membership.family_id}`, order: "id.asc", offset: String(offset), limit: String(limit) })}`),
+      { pageSize: 500, maxRows: 20000 },
+    );
+    const bucket = (env as RuntimeEnv).BUCKET;
     if (media.length) {
-      const bucket = (env as RuntimeEnv).BUCKET;
       if (!bucket) return Response.json({ error: "Media storage unavailable; event delete করা নিরাপদ নয়।" }, { status: 503 });
-      await bucket.delete(media.map((item) => item.storage_key));
     }
-    await supabaseRest(`family_events?${new URLSearchParams({ id: `eq.${id}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: "family_event_deleted", entity_type: "family_event", entity_id: id, metadata: { title: existing.title_bn, media_count: media.length } }) });
-    return Response.json({ message: "Event এবং linked data স্থায়ীভাবে delete হয়েছে।" });
+    const deleted = await supabaseRest<Array<{ id: string }>>(`family_events?${new URLSearchParams({ select: "id", id: `eq.${id}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+    if (!deleted.length) return Response.json({ error: "Event পাওয়া যায়নি।" }, { status: 404 });
+    let cleanupPending = false;
+    if (bucket) {
+      for (let offset = 0; offset < media.length; offset += 500) {
+        const keys = media.slice(offset, offset + 500).map((item) => item.storage_key);
+        try { await bucket.delete(keys); }
+        catch (error) {
+          cleanupPending = true;
+          console.error("Event media storage cleanup pending", id, error);
+          try {
+            await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: "event_media_storage_cleanup_pending", entity_type: "family_event", entity_id: id, metadata: { storage_keys: keys } }) });
+          } catch (auditError) { console.error("Unable to audit pending event media cleanup", auditError); }
+        }
+      }
+    }
+    try {
+      await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: "family_event_deleted", entity_type: "family_event", entity_id: id, metadata: { title: existing.title_bn, media_count: media.length, cleanup_pending: cleanupPending } }) });
+    } catch (error) { console.error("Unable to audit event deletion", error); }
+    return Response.json(cleanupPending ? { message: "Event and linked records removed. Private media cleanup is pending.", cleanupPending: true } : { message: "Event এবং linked data স্থায়ীভাবে delete হয়েছে।" }, { status: cleanupPending ? 202 : 200 });
   } catch (error) {
+    if (error instanceof PaginatedRowLimitError) return Response.json({ code: "EVENT_MEDIA_ROW_LIMIT", maxRows: error.maxRows, error: `Event media exceeds ${error.maxRows} files. No partial deletion was performed; contact support for a paged cleanup.` }, { status: 413 });
     if (error instanceof BackendNotConfiguredError) return Response.json({ error: "Backend configured নয়।" }, { status: 503 });
     if (error instanceof SupabaseRequestError) {
       console.error("Unable to delete event", error.status, error.message);

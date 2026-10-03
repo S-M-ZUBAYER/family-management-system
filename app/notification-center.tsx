@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArchiveRestore, Bell, BellRing, CheckCheck, Clock3, Download, LoaderCircle, Megaphone, Plus, Search, Settings2 } from "lucide-react";
 import { useActionFeedback } from "@/components/action-modal-provider";
 import { useLocale, type AppLocale } from "@/components/locale-provider";
@@ -30,19 +30,47 @@ export function NotificationCenter() {
   const [query, setQuery] = useState(""), [view, setView] = useState<"active" | "unread" | "archived">("active"), [category, setCategory] = useState("all");
   const [createOpen, setCreateOpen] = useState(false), [preferencesOpen, setPreferencesOpen] = useState(false), [form, setForm] = useState(emptyForm);
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
+  const preferencesOpenRef = useRef(false);
+  const requestSequence = useRef(0);
+  const backgroundFailureReported = useRef(false);
   const formatter = useMemo(() => new Intl.DateTimeFormat(locale === "bn" ? "bn-BD" : "en-BD", { dateStyle: "medium", timeStyle: "short" }), [locale]);
+  useEffect(() => { preferencesOpenRef.current = preferencesOpen; }, [preferencesOpen]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (background = false) => {
+    const sequence = ++requestSequence.current;
     try {
       const response = await fetch("/api/notifications", { cache: "no-store" });
       const data = await response.json() as NotificationPayload;
-      if (data.code === "FAMILY_SETUP_REQUIRED") { setPayload(data); return; }
+      if (sequence !== requestSequence.current) return;
+      if (data.code === "FAMILY_SETUP_REQUIRED") { setPayload(data); setPreferences(null); return; }
+      if (data.code === "NOTIFICATIONS_ROW_LIMIT") throw new Error(pick("নোটিফিকেশনের ইতিহাসে ২০,০০০-এর বেশি রেকর্ড আছে। অসম্পূর্ণ তালিকা দেখানো হয়নি; পৃষ্ঠা-ভিত্তিক এক্সপোর্টের জন্য সাপোর্টে যোগাযোগ করুন।", "Notification history has more than 20,000 records. No partial list was shown; contact support for a paged export."));
       if (!response.ok) throw new Error(data.error ?? pick("নোটিফিকেশন লোড হয়নি।", "Notifications could not be loaded."));
-      setPayload(data); setPreferences(data.preferences ?? null);
-    } catch (error) { setFeedback(error instanceof Error ? error.message : pick("নোটিফিকেশন লোড হয়নি।", "Notifications could not be loaded.")); }
-    finally { setLoading(false); }
+      backgroundFailureReported.current = false;
+      setPayload(data);
+      if (!background || !preferencesOpenRef.current) setPreferences(data.preferences ?? null);
+    } catch (error) {
+      if (sequence !== requestSequence.current) return;
+      setPayload({});
+      if (!background || !preferencesOpenRef.current) setPreferences(null);
+      if (!background || !backgroundFailureReported.current) {
+        setFeedback(error instanceof Error ? error.message : pick("নোটিফিকেশন লোড হয়নি।", "Notifications could not be loaded."));
+        backgroundFailureReported.current = true;
+      }
+    } finally { if (sequence === requestSequence.current) setLoading(false); }
   }, [pick, setFeedback]);
-  useEffect(() => { queueMicrotask(() => void load()); }, [load]);
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void load(); });
+    const refresh = () => { if (active && document.visibilityState === "visible") void load(true); };
+    const interval = window.setInterval(refresh, 60_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      active = false;
+      requestSequence.current += 1;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [load]);
 
   const notifications = useMemo(() => payload.notifications ?? [], [payload.notifications]);
   const visible = useMemo(() => notifications.filter((item) => {
@@ -63,9 +91,10 @@ export function NotificationCenter() {
     try {
       const body = { action: "create_notification", ...form, scheduledFor: form.scheduledFor ? new Date(form.scheduledFor).toISOString() : null, expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : null };
       const response = await fetch("/api/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (response.status === 499) return;
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error ?? pick("নোটিফিকেশন প্রকাশ হয়নি।", "Notification could not be published."));
-      setCreateOpen(false); setForm(emptyForm); await load(); setFeedback(pick("ফ্যামিলি নোটিফিকেশন প্রকাশ হয়েছে।", "Family notification published."));
+      setCreateOpen(false); setForm(emptyForm); await load();
     } catch (error) { setFeedback(error instanceof Error ? error.message : pick("নোটিফিকেশন প্রকাশ হয়নি।", "Notification could not be published.")); }
     finally { setSaving(false); }
   }
@@ -74,9 +103,10 @@ export function NotificationCenter() {
     setSaving(true);
     try {
       const response = await fetch("/api/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, action }) });
+      if (response.status === 499) return;
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error ?? pick("অবস্থা হালনাগাদ হয়নি।", "Status could not be updated."));
-      await load(); setFeedback(pick("নোটিফিকেশন অবস্থা হালনাগাদ হয়েছে।", "Notification status updated."));
+      await load();
     } catch (error) { setFeedback(error instanceof Error ? error.message : pick("অবস্থা হালনাগাদ হয়নি।", "Status could not be updated.")); }
     finally { setSaving(false); }
   }
@@ -86,9 +116,10 @@ export function NotificationCenter() {
     setSaving(true);
     try {
       const response = await fetch("/api/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "save_preferences", ...preferences, digestFrequency: preferences.digest_frequency, quietHoursStart: preferences.quiet_hours_start, quietHoursEnd: preferences.quiet_hours_end }) });
+      if (response.status === 499) return;
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error ?? pick("পছন্দ সংরক্ষণ হয়নি।", "Preferences could not be saved."));
-      setPreferencesOpen(false); await load(); setFeedback(pick("নোটিফিকেশন পছন্দ সংরক্ষিত হয়েছে।", "Notification preferences saved."));
+      setPreferencesOpen(false); await load();
     } catch (error) { setFeedback(error instanceof Error ? error.message : pick("পছন্দ সংরক্ষণ হয়নি।", "Preferences could not be saved.")); }
     finally { setSaving(false); }
   }

@@ -36,10 +36,10 @@ export function PrivacyCenter() {
   const load = useCallback(async () => {
     try {
       const response = await fetch("/api/privacy", { cache: "no-store" }); const data = await response.json() as PrivacyPayload;
-      if (data.code === "FAMILY_SETUP_REQUIRED") { setPayload(data); return; }
+      if (data.code === "FAMILY_SETUP_REQUIRED") { setPayload(data); setConsent(null); setPolicy(null); return; }
       if (!response.ok) throw new Error(data.error ?? pick("Privacy Center লোড হয়নি।", "Privacy Center could not be loaded."));
       setPayload(data); setConsent(data.consent ?? null); setPolicy(data.policy ?? null);
-    } catch (error) { setFeedback(error instanceof Error ? error.message : pick("Privacy Center লোড হয়নি।", "Privacy Center could not be loaded.")); }
+    } catch (error) { setPayload({}); setConsent(null); setPolicy(null); setFeedback(error instanceof Error ? error.message : pick("Privacy Center লোড হয়নি।", "Privacy Center could not be loaded.")); }
     finally { setLoading(false); }
   }, [pick, setFeedback]);
   useEffect(() => { queueMicrotask(() => void load()); }, [load]);
@@ -56,8 +56,9 @@ export function PrivacyCenter() {
     if (!consent) return; setSaving(true);
     try {
       const response = await fetch("/api/privacy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "save_consent", directoryVisibility: consent.directory_visibility, showEmailToFamily: consent.show_email_to_family, showPhoneToFamily: consent.show_phone_to_family, allowEmergencyAccess: consent.allow_emergency_access, allowFamilyAnalytics: consent.allow_family_analytics }) });
+      if (response.status === 499) return;
       const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error ?? pick("Privacy পছন্দ সংরক্ষণ হয়নি।", "Privacy choices could not be saved."));
-      setConsentOpen(false); await load(); setFeedback(pick("Privacy পছন্দ সংরক্ষিত হয়েছে।", "Privacy choices saved."));
+      setConsentOpen(false); await load();
     } catch (error) { setFeedback(error instanceof Error ? error.message : pick("Privacy পছন্দ সংরক্ষণ হয়নি।", "Privacy choices could not be saved.")); }
     finally { setSaving(false); }
   }
@@ -66,8 +67,9 @@ export function PrivacyCenter() {
     if (!policy) return; setSaving(true);
     try {
       const response = await fetch("/api/privacy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "save_policy", privacyNoticeBn: policy.privacy_notice_bn, privacyNoticeEn: policy.privacy_notice_en, recordRetentionDays: policy.record_retention_days, inactiveMemberRetentionDays: policy.inactive_member_retention_days, allowMemberDataRequests: policy.allow_member_data_requests }) });
+      if (response.status === 499) return;
       const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error ?? pick("Privacy policy সংরক্ষণ হয়নি।", "Privacy policy could not be saved."));
-      setPolicyOpen(false); await load(); setFeedback(pick("Family privacy policy সংরক্ষিত হয়েছে।", "Family privacy policy saved."));
+      setPolicyOpen(false); await load();
     } catch (error) { setFeedback(error instanceof Error ? error.message : pick("Privacy policy সংরক্ষণ হয়নি।", "Privacy policy could not be saved.")); }
     finally { setSaving(false); }
   }
@@ -77,8 +79,9 @@ export function PrivacyCenter() {
     setSaving(true);
     try {
       const response = await fetch("/api/privacy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create_request", ...form }) });
+      if (response.status === 499) return;
       const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error ?? pick("অনুরোধ জমা হয়নি।", "Request could not be submitted."));
-      setRequestOpen(false); setForm(emptyRequest); await load(); setFeedback(pick("Data-rights অনুরোধ জমা হয়েছে।", "Data-rights request submitted."));
+      setRequestOpen(false); setForm(emptyRequest); await load();
     } catch (error) { setFeedback(error instanceof Error ? error.message : pick("অনুরোধ জমা হয়নি।", "Request could not be submitted.")); }
     finally { setSaving(false); }
   }
@@ -88,8 +91,9 @@ export function PrivacyCenter() {
     setSaving(true);
     try {
       const response = await fetch("/api/privacy", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, ...values }) });
+      if (response.status === 499) return;
       const data = await response.json() as { error?: string }; if (!response.ok) throw new Error(data.error ?? pick("অনুরোধ হালনাগাদ হয়নি।", "Request could not be updated."));
-      setSelected(null); await load(); setFeedback(pick("Privacy অনুরোধ হালনাগাদ হয়েছে।", "Privacy request updated."));
+      setSelected(null); await load();
     } catch (error) { setFeedback(error instanceof Error ? error.message : pick("অনুরোধ হালনাগাদ হয়নি।", "Request could not be updated.")); }
     finally { setSaving(false); }
   }
@@ -106,9 +110,10 @@ export function PrivacyCenter() {
 
   if (loading) return <main className="grid min-h-[calc(100vh-4rem)] place-items-center"><LoaderCircle className="size-7 animate-spin text-primary" /></main>;
   if (payload.code === "FAMILY_SETUP_REQUIRED") return <main className="grid min-h-[calc(100vh-4rem)] place-items-center p-6 text-center"><div><LockKeyhole className="mx-auto size-10 text-muted-foreground" /><h1 className="mt-4 text-xl font-bold">{pick("ফ্যামিলি অ্যাক্সেস প্রয়োজন", "Family access required")}</h1><Button asChild className="mt-4"><a href="/setup">{pick("ফ্যামিলিতে যোগ দিন", "Join a family")}</a></Button></div></main>;
+  if (!payload.family) return <main className="grid min-h-[calc(100vh-4rem)] place-items-center p-6 text-center"><div><LockKeyhole className="mx-auto size-10 text-muted-foreground" /><h1 className="mt-4 text-xl font-bold">{pick("Privacy তথ্য লোড হয়নি", "Privacy data did not load")}</h1><p className="mt-2 text-sm text-muted-foreground">{pick("পুরোনো তথ্য দেখানো হচ্ছে না। আবার চেষ্টা করুন।", "Previous data has been cleared. Please try again.")}</p><Button className="mt-4" onClick={() => void load()}>{pick("আবার চেষ্টা করুন", "Retry")}</Button></div></main>;
 
   return <main className="mx-auto w-full max-w-[1450px] space-y-5 px-4 py-5 md:px-7 md:py-7">
-    <section className="overflow-hidden rounded-3xl bg-[linear-gradient(125deg,#172554_0%,#164e63_55%,#115e59_100%)] p-5 text-white shadow-xl md:p-7"><div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center"><div><p className="flex items-center gap-2 text-sm text-cyan-100"><LockKeyhole className="size-4" /> {pick("আপনার তথ্য, আপনার নিয়ন্ত্রণ", "Your data, your control")}</p><h1 className="mt-2 text-2xl font-bold md:text-4xl">{pick("Privacy ও Data Rights", "Privacy & Data Rights")}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-white/75">{pick("কে আপনার তথ্য দেখবে তা নিয়ন্ত্রণ করুন এবং তথ্যের কপি, সংশোধন, সীমাবদ্ধতা বা মুছে ফেলার অনুরোধ পরিচালনা করুন।", "Control who can see your information and manage requests for a copy, correction, restriction, or deletion of your data.")}</p></div><div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => setConsentOpen(true)} disabled={payload.migrationRequired}><UserRoundCheck /> {pick("আমার পছন্দ", "My choices")}</Button>{payload.permissions?.canManage ? <Button variant="secondary" onClick={() => setPolicyOpen(true)} disabled={payload.migrationRequired}><Settings2 /> {pick("নীতি", "Policy")}</Button> : null}<Button variant="secondary" onClick={() => void exportXlsx()} disabled={exporting || !visible.length}>{exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} XLSX</Button><Button className="bg-cyan-300 text-slate-950 hover:bg-cyan-200" onClick={() => setRequestOpen(true)} disabled={payload.migrationRequired || payload.policy?.allow_member_data_requests === false}><Plus /> {pick("নতুন অনুরোধ", "New request")}</Button></div></div></section>
+    <section className="overflow-hidden rounded-3xl bg-[linear-gradient(125deg,#172554_0%,#164e63_55%,#115e59_100%)] p-5 text-white shadow-xl md:p-7"><div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center"><div><p className="flex items-center gap-2 text-sm text-cyan-100"><LockKeyhole className="size-4" /> {pick("আপনার তথ্য, আপনার নিয়ন্ত্রণ", "Your data, your control")}</p><h1 className="mt-2 text-2xl font-bold md:text-4xl">{pick("Privacy ও Data Rights", "Privacy & Data Rights")}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-white/75">{pick("কে আপনার তথ্য দেখবে তা নিয়ন্ত্রণ করুন এবং তথ্যের কপি, সংশোধন, সীমাবদ্ধতা বা মুছে ফেলার অনুরোধ পরিচালনা করুন।", "Control who can see your information and manage requests for a copy, correction, restriction, or deletion of your data.")}</p></div><div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => setConsentOpen(true)} disabled={!payload.family || payload.migrationRequired}><UserRoundCheck /> {pick("আমার পছন্দ", "My choices")}</Button>{payload.permissions?.canManage ? <Button variant="secondary" onClick={() => setPolicyOpen(true)} disabled={!payload.family || payload.migrationRequired}><Settings2 /> {pick("নীতি", "Policy")}</Button> : null}<Button variant="secondary" onClick={() => void exportXlsx()} disabled={exporting || !visible.length}>{exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} XLSX</Button><Button className="bg-cyan-300 text-slate-950 hover:bg-cyan-200" onClick={() => setRequestOpen(true)} disabled={!payload.family || payload.migrationRequired || payload.policy?.allow_member_data_requests === false}><Plus /> {pick("নতুন অনুরোধ", "New request")}</Button></div></div></section>
 
     {payload.migrationRequired ? <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-100">{pick("Privacy Center চালু করতে Supabase SQL Editor-এ", "To activate Privacy Center, run")} <b>supabase/migrations/20260930_family_privacy_center.sql</b> {pick("চালান।", "in the Supabase SQL Editor.")}</div> : null}
 

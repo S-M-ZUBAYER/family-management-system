@@ -4,6 +4,8 @@
 
 import { useActionFeedback } from "@/components/action-modal-provider";
 import { useLocale } from "@/components/locale-provider";
+import { useCurrentTime } from "@/components/use-current-time";
+import { qurbaniIsoToLocalDateTime, qurbaniLocalDateTimeToIso } from "@/lib/qurbani-validation";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -196,7 +198,7 @@ export function EventCenter() {
   const statusLabels = locale === "bn" ? statusLabelsBn : statusLabelsEn;
   const responseLabels = locale === "bn" ? responseLabelsBn : responseLabelsEn;
   const dateFormatter = new Intl.DateTimeFormat(locale === "bn" ? "bn-BD" : "en-GB", { dateStyle: "medium", timeStyle: "short" });
-  const moneyFormatter = new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", maximumFractionDigits: 0 });
+  const moneyFormatter = new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", minimumFractionDigits: 0, maximumFractionDigits: 2 });
   const [events, setEvents] = useState<FamilyEvent[]>([]);
   const [rsvps, setRsvps] = useState<EventRsvp[]>([]);
   const [comments, setComments] = useState<EventComment[]>([]);
@@ -233,8 +235,15 @@ export function EventCenter() {
       if (payload.code === "FAMILY_SETUP_REQUIRED") {
         setSetupRequired(true);
         setEvents([]);
+        setRsvps([]);
+        setComments([]);
+        setMedia([]);
+        setFamily(undefined);
+        setCanManage(false);
+        setMigrationRequired(false);
         return;
       }
+      if (payload.code === "EVENTS_ROW_LIMIT") throw new Error(pick("ইভেন্ট ইতিহাসের কোনো অংশ ২০,০০০ সারির সীমা ছাড়িয়েছে। অসম্পূর্ণ তথ্য দেখানো বা XLSX-এ রপ্তানি করা হয়নি।", "One section of event history exceeds 20,000 rows. No partial data was shown or exported."));
       if (!response.ok) throw new Error(payload.error ?? pick("ইভেন্ট পরিকল্পনা পাওয়া যায়নি।", "Event planner could not be loaded."));
       setFamily(payload.family);
       setEvents(payload.events ?? []);
@@ -245,6 +254,14 @@ export function EventCenter() {
       setMigrationRequired(Boolean(payload.migrationRequired));
       setSetupRequired(false);
     } catch (error) {
+      setEvents([]);
+      setRsvps([]);
+      setComments([]);
+      setMedia([]);
+      setFamily(undefined);
+      setCanManage(false);
+      setMigrationRequired(false);
+      setSetupRequired(false);
       setFeedback(error instanceof Error ? error.message : pick("ইভেন্ট পরিকল্পনা পাওয়া যায়নি।", "Event planner could not be loaded."));
     } finally {
       setLoading(false);
@@ -258,7 +275,6 @@ export function EventCenter() {
   }
 
   function openEditEvent(event: FamilyEvent) {
-    const localDate = (value: string | null) => value ? new Date(value).toISOString().slice(0, 16) : "";
     setEditingEvent(event);
     setForm({
       titleBn: event.title_bn,
@@ -266,15 +282,15 @@ export function EventCenter() {
       descriptionBn: event.description_bn,
       descriptionEn: event.description_en ?? "",
       eventType: event.event_type,
-      startAt: localDate(event.start_at),
-      endAt: localDate(event.end_at),
+      startAt: qurbaniIsoToLocalDateTime(event.start_at),
+      endAt: qurbaniIsoToLocalDateTime(event.end_at),
       venue: event.venue,
       city: event.city ?? "",
       meetingPoint: event.meeting_point ?? "",
       estimatedCostPerPerson: String(event.estimated_cost_per_person ?? ""),
       totalBudget: String(event.total_budget ?? ""),
       capacity: event.capacity ? String(event.capacity) : "",
-      registrationDeadline: localDate(event.registration_deadline),
+      registrationDeadline: qurbaniIsoToLocalDateTime(event.registration_deadline),
       status: event.status,
     });
     setSelectedId(null);
@@ -284,11 +300,16 @@ export function EventCenter() {
   async function updateEventDetails(id: string, input: EventForm) {
     setSaving(true);
     try {
+      const startAt = qurbaniLocalDateTimeToIso(input.startAt);
+      const endAt = qurbaniLocalDateTimeToIso(input.endAt);
+      const registrationDeadline = qurbaniLocalDateTimeToIso(input.registrationDeadline);
+      if (!startAt || endAt === undefined || registrationDeadline === undefined) throw new Error(pick("সঠিক সময়সূচি দিন।", "Enter a valid schedule."));
       const response = await fetch(`/api/events/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "edit", data: input }),
+        body: JSON.stringify({ action: "edit", data: { ...input, startAt, endAt, registrationDeadline } }),
       });
+      if (response.status === 499) return;
       const payload = await response.json() as { event?: FamilyEvent; error?: string; message?: string };
       if (!response.ok || !payload.event) throw new Error(payload.error ?? pick("ইভেন্ট হালনাগাদ হয়নি।", "Event could not be updated."));
       setEvents((current) => current.map((event) => event.id === id ? payload.event! : event).sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
@@ -305,6 +326,7 @@ export function EventCenter() {
     setWorking(true);
     try {
       const response = await fetch(`/api/events/${id}`, { method: "DELETE" });
+      if (response.status === 499) return;
       const payload = await response.json() as { error?: string; message?: string };
       if (!response.ok) throw new Error(payload.error ?? pick("ইভেন্ট মোছা যায়নি।", "Event could not be deleted."));
       setEvents((current) => current.filter((event) => event.id !== id));
@@ -322,6 +344,7 @@ export function EventCenter() {
     setWorking(true);
     try {
       const response = await fetch(`/api/event-media/${id}`, { method: "DELETE" });
+      if (response.status === 499) return;
       const payload = await response.json() as { error?: string; message?: string };
       if (!response.ok) throw new Error(payload.error ?? pick("মিডিয়া মোছা যায়নি।", "Media could not be deleted."));
       setMedia((current) => current.filter((item) => item.id !== id));
@@ -344,14 +367,14 @@ export function EventCenter() {
     });
   }, [rsvps, selectedId]);
 
-  const [now] = useState(Date.now);
+  const now = useCurrentTime();
   const visibleEvents = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return events.filter((event) => {
       const matchesText = !needle || [event.title_bn, event.title_en, event.venue, event.city, typeLabels[event.event_type]]
         .filter(Boolean).join(" ").toLowerCase().includes(needle);
       const matchesFilter = filter === "all"
-        || (filter === "upcoming" && new Date(event.start_at).getTime() >= now && !["completed", "cancelled"].includes(event.status))
+        || (filter === "upcoming" && now !== null && new Date(event.start_at).getTime() >= now && !["completed", "cancelled"].includes(event.status))
         || event.status === filter
         || event.event_type === filter;
       return matchesText && matchesFilter;
@@ -365,11 +388,16 @@ export function EventCenter() {
     setSaving(true);
     setFeedback(null);
     try {
+      const startAt = qurbaniLocalDateTimeToIso(input.startAt);
+      const endAt = qurbaniLocalDateTimeToIso(input.endAt);
+      const registrationDeadline = qurbaniLocalDateTimeToIso(input.registrationDeadline);
+      if (!startAt || endAt === undefined || registrationDeadline === undefined) throw new Error(pick("সঠিক সময়সূচি দিন।", "Enter a valid schedule."));
       const response = await fetch("/api/events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
+        body: JSON.stringify({ ...input, startAt, endAt, registrationDeadline }),
       });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { event?: FamilyEvent; error?: string };
       if (!response.ok || !payload.event) throw new Error(payload.error ?? pick("ইভেন্ট সংরক্ষণ হয়নি।", "Event could not be saved."));
       setEvents((current) => [...current, payload.event!].sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
@@ -392,6 +420,7 @@ export function EventCenter() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { event?: FamilyEvent; error?: string };
       if (!response.ok || !payload.event) throw new Error(payload.error ?? pick("ইভেন্ট হালনাগাদ হয়নি।", "Event could not be updated."));
       setEvents((current) => current.map((event) => event.id === selected.id ? payload.event! : event));
@@ -411,6 +440,7 @@ export function EventCenter() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ response: responseValue, guestCount: Number(guestCount || 0), note: rsvpNote }),
       });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { rsvp?: EventRsvp; error?: string };
       if (!response.ok || !payload.rsvp) throw new Error(payload.error ?? pick("RSVP সংরক্ষণ হয়নি।", "RSVP could not be saved."));
       setRsvps((current) => [...current.filter((item) => item.id !== payload.rsvp!.id && !(item.event_id === payload.rsvp!.event_id && item.is_current_user)), payload.rsvp!]);
@@ -430,6 +460,7 @@ export function EventCenter() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body: commentText }),
       });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { comment?: EventComment; error?: string };
       if (!response.ok || !payload.comment) throw new Error(payload.error ?? pick("মন্তব্য সংরক্ষণ হয়নি।", "Comment could not be saved."));
       setComments((current) => [...current, payload.comment!]);
@@ -449,6 +480,7 @@ export function EventCenter() {
       body.set("file", file);
       body.set("caption", mediaCaption);
       const response = await fetch(`/api/events/${selected.id}/media`, { method: "POST", body });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { media?: EventMedia; error?: string };
       if (!response.ok || !payload.media) throw new Error(payload.error ?? pick("মিডিয়া আপলোড হয়নি।", "Media could not be uploaded."));
       setMedia((current) => [payload.media!, ...current]);
