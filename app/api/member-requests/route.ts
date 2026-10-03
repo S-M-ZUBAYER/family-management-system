@@ -3,6 +3,7 @@ import {
   canReviewMembers,
   getActiveFamilyMembership,
 } from "@/lib/family-access";
+import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
 import {
   BackendNotConfiguredError,
   isBackendConfigured,
@@ -22,6 +23,18 @@ type MemberRequestRow = {
   duplicate_hint: boolean;
   created_at: string;
 };
+
+async function readAllRequests<T>(query: URLSearchParams): Promise<T[]> {
+  return collectPaginatedRows(
+    (offset, limit) => {
+      const pageQuery = new URLSearchParams(query);
+      pageQuery.set("offset", String(offset));
+      pageQuery.set("limit", String(limit));
+      return supabaseRest<T[]>(`family_member_requests?${pageQuery}`);
+    },
+    { pageSize: 500, maxRows: 20000 },
+  );
+}
 
 export async function GET() {
   try {
@@ -45,19 +58,20 @@ export async function GET() {
         "id,requested_name_bn,requested_name_en,relationship_text,sponsor_name,email,phone,requested_role,duplicate_hint,created_at",
       family_id: `eq.${membership.family_id}`,
       status: "eq.pending",
-      order: "created_at.desc",
+      order: "created_at.desc,id.asc",
     });
     const monthStart = new Date();
     monthStart.setUTCDate(1);
     monthStart.setUTCHours(0, 0, 0, 0);
     const [requests, approvedThisMonth, family] = await Promise.all([
-      supabaseRest<MemberRequestRow[]>(`family_member_requests?${query}`),
-      supabaseRest<Array<{ id: string }>>(`family_member_requests?${new URLSearchParams({
+      readAllRequests<MemberRequestRow>(query),
+      readAllRequests<{ id: string }>(new URLSearchParams({
         select: "id",
         family_id: `eq.${membership.family_id}`,
         status: "eq.approved",
         reviewed_at: `gte.${monthStart.toISOString()}`,
-      })}`),
+        order: "id.asc",
+      })),
       supabaseRest<Array<{ id: string; name_bn: string; name_en: string; join_code: string }>>(`families?${new URLSearchParams({
         select: "id,name_bn,name_en,join_code",
         id: `eq.${membership.family_id}`,
@@ -77,6 +91,9 @@ export async function GET() {
       },
     });
   } catch (error) {
+    if (error instanceof PaginatedRowLimitError) {
+      return Response.json({ code: "MEMBER_REQUESTS_ROW_LIMIT", maxRows: error.maxRows, error: `Member request history exceeds ${error.maxRows} rows in one section. No partial approvals or XLSX data was shown.` }, { status: 413 });
+    }
     if (error instanceof BackendNotConfiguredError) {
       return Response.json(
         {

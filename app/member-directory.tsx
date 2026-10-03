@@ -80,7 +80,7 @@ type DirectoryPayload = {
   members?: FamilyMember[];
   relationships?: FamilyRelationship[];
   migrationRequired?: boolean;
-  permissions?: { canManage: boolean };
+  permissions?: { canManage: boolean; canCreate?: boolean };
   code?: string;
   error?: string;
 };
@@ -137,6 +137,7 @@ export function MemberDirectory() {
   const [setupRequired, setSetupRequired] = useState(false);
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [canManage, setCanManage] = useState(false);
+  const [canCreate, setCanCreate] = useState(false);
   const [feedback, setFeedback] = useActionFeedback();
   const [form, setForm] = useState<MemberForm>(emptyForm);
 
@@ -148,16 +149,30 @@ export function MemberDirectory() {
       if (payload.code === "FAMILY_SETUP_REQUIRED") {
         setSetupRequired(true);
         setMembers([]);
+        setRelationships([]);
+        setFamily(undefined);
+        setCanManage(false);
+        setCanCreate(false);
+        setMigrationRequired(false);
         return;
       }
+      if (payload.code === "DIRECTORY_ROW_LIMIT") throw new Error(pick("পরিবারের ডিরেক্টরির কোনো অংশ ২০,০০০ সারির সীমা ছাড়িয়েছে। অসম্পূর্ণ তথ্য দেখানো বা XLSX-এ রপ্তানি করা হয়নি।", "One section of the family directory exceeds 20,000 rows. No partial data was shown or exported."));
       if (!response.ok) throw new Error(payload.error ?? pick("ফ্যামিলি ডিরেক্টরি পাওয়া যায়নি।", "Could not load the family directory."));
       setFamily(payload.family);
       setMembers(payload.members ?? []);
       setRelationships(payload.relationships ?? []);
       setMigrationRequired(Boolean(payload.migrationRequired));
       setCanManage(Boolean(payload.permissions?.canManage));
+      setCanCreate(Boolean(payload.permissions?.canCreate));
       setSetupRequired(false);
     } catch (error) {
+      setMembers([]);
+      setRelationships([]);
+      setFamily(undefined);
+      setCanManage(false);
+      setCanCreate(false);
+      setMigrationRequired(false);
+      setSetupRequired(false);
       setFeedback(error instanceof Error ? error.message : pick("ফ্যামিলি ডিরেক্টরি পাওয়া যায়নি।", "Could not load the family directory."));
     } finally {
       setLoading(false);
@@ -197,6 +212,7 @@ export function MemberDirectory() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...input, parentId: input.parentId === "none" ? null : input.parentId }),
       });
+      if (response.status === 499) return;
       const payload = (await response.json()) as {
         member?: FamilyMember;
         warning?: string | null;
@@ -208,7 +224,6 @@ export function MemberDirectory() {
       setMembers((current) => [...current, payload.member!]);
       setForm(emptyForm);
       setDialogOpen(false);
-      setFeedback(payload.warning ?? pick("নতুন সদস্য প্রোফাইল সংরক্ষিত হয়েছে।", "The new member profile was saved."));
       if (!payload.warning) await loadMembers();
       return { memberId: payload.member.id, name: payload.member.name_en ?? payload.member.name_bn };
     } finally {
@@ -348,6 +363,9 @@ export function MemberDirectory() {
         workbook,
         `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-members.xlsx`,
       );
+      setFeedback(pick("সদস্য ডিরেক্টরি XLSX তৈরি হয়েছে।", "The member directory XLSX was created."));
+    } catch {
+      setFeedback(pick("সদস্য ডিরেক্টরি XLSX তৈরি হয়নি। আবার চেষ্টা করুন।", "The member directory XLSX could not be created. Please try again."));
     } finally {
       setExporting(false);
     }
@@ -386,7 +404,7 @@ export function MemberDirectory() {
       ),
     ).catch(() => undefined);
 
-    if (canManage) {
+    if (canCreate) {
       void Promise.resolve(
         modelContext.registerTool(
           {
@@ -423,7 +441,7 @@ export function MemberDirectory() {
       ).catch(() => undefined);
     }
     return () => lifecycle.abort();
-  }, [canManage, createMember, family?.name_en, members]);
+  }, [canCreate, createMember, family?.name_en, members]);
 
   if (setupRequired) {
     return (
@@ -466,9 +484,8 @@ export function MemberDirectory() {
             {exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />}
             {pick("XLSX Export", "Export XLSX")}
           </Button>
-          {canManage ? (
-            <><Button variant="outline" className="gap-2 rounded-xl" disabled={members.length < 2} onClick={() => setRelationshipOpen(true)}><Link2 className="size-4" /> {pick("সম্পর্ক যোগ করুন", "Add relationship")}</Button><Button className="gap-2 rounded-xl" onClick={openCreateMember}><UserRoundPlus className="size-4" /> {pick("সদস্য যোগ করুন", "Add member")}</Button></>
-          ) : null}
+          {canManage ? <Button variant="outline" className="gap-2 rounded-xl" disabled={members.length < 2} onClick={() => setRelationshipOpen(true)}><Link2 className="size-4" /> {pick("সম্পর্ক যোগ করুন", "Add relationship")}</Button> : null}
+          {canCreate ? <Button className="gap-2 rounded-xl" onClick={openCreateMember}><UserRoundPlus className="size-4" /> {pick("সদস্য যোগ করুন", "Add member")}</Button> : null}
         </div>
       </section>
 
@@ -528,7 +545,7 @@ export function MemberDirectory() {
             </Table>
           </div>
         ) : (
-          <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center"><Users className="size-10 text-muted-foreground/50" /><h2 className="mt-4 text-lg font-bold">{pick("এখনও কোনো member profile নেই", "There are no member profiles yet")}</h2><p className="mt-1 text-sm text-muted-foreground">{pick("প্রথম সদস্য যোগ করলে directory ও family tree তৈরি শুরু হবে।", "Add the first member to begin building the directory and family tree.")}</p>{canManage ? <Button className="mt-5 gap-2 rounded-xl" onClick={openCreateMember}><Plus className="size-4" /> {pick("প্রথম সদস্য যোগ করুন", "Add first member")}</Button> : null}</div>
+          <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center"><Users className="size-10 text-muted-foreground/50" /><h2 className="mt-4 text-lg font-bold">{pick("এখনও কোনো member profile নেই", "There are no member profiles yet")}</h2><p className="mt-1 text-sm text-muted-foreground">{pick("প্রথম সদস্য যোগ করলে directory ও family tree তৈরি শুরু হবে।", "Add the first member to begin building the directory and family tree.")}</p>{canCreate ? <Button className="mt-5 gap-2 rounded-xl" onClick={openCreateMember}><Plus className="size-4" /> {pick("প্রথম সদস্য যোগ করুন", "Add first member")}</Button> : null}</div>
         )}
       </Card>
 

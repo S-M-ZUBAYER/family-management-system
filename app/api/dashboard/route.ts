@@ -1,6 +1,9 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
-import { canManageChat, canReviewMembers, getActiveFamilyMembership } from "@/lib/family-access";
+import { canAccessChatChannel } from "@/lib/chat-access-policy";
+import { canReviewMembers, getActiveFamilyMembership } from "@/lib/family-access";
 import type { DashboardPayload } from "@/lib/dashboard-types";
+import { PaginatedRowLimitError } from "@/lib/paginated-rows";
+import { readAllSupabaseRows } from "@/lib/supabase-pagination";
 import {
   BackendNotConfiguredError,
   isBackendConfigured,
@@ -24,22 +27,27 @@ const numberValue = (value: number | string | null | undefined) => Number(value 
 
 function generationCount(profiles: ProfileRow[], relationships: RelationshipRow[]) {
   if (!profiles.length) return 0;
-  const parentEdges = relationships.filter((item) => item.relationship_type === "parent");
-  if (!parentEdges.length) return 1;
-  const childIds = new Set(parentEdges.map((item) => item.to_member_id));
-  const roots = profiles.filter((profile) => !childIds.has(profile.id)).map((profile) => profile.id);
-  const queue = roots.map((id) => ({ id, generation: 1 }));
-  const visited = new Set<string>();
+  const ids = new Set(profiles.map((profile) => profile.id));
+  const children = new Map<string, string[]>();
+  const incoming = new Map(profiles.map((profile) => [profile.id, 0]));
+  const depth = new Map(profiles.map((profile) => [profile.id, 1]));
+  for (const edge of relationships) {
+    if (edge.relationship_type !== "parent" || !ids.has(edge.from_member_id) || !ids.has(edge.to_member_id)) continue;
+    children.set(edge.from_member_id, [...(children.get(edge.from_member_id) ?? []), edge.to_member_id]);
+    incoming.set(edge.to_member_id, (incoming.get(edge.to_member_id) ?? 0) + 1);
+  }
+  const queue = profiles.filter((profile) => incoming.get(profile.id) === 0).map((profile) => profile.id);
   let maximum = 1;
-
-  while (queue.length) {
-    const current = queue.shift();
-    if (!current || visited.has(current.id)) continue;
-    visited.add(current.id);
-    maximum = Math.max(maximum, current.generation);
-    parentEdges
-      .filter((edge) => edge.from_member_id === current.id)
-      .forEach((edge) => queue.push({ id: edge.to_member_id, generation: current.generation + 1 }));
+  for (let index = 0; index < queue.length; index += 1) {
+    const current = queue[index];
+    const currentDepth = depth.get(current) ?? 1;
+    maximum = Math.max(maximum, currentDepth);
+    for (const child of children.get(current) ?? []) {
+      depth.set(child, Math.max(depth.get(child) ?? 1, currentDepth + 1));
+      const remaining = (incoming.get(child) ?? 0) - 1;
+      incoming.set(child, remaining);
+      if (remaining === 0) queue.push(child);
+    }
   }
   return maximum;
 }
@@ -65,19 +73,18 @@ export async function GET() {
     const startOfToday = new Date(now);
     startOfToday.setHours(0, 0, 0, 0);
 
-    const [families, profiles, relationships, approvals, events, campaigns, channelRows, channelMembers, receipts, messages] = await Promise.all([
+    const [families, profiles, relationships, approvals, events, campaigns, channelRows, channelMembers, receipts] = await Promise.all([
       supabaseRest<DashboardPayload["family"][]>(`families?${new URLSearchParams({ select: "id,name_bn,name_en,theme", id: `eq.${familyId}`, limit: "1" })}`),
-      supabaseRest<ProfileRow[]>(`member_profiles?${new URLSearchParams({ select: "id,auth_user_id,name_bn,name_en", ...common, profile_status: "eq.active", order: "created_at.asc" })}`),
-      supabaseRest<RelationshipRow[]>(`family_relationships?${new URLSearchParams({ select: "from_member_id,to_member_id,relationship_type", ...common })}`),
+      readAllSupabaseRows<ProfileRow>("member_profiles", new URLSearchParams({ select: "id,auth_user_id,name_bn,name_en", ...common, profile_status: "eq.active", order: "created_at.asc,id.asc" })),
+      readAllSupabaseRows<RelationshipRow>("family_relationships", new URLSearchParams({ select: "id,from_member_id,to_member_id,relationship_type", ...common, order: "id.asc" })),
       canReviewMembers(membership.role)
-        ? supabaseRest<RequestRow[]>(`family_member_requests?${new URLSearchParams({ select: "id,requested_name_bn,relationship_text,created_at", ...common, status: "eq.pending", order: "created_at.desc" })}`)
+        ? readAllSupabaseRows<RequestRow>("family_member_requests", new URLSearchParams({ select: "id,requested_name_bn,relationship_text,created_at", ...common, status: "eq.pending", order: "created_at.desc,id.asc" }))
         : Promise.resolve([] as RequestRow[]),
-      supabaseRest<EventRow[]>(`family_events?${new URLSearchParams({ select: "id,title_bn,start_at,venue,city", ...common, status: "in.(published,registration_closed)", start_at: `gte.${now.toISOString()}`, order: "start_at.asc" })}`),
-      supabaseRest<CampaignRow[]>(`qurbani_campaigns?${new URLSearchParams({ select: "id,title,year,status,target_shares", ...common, status: "neq.closed", order: "year.desc,created_at.desc" })}`),
-      supabaseRest<ChannelRow[]>(`chat_channels?${new URLSearchParams({ select: "id,visibility", ...common, status: "eq.active" })}`),
-      supabaseRest<ChannelMemberRow[]>(`chat_channel_members?${new URLSearchParams({ select: "channel_id,auth_user_id", ...common, status: "eq.active" })}`),
-      supabaseRest<ReceiptRow[]>(`chat_read_receipts?${new URLSearchParams({ select: "channel_id,last_read_at", ...common, auth_user_id: `eq.${user.userId}` })}`),
-      supabaseRest<MessageRow[]>(`chat_messages?${new URLSearchParams({ select: "channel_id,auth_user_id,created_at", ...common, order: "created_at.desc", limit: "2000" })}`),
+      readAllSupabaseRows<EventRow>("family_events", new URLSearchParams({ select: "id,title_bn,start_at,venue,city", ...common, status: "in.(published,registration_closed)", start_at: `gte.${now.toISOString()}`, order: "start_at.asc,id.asc" })),
+      readAllSupabaseRows<CampaignRow>("qurbani_campaigns", new URLSearchParams({ select: "id,title,year,status,target_shares", ...common, status: "neq.closed", order: "year.desc,created_at.desc,id.asc" })),
+      readAllSupabaseRows<ChannelRow>("chat_channels", new URLSearchParams({ select: "id,visibility", ...common, status: "eq.active", order: "id.asc" })),
+      readAllSupabaseRows<ChannelMemberRow>("chat_channel_members", new URLSearchParams({ select: "id,channel_id,auth_user_id", ...common, status: "eq.active", order: "id.asc" })),
+      readAllSupabaseRows<ReceiptRow>("chat_read_receipts", new URLSearchParams({ select: "id,channel_id,last_read_at", ...common, auth_user_id: `eq.${user.userId}`, order: "id.asc" })),
     ]);
 
     const family = families[0];
@@ -89,10 +96,10 @@ export async function GET() {
 
     const [participants, rsvps] = await Promise.all([
       activeCampaign
-        ? supabaseRest<ParticipantRow[]>(`qurbani_participants?${new URLSearchParams({ select: "campaign_id,share_count,amount_due,amount_paid,status", ...common, campaign_id: `eq.${activeCampaign.id}` })}`)
+        ? readAllSupabaseRows<ParticipantRow>("qurbani_participants", new URLSearchParams({ select: "id,campaign_id,share_count,amount_due,amount_paid,status", ...common, campaign_id: `eq.${activeCampaign.id}`, order: "id.asc" }))
         : Promise.resolve([]),
       nextEvent
-        ? supabaseRest<RsvpRow[]>(`event_rsvps?${new URLSearchParams({ select: "event_id,response,guest_count", ...common, event_id: `eq.${nextEvent.id}` })}`)
+        ? readAllSupabaseRows<RsvpRow>("event_rsvps", new URLSearchParams({ select: "id,event_id,response,guest_count", ...common, event_id: `eq.${nextEvent.id}`, order: "id.asc" }))
         : Promise.resolve([]),
     ]);
 
@@ -101,11 +108,19 @@ export async function GET() {
     );
     const accessibleChannelIds = new Set(
       channelRows
-        .filter((channel) => channel.visibility === "family"
-          || (channel.visibility === "admins" && canManageChat(membership.role))
-          || explicitChannelIds.has(channel.id))
+        .filter((channel) => canAccessChatChannel(
+          channel.visibility, membership.role, explicitChannelIds.has(channel.id),
+        ))
         .map((channel) => channel.id),
     );
+    const messages = accessibleChannelIds.size
+      ? await readAllSupabaseRows<MessageRow>("chat_messages", new URLSearchParams({
+          select: "id,channel_id,auth_user_id,created_at",
+          ...common,
+          channel_id: `in.(${[...accessibleChannelIds].join(",")})`,
+          order: "created_at.desc,id.desc",
+        }))
+      : [];
     const readAt = new Map(receipts.map((receipt) => [receipt.channel_id, new Date(receipt.last_read_at).getTime()]));
     const unreadByChannel = new Map<string, number>();
     messages.forEach((message) => {
@@ -167,6 +182,9 @@ export async function GET() {
 
     return Response.json(payload);
   } catch (error) {
+    if (error instanceof PaginatedRowLimitError) {
+      return Response.json({ code: "DASHBOARD_ROW_LIMIT", maxRows: error.maxRows, error: `Dashboard totals exceed ${error.maxRows} rows in one section and cannot be shown accurately. Contact support for a scalable summary.` }, { status: 413 });
+    }
     if (error instanceof BackendNotConfiguredError) {
       return Response.json({ error: "PostgreSQL connection has not been configured yet." }, { status: 503 });
     }

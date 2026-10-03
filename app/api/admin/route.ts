@@ -1,10 +1,13 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { visibleAdministrationAuditLogs } from "@/lib/admin-audit-visibility";
 import {
   canManageMembershipRoles,
   canViewAdministration,
   getActiveFamilyMembership,
   type FamilyRole,
 } from "@/lib/family-access";
+import { PaginatedRowLimitError } from "@/lib/paginated-rows";
+import { readAllSupabaseRows } from "@/lib/supabase-pagination";
 import {
   BackendNotConfiguredError,
   isBackendConfigured,
@@ -67,27 +70,26 @@ export async function GET() {
           limit: "1",
         })}`,
       ),
-      supabaseRest<MembershipRow[]>(
-        `family_memberships?${new URLSearchParams({
+      readAllSupabaseRows<MembershipRow>(
+        "family_memberships", new URLSearchParams({
           select: "id,family_id,auth_user_id,member_profile_id,role,status,created_at,updated_at",
           family_id: `eq.${viewer.family_id}`,
-          order: "created_at.asc",
-        })}`,
+          order: "created_at.asc,id.asc",
+        }),
       ),
-      supabaseRest<MemberSummary[]>(
-        `member_profiles?${new URLSearchParams({
+      readAllSupabaseRows<MemberSummary>(
+        "member_profiles", new URLSearchParams({
           select: "id,auth_user_id,name_bn,name_en,email,phone,relationship_text",
           family_id: `eq.${viewer.family_id}`,
-          order: "created_at.asc",
-        })}`,
+          order: "created_at.asc,id.asc",
+        }),
       ),
-      supabaseRest<AuditRow[]>(
-        `audit_logs?${new URLSearchParams({
+      readAllSupabaseRows<AuditRow>(
+        "audit_logs", new URLSearchParams({
           select: "id,actor_user_id,action,entity_type,entity_id,metadata,created_at",
           family_id: `eq.${viewer.family_id}`,
-          order: "created_at.desc",
-          limit: "500",
-        })}`,
+          order: "created_at.desc,id.desc",
+        }),
       ),
     ]);
 
@@ -111,7 +113,7 @@ export async function GET() {
           ? profileById.get(membership.member_profile_id) ?? null
           : profileByUserId.get(membership.auth_user_id) ?? null,
       })),
-      auditLogs,
+      auditLogs: visibleAdministrationAuditLogs(auditLogs, user.userId),
       actorNames,
     });
   } catch (error) {
@@ -210,6 +212,9 @@ export async function PATCH(request: Request) {
 }
 
 function adminErrorResponse(error: unknown, logMessage: string) {
+  if (error instanceof PaginatedRowLimitError) {
+    return Response.json({ code: "ADMIN_ROW_LIMIT", maxRows: error.maxRows, error: `Administration history exceeds ${error.maxRows} rows in one section. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });
+  }
   if (error instanceof BackendNotConfiguredError) {
     return Response.json({ error: "PostgreSQL connection has not been configured yet." }, { status: 503 });
   }

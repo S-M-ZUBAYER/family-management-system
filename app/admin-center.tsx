@@ -89,6 +89,7 @@ export function AdminCenter() {
   const statusLabels = useMemo(() => locale === "bn" ? statusLabelsBn : statusLabelsEn, [locale]);
   const [payload, setPayload] = useState<AdminPayload>({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [query, setQuery] = useState("");
@@ -101,10 +102,15 @@ export function AdminCenter() {
     try {
       const response = await fetch("/api/admin", { cache: "no-store" });
       const next = await response.json() as AdminPayload;
+      if (response.status === 403) { setPayload({}); setDrafts({}); setLoadError(false); return; }
       if (!response.ok) throw new Error(next.error ?? pick("অ্যাডমিন সেন্টার লোড হয়নি।", "Could not load the Admin Center."));
       setPayload(next);
       setDrafts(Object.fromEntries((next.memberships ?? []).map((item) => [item.id, { role: item.role, status: item.status }])));
+      setLoadError(false);
     } catch (error) {
+      setPayload({});
+      setDrafts({});
+      setLoadError(true);
       setFeedback(error instanceof Error ? error.message : pick("অ্যাডমিন সেন্টার লোড হয়নি।", "Could not load the Admin Center."));
     } finally {
       setLoading(false);
@@ -146,10 +152,13 @@ export function AdminCenter() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "update_membership", membershipId: item.id, ...draft }),
       });
+      if (response.status === 499) return;
       const result = await response.json() as { membership?: Membership; error?: string; message?: string };
       if (!response.ok || !result.membership) throw new Error(result.error ?? pick("সদস্যের অ্যাক্সেস হালনাগাদ হয়নি।", "Could not update member access."));
       await load();
       setFeedback(result.message ?? pick("সদস্যের ভূমিকা ও অ্যাক্সেস হালনাগাদ হয়েছে।", "Member role and access updated."));
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : pick("সদস্যের অ্যাক্সেস হালনাগাদ হয়নি।", "Could not update member access."));
     } finally {
       setSavingId(null);
     }
@@ -170,7 +179,7 @@ export function AdminCenter() {
         [pick("অ্যাক্সেস", "Access")]: statusLabels[item.status],
         [pick("যোগদানের সময়", "Joined at")]: dateFormatter.format(new Date(item.created_at)),
       })));
-      const auditSheet = XLSX.utils.json_to_sheet(visibleAuditLogs.map((item, index) => ({
+      const auditSheet = XLSX.utils.json_to_sheet((payload.auditLogs ?? []).map((item, index) => ({
         [pick("ক্রমিক", "Serial")]: index + 1,
         [pick("সময়", "Time")]: dateFormatter.format(new Date(item.created_at)),
         [pick("কে করেছেন", "Actor")]: payload.actorNames?.[item.actor_user_id] ?? item.actor_user_id,
@@ -185,12 +194,17 @@ export function AdminCenter() {
       XLSX.utils.book_append_sheet(workbook, memberSheet, locale === "bn" ? "সদস্য ও ভূমিকা" : "Members & Roles");
       XLSX.utils.book_append_sheet(workbook, auditSheet, locale === "bn" ? "অডিট লগ" : "Audit Log");
       XLSX.writeFile(workbook, `${payload.family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-admin-audit.xlsx`);
+      setFeedback(pick("অ্যাডমিন XLSX তৈরি হয়েছে।", "The Admin XLSX was created."));
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : pick("অ্যাডমিন XLSX তৈরি হয়নি।", "The Admin XLSX could not be created."));
     } finally {
       setExporting(false);
     }
   }
 
   if (loading) return <main className="grid min-h-[calc(100vh-4rem)] place-items-center text-muted-foreground"><LoaderCircle className="mr-2 inline size-5 animate-spin" /> {pick("অ্যাডমিন সেন্টার লোড হচ্ছে", "Loading Admin Center")}</main>;
+
+  if (loadError) return <main className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-4xl place-items-center p-6 text-center"><div><ShieldAlert className="mx-auto size-10 text-muted-foreground" /><h1 className="mt-4 text-xl font-bold">{pick("অ্যাডমিন তথ্য লোড হয়নি", "Admin data did not load")}</h1><p className="mt-2 text-sm text-muted-foreground">{pick("পুরোনো তথ্য দেখানো হচ্ছে না। আবার চেষ্টা করুন।", "Previous data has been cleared. Please try again.")}</p><Button className="mt-4" onClick={() => void load()}>{pick("আবার চেষ্টা করুন", "Retry")}</Button></div></main>;
 
   if (!payload.viewer) {
     return <main className="mx-auto w-full max-w-4xl px-4 py-8"><Card className="rounded-3xl border-amber-500/30 py-0"><CardContent className="flex items-center gap-4 p-7"><ShieldAlert className="size-10 text-amber-700" /><div><h1 className="text-xl font-bold">{pick("অ্যাডমিন অ্যাক্সেস প্রয়োজন", "Admin access required")}</h1><p className="mt-1 text-muted-foreground">{pick("শুধু Family Owner বা Family Admin এই অংশ ব্যবহার করতে পারবেন।", "Only the Family Owner or Family Admin can use this section.")}</p></div></CardContent></Card></main>;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, Clock3, Database, GitFork, KeyRound, LoaderCircle, ShieldCheck, UserRoundPlus } from "lucide-react";
 
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { validFamilyId } from "@/lib/family-selection";
 
 type SetupState = "checking" | "ready" | "saving" | "pending" | "complete" | "error";
 type SetupMode = "create" | "join";
@@ -30,29 +31,37 @@ export function FamilySetup({ displayName, email }: { displayName: string; email
   const [family, setFamily] = useState<Family | null>(null);
   const [joinRequest, setJoinRequest] = useState<JoinRequest | null>(null);
   const [initialSetupAvailable, setInitialSetupAvailable] = useState(false);
-  const [familyNameBn, setFamilyNameBn] = useState("শেখ মনছুফ পরিবার");
-  const [familyNameEn, setFamilyNameEn] = useState("Sheikh Monsuf Family");
+  const [hasActiveFamily, setHasActiveFamily] = useState(false);
+  const [availableFamilies, setAvailableFamilies] = useState<Array<{ id: string; name_bn: string; name_en: string }>>([]);
+  const [familySwitching, setFamilySwitching] = useState(false);
+  const [familyNameBn, setFamilyNameBn] = useState("");
+  const [familyNameEn, setFamilyNameEn] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [memberNameBn, setMemberNameBn] = useState(displayName);
   const [memberNameEn, setMemberNameEn] = useState(displayName);
   const [relationship, setRelationship] = useState("");
   const [sponsor, setSponsor] = useState("");
   const [phone, setPhone] = useState("");
+  const creationKeyRef = useRef<string | null>(null);
   const [, setFeedback] = useActionFeedback();
 
   useEffect(() => {
     const controller = new AbortController();
     void fetch("/api/setup/family", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
-        const payload = await response.json() as { setupComplete?: boolean; family?: Family | null; initialSetupAvailable?: boolean; joinRequest?: JoinRequest | null; error?: string };
+        const payload = await response.json() as { setupComplete?: boolean; family?: Family | null; initialSetupAvailable?: boolean; suggestedMode?: SetupMode; joinRequest?: JoinRequest | null; availableFamilies?: Array<{ id: string; name_bn: string; name_en: string }>; error?: string };
         if (!response.ok) throw new Error(payload.error ?? pick("সেটআপের অবস্থা পাওয়া যায়নি।", "Could not load setup status."));
         if (payload.setupComplete) {
           setFamily(payload.family ?? null);
+          setJoinRequest(payload.joinRequest ?? null);
+          setHasActiveFamily(true);
           setState("complete");
           return;
         }
+        setHasActiveFamily(false);
+        setAvailableFamilies(payload.availableFamilies ?? []);
         setInitialSetupAvailable(Boolean(payload.initialSetupAvailable));
-        setMode(payload.initialSetupAvailable ? "create" : "join");
+        setMode(payload.suggestedMode === "create" ? "create" : "join");
         setJoinRequest(payload.joinRequest ?? null);
         setState(payload.joinRequest?.status === "pending" ? "pending" : "ready");
       })
@@ -64,6 +73,27 @@ export function FamilySetup({ displayName, email }: { displayName: string; email
     return () => controller.abort();
   }, [pick, setFeedback]);
 
+  async function switchToAvailableFamily(familyId: string) {
+    if (familySwitching || !availableFamilies.some((family) => family.id === familyId)) return;
+    setFamilySwitching(true);
+    try {
+      const response = await fetch("/api/workspace/select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "select_family", familyId }),
+      });
+      if (response.status === 499) return;
+      if (!response.ok) return;
+      try { window.sessionStorage.setItem("fms_family_switch_result", "success"); } catch { /* Browser storage may be unavailable. */ }
+      try { window.localStorage.setItem("fms_family_switch_event", crypto.randomUUID()); } catch { /* Cross-tab storage may be unavailable. */ }
+      window.location.assign(window.location.origin);
+    } catch {
+      // The shared action modal reports connection failures.
+    } finally {
+      setFamilySwitching(false);
+    }
+  }
+
   async function submitSetup() {
     if (mode === "join" && (!joinCode.trim() || memberNameBn.trim().length < 2 || relationship.trim().length < 2)) {
       setFeedback(pick("জয়েন কোড, আপনার বাংলা নাম এবং পারিবারিক সম্পর্ক দিন।", "Enter the join code, your Bangla name, and your family relationship."));
@@ -71,10 +101,19 @@ export function FamilySetup({ displayName, email }: { displayName: string; email
     }
     setState("saving");
     try {
+      let creationKey: string | undefined;
+      if (mode === "create") {
+        const storageKey = `fms_family_creation_key:${email}`;
+        let savedKey: string | null = null;
+        try { savedKey = window.sessionStorage.getItem(storageKey); } catch { /* Browser storage may be unavailable. */ }
+        creationKey = validFamilyId(creationKeyRef.current) ? creationKeyRef.current : validFamilyId(savedKey) ? savedKey : crypto.randomUUID();
+        creationKeyRef.current = creationKey;
+        try { window.sessionStorage.setItem(storageKey, creationKey); } catch { /* Keep the in-memory key for retries. */ }
+      }
       const response = await fetch("/api/setup/family", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mode === "create" ? { mode, nameBn: familyNameBn, nameEn: familyNameEn } : { mode, joinCode, nameBn: memberNameBn, nameEn: memberNameEn, relationship, sponsor, phone }),
+        body: JSON.stringify(mode === "create" ? { mode, nameBn: familyNameBn, nameEn: familyNameEn, creationKey } : { mode, joinCode, nameBn: memberNameBn, nameEn: memberNameEn, relationship, sponsor, phone }),
       });
       if (response.status === 499) {
         setState("ready");
@@ -83,11 +122,17 @@ export function FamilySetup({ displayName, email }: { displayName: string; email
       const payload = await response.json() as { family?: Family; joinRequest?: { id: string; status: string }; requestSubmitted?: boolean; error?: string };
       if (!response.ok) throw new Error(payload.error ?? pick("ফ্যামিলি সেটআপ সম্পন্ন হয়নি।", "Family setup could not be completed."));
       if (payload.requestSubmitted) {
-        setFamily(payload.family ?? null);
+        if (!hasActiveFamily) setFamily(payload.family ?? null);
         setJoinRequest({ id: payload.joinRequest?.id ?? "submitted", status: "pending", rejection_reason: null, created_at: new Date().toISOString(), families: payload.family ? { name_bn: payload.family.name_bn, name_en: payload.family.name_en } : null });
         setState("pending");
       } else {
+        if (mode === "create") {
+          creationKeyRef.current = null;
+          try { window.sessionStorage.removeItem(`fms_family_creation_key:${email}`); } catch { /* Browser storage may be unavailable. */ }
+          try { window.localStorage.setItem("fms_family_switch_event", String(Date.now())); } catch { /* Cross-tab storage may be unavailable. */ }
+        }
         setFamily(payload.family ?? null);
+        setHasActiveFamily(true);
         setState("complete");
       }
     } catch (cause) {
@@ -120,11 +165,13 @@ export function FamilySetup({ displayName, email }: { displayName: string; email
             </CardHeader>
             <CardContent className="p-6 md:p-8">
               {state === "checking" ? <div className="flex min-h-64 items-center justify-center gap-3 text-muted-foreground"><LoaderCircle className="size-5 animate-spin" /> {pick("সেটআপের অবস্থা যাচাই হচ্ছে", "Checking setup status")}</div> : null}
-              {state === "complete" ? <div className="flex min-h-64 flex-col justify-center"><CheckCircle2 className="size-12 text-emerald-600" /><h2 className="mt-5 text-2xl font-bold">{locale === "en" ? family?.name_en || family?.name_bn || "Family ready" : family?.name_bn ?? "পরিবার প্রস্তুত"}</h2><p className="mt-2 text-muted-foreground">{pick("আপনার প্রবেশাধিকার সক্রিয় হয়েছে। এখন ফ্যামিলি ড্যাশবোর্ড ব্যবহার করতে পারবেন।", "Your access is active. You can now use the family dashboard.")}</p><Button asChild className="mt-7 w-fit gap-2 rounded-xl"><Link href="/" prefetch={false}>{pick("ড্যাশবোর্ড খুলুন", "Open dashboard")} <ArrowRight className="size-4" /></Link></Button></div> : null}
-              {state === "pending" ? <div className="flex min-h-64 flex-col justify-center"><Clock3 className="size-12 text-amber-600" /><h2 className="mt-5 text-2xl font-bold">{locale === "en" ? joinRequest?.families?.name_en || family?.name_en || "Membership request" : joinRequest?.families?.name_bn ?? family?.name_bn ?? "সদস্যপদের আবেদন"}</h2><p className="mt-2 leading-6 text-muted-foreground">{pick("আপনার আবেদন Family Admin-এর অপেক্ষমাণ তালিকায় আছে। অনুমোদন হলে এই account স্বয়ংক্রিয়ভাবে ফ্যামিলি ওয়ার্কস্পেসে যুক্ত হবে।", "Your request is in the Family Admin's pending queue. After approval, this account will be added to the family workspace automatically.")}</p><Button variant="outline" className="mt-7 w-fit rounded-xl" onClick={() => window.location.reload()}>{pick("অবস্থা আবার দেখুন", "Check status again")}</Button></div> : null}
-              {(state === "ready" || state === "saving" || state === "error") ? <div className="space-y-5">
-                {initialSetupAvailable ? <div className="grid grid-cols-2 gap-2 rounded-2xl bg-muted/55 p-1.5"><Button type="button" variant={mode === "create" ? "default" : "ghost"} className="rounded-xl" onClick={() => setMode("create")}><GitFork /> {pick("নতুন পরিবার", "New family")}</Button><Button type="button" variant={mode === "join" ? "default" : "ghost"} className="rounded-xl" onClick={() => setMode("join")}><UserRoundPlus /> {pick("পরিবারে যোগ দিন", "Join a family")}</Button></div> : null}
-                {mode === "create" ? <div className="space-y-4"><Field label={pick("পরিবারের বাংলা নাম", "Family name in Bangla")} id="family-name-bn"><Input id="family-name-bn" value={familyNameBn} onChange={(event) => setFamilyNameBn(event.target.value)} /></Field><Field label={pick("পরিবারের ইংরেজি নাম", "Family name in English")} id="family-name-en"><Input id="family-name-en" value={familyNameEn} onChange={(event) => setFamilyNameEn(event.target.value)} /></Field></div> : <div className="grid gap-4 sm:grid-cols-2"><div className="sm:col-span-2"><Field label={pick("ফ্যামিলি জয়েন কোড", "Family join code")} id="join-code"><div className="relative"><KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input id="join-code" value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase())} className="pl-10 font-mono uppercase tracking-widest" autoComplete="off" /></div></Field></div><Field label={pick("নাম (বাংলা)", "Name (Bangla)")} id="member-name-bn"><Input id="member-name-bn" value={memberNameBn} onChange={(event) => setMemberNameBn(event.target.value)} /></Field><Field label={pick("নাম (ইংরেজি)", "Name (English)")} id="member-name-en"><Input id="member-name-en" value={memberNameEn} onChange={(event) => setMemberNameEn(event.target.value)} /></Field><div className="sm:col-span-2"><Field label={pick("পরিবারের সঙ্গে সম্পর্ক", "Relationship to the family")} id="relationship"><Input id="relationship" value={relationship} onChange={(event) => setRelationship(event.target.value)} placeholder={pick("যেমন: মো. রাশেদের ছেলে", "For example: son of Md. Rashed")} /></Field></div><Field label={pick("ফ্যামিলি রেফারেন্স / স্পনসর", "Family reference / sponsor")} id="sponsor"><Input id="sponsor" value={sponsor} onChange={(event) => setSponsor(event.target.value)} /></Field><Field label={pick("ফোন", "Phone")} id="phone"><Input id="phone" value={phone} onChange={(event) => setPhone(event.target.value)} /></Field>{joinRequest?.status === "rejected" ? <div className="sm:col-span-2 rounded-2xl border border-rose-500/25 bg-rose-500/8 p-4 text-sm"><p className="font-bold text-rose-700 dark:text-rose-300">{pick("আগের আবেদনটি গ্রহণ হয়নি", "The previous request was not approved")}</p><p className="mt-1 text-muted-foreground">{joinRequest.rejection_reason || pick("Admin কোনো কারণ উল্লেখ করেননি। তথ্য ঠিক করে আবার আবেদন করতে পারেন।", "The admin did not provide a reason. Correct the details and submit again.")}</p></div> : null}</div>}
+              {availableFamilies.length > 0 && state !== "checking" && state !== "complete" ? <div className="space-y-3"><p className="font-semibold">{pick("নির্বাচিত পরিবারটি এখন উপলব্ধ নয়। আপনার অন্য সক্রিয় পরিবার বেছে নিন।", "The selected family is unavailable. Choose another active family you belong to.")}</p>{availableFamilies.map((choice) => <Button key={choice.id} type="button" variant="outline" className="h-auto w-full justify-start rounded-xl py-3 text-left" disabled={familySwitching} onClick={() => void switchToAvailableFamily(choice.id)}>{locale === "bn" ? choice.name_bn : choice.name_en}</Button>)}</div> : null}
+              {state === "complete" ? <div className="flex min-h-64 flex-col justify-center"><CheckCircle2 className="size-12 text-emerald-600" /><h2 className="mt-5 text-2xl font-bold">{locale === "en" ? family?.name_en || family?.name_bn || "Family ready" : family?.name_bn ?? "পরিবার প্রস্তুত"}</h2><p className="mt-2 text-muted-foreground">{pick("আপনার প্রবেশাধিকার সক্রিয় হয়েছে। এখন ফ্যামিলি ড্যাশবোর্ড ব্যবহার করতে পারবেন।", "Your access is active. You can now use the family dashboard.")}</p>{joinRequest?.status === "pending" ? <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">{pick("অন্য একটি পরিবারে যোগদানের আবেদন অনুমোদনের অপেক্ষায় আছে।", "Your request to join another family is awaiting approval.")}</p> : null}<div className="mt-7 flex flex-wrap gap-3"><Button asChild className="w-fit gap-2 rounded-xl"><Link href="/" prefetch={false}>{pick("ড্যাশবোর্ড খুলুন", "Open dashboard")} <ArrowRight className="size-4" /></Link></Button><Button variant="outline" className="w-fit rounded-xl" onClick={() => { setMode("join"); setState("ready"); }}>{pick("আরেকটি পরিবারে যোগ দিন", "Join another family")}</Button><Button variant="outline" className="w-fit rounded-xl" onClick={() => { setMode("create"); setState("ready"); }}>{pick("আরেকটি পরিবার তৈরি করুন", "Create another family")}</Button></div></div> : null}
+              {availableFamilies.length === 0 && state === "pending" ? <div className="flex min-h-64 flex-col justify-center"><Clock3 className="size-12 text-amber-600" /><h2 className="mt-5 text-2xl font-bold">{locale === "en" ? joinRequest?.families?.name_en || family?.name_en || "Membership request" : joinRequest?.families?.name_bn ?? family?.name_bn ?? "সদস্যপদের আবেদন"}</h2><p className="mt-2 leading-6 text-muted-foreground">{pick("আপনার আবেদন Family Admin-এর অপেক্ষমাণ তালিকায় আছে। অনুমোদন হলে এই account স্বয়ংক্রিয়ভাবে ফ্যামিলি ওয়ার্কস্পেসে যুক্ত হবে।", "Your request is in the Family Admin's pending queue. After approval, this account will be added to the family workspace automatically.")}</p><div className="mt-7 flex flex-wrap gap-3"><Button variant="outline" className="w-fit rounded-xl" onClick={() => window.location.reload()}>{pick("অবস্থা আবার দেখুন", "Check status again")}</Button>{hasActiveFamily ? <Button asChild className="w-fit rounded-xl"><Link href="/" prefetch={false}>{pick("বর্তমান পরিবারে ফিরুন", "Return to current family")}</Link></Button> : null}</div></div> : null}
+              {availableFamilies.length === 0 && (state === "ready" || state === "saving" || state === "error") ? <div className="space-y-5">
+                {(initialSetupAvailable || hasActiveFamily) ? <div className="grid grid-cols-2 gap-2 rounded-2xl bg-muted/55 p-1.5"><Button type="button" variant={mode === "create" ? "default" : "ghost"} className="rounded-xl" onClick={() => setMode("create")}><GitFork /> {pick("নতুন পরিবার", "New family")}</Button><Button type="button" variant={mode === "join" ? "default" : "ghost"} className="rounded-xl" onClick={() => setMode("join")}><UserRoundPlus /> {pick("পরিবারে যোগ দিন", "Join a family")}</Button></div> : null}
+                {hasActiveFamily ? <Button type="button" variant="ghost" className="w-full rounded-xl" onClick={() => setState("complete")}>{pick("বর্তমান পরিবারে ফিরে যান", "Back to current family")}</Button> : null}
+                {mode === "create" ? <div className="space-y-4"><Field label={pick("পরিবারের বাংলা নাম", "Family name in Bangla")} id="family-name-bn"><Input id="family-name-bn" value={familyNameBn} onChange={(event) => setFamilyNameBn(event.target.value)} placeholder={pick("আপনার পরিবারের নাম", "Your family name")} /></Field><Field label={pick("পরিবারের ইংরেজি নাম", "Family name in English")} id="family-name-en"><Input id="family-name-en" value={familyNameEn} onChange={(event) => setFamilyNameEn(event.target.value)} placeholder={pick("ইংরেজিতে পরিবারের নাম", "Family name in English")} /></Field></div> : <div className="grid gap-4 sm:grid-cols-2"><div className="sm:col-span-2"><Field label={pick("ফ্যামিলি জয়েন কোড", "Family join code")} id="join-code"><div className="relative"><KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input id="join-code" value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase())} className="pl-10 font-mono uppercase tracking-widest" autoComplete="off" /></div></Field></div><Field label={pick("নাম (বাংলা)", "Name (Bangla)")} id="member-name-bn"><Input id="member-name-bn" value={memberNameBn} onChange={(event) => setMemberNameBn(event.target.value)} /></Field><Field label={pick("নাম (ইংরেজি)", "Name (English)")} id="member-name-en"><Input id="member-name-en" value={memberNameEn} onChange={(event) => setMemberNameEn(event.target.value)} /></Field><div className="sm:col-span-2"><Field label={pick("পরিবারের সঙ্গে সম্পর্ক", "Relationship to the family")} id="relationship"><Input id="relationship" value={relationship} onChange={(event) => setRelationship(event.target.value)} placeholder={pick("যেমন: মো. রাশেদের ছেলে", "For example: son of Md. Rashed")} /></Field></div><Field label={pick("ফ্যামিলি রেফারেন্স / স্পনসর", "Family reference / sponsor")} id="sponsor"><Input id="sponsor" value={sponsor} onChange={(event) => setSponsor(event.target.value)} /></Field><Field label={pick("ফোন", "Phone")} id="phone"><Input id="phone" value={phone} onChange={(event) => setPhone(event.target.value)} /></Field>{joinRequest?.status === "rejected" ? <div className="sm:col-span-2 rounded-2xl border border-rose-500/25 bg-rose-500/8 p-4 text-sm"><p className="font-bold text-rose-700 dark:text-rose-300">{pick("আগের আবেদনটি গ্রহণ হয়নি", "The previous request was not approved")}</p><p className="mt-1 text-muted-foreground">{joinRequest.rejection_reason || pick("Admin কোনো কারণ উল্লেখ করেননি। তথ্য ঠিক করে আবার আবেদন করতে পারেন।", "The admin did not provide a reason. Correct the details and submit again.")}</p></div> : null}</div>}
                 <Button className="h-11 w-full gap-2 rounded-xl" disabled={state === "saving" || (mode === "create" ? familyNameBn.trim().length < 2 || familyNameEn.trim().length < 2 : joinCode.trim().length < 6 || memberNameBn.trim().length < 2 || relationship.trim().length < 2)} onClick={() => void submitSetup()}>{state === "saving" ? <LoaderCircle className="size-4 animate-spin" /> : mode === "create" ? <ShieldCheck className="size-4" /> : <UserRoundPlus className="size-4" />}{mode === "create" ? pick("পরিবার তৈরি করে Owner সক্রিয় করুন", "Create family and activate Owner") : pick("Admin অনুমোদনের জন্য আবেদন করুন", "Request admin approval")}</Button>
               </div> : null}
             </CardContent>

@@ -36,6 +36,8 @@ export function FamilyTreeView() {
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [setupRequired, setSetupRequired] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<FamilyMember | null>(null);
   const [pathStartId, setPathStartId] = useState("");
@@ -49,32 +51,50 @@ export function FamilyTreeView() {
 
   useEffect(() => {
     let active = true;
-    void fetch("/api/members", { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json() as TreePayload;
-        if (payload.code === "FAMILY_SETUP_REQUIRED") return { ...payload, setup: true };
-        if (!response.ok) throw new Error(payload.error ?? pick("ফ্যামিলি ট্রি লোড হয়নি।", "Family tree could not be loaded."));
-        return payload;
-      })
-      .then((payload) => {
-        if (!active) return;
-        if ("setup" in payload) {
-          setSetupRequired(true);
-          return;
-        }
-        setFamily(payload.family);
-        setMembers(payload.members ?? []);
-        setRelationships(payload.relationships ?? []);
-        setViewerMemberId(payload.viewerMemberId ?? "");
-        setPathStartId((current) => current || payload.viewerMemberId || "");
-        setMigrationRequired(Boolean(payload.migrationRequired));
-      })
-      .catch((error: unknown) => {
-        if (active) setFeedback(error instanceof Error ? error.message : pick("ফ্যামিলি ট্রি লোড হয়নি।", "Family tree could not be loaded."));
-      })
-      .finally(() => { if (active) setLoading(false); });
+    queueMicrotask(() => {
+      if (!active) return;
+      setLoading(true);
+      setLoadError(null);
+      setMembers([]);
+      setRelationships([]);
+      setFamily(undefined);
+      setViewerMemberId("");
+      setMigrationRequired(false);
+      setSelected(null);
+      void fetch("/api/members", { cache: "no-store" })
+        .then(async (response) => {
+          const payload = await response.json() as TreePayload;
+          if (payload.code === "FAMILY_SETUP_REQUIRED") return { ...payload, setup: true };
+          if (payload.code === "DIRECTORY_ROW_LIMIT") throw new Error(pick("ফ্যামিলি ট্রির কোনো অংশ ২০,০০০ সারির সীমা ছাড়িয়েছে। অসম্পূর্ণ ট্রি দেখানো বা XLSX-এ রপ্তানি করা হয়নি।", "One section of the family tree exceeds 20,000 rows. No partial tree was shown or exported."));
+          if (!response.ok) throw new Error(payload.error ?? pick("ফ্যামিলি ট্রি লোড হয়নি।", "Family tree could not be loaded."));
+          return payload;
+        })
+        .then((payload) => {
+          if (!active) return;
+          if ("setup" in payload) {
+            setSetupRequired(true);
+            return;
+          }
+          setFamily(payload.family);
+          setMembers(payload.members ?? []);
+          setRelationships(payload.relationships ?? []);
+          setViewerMemberId(payload.viewerMemberId ?? "");
+          setPathStartId((current) => payload.members?.some((member) => member.id === current) ? current : payload.viewerMemberId || "");
+          setPathEndId((current) => payload.members?.some((member) => member.id === current) ? current : "");
+          setMigrationRequired(Boolean(payload.migrationRequired));
+          setSetupRequired(false);
+        })
+        .catch((error: unknown) => {
+          if (!active) return;
+          const message = error instanceof Error ? error.message : pick("ফ্যামিলি ট্রি লোড হয়নি।", "Family tree could not be loaded.");
+          setSetupRequired(false);
+          setLoadError(message);
+          setFeedback(pick("ফ্যামিলি ট্রি লোড হয়নি। ", "Family tree could not be loaded. ") + message);
+        })
+        .finally(() => { if (active) setLoading(false); });
+    });
     return () => { active = false; };
-  }, [pick, setFeedback]);
+  }, [pick, retryKey, setFeedback]);
 
   const model = useMemo(() => buildTreeModel(members, relationships), [members, relationships]);
   const path = useMemo(() => findPath(pathStartId, pathEndId, relationships), [pathEndId, pathStartId, relationships]);
@@ -144,6 +164,10 @@ export function FamilyTreeView() {
 
   if (setupRequired) {
     return <main className="mx-auto w-full max-w-[1500px] px-4 py-8 md:px-7"><Card className="rounded-3xl border-amber-500/30 py-0 shadow-none"><CardContent className="flex flex-col items-start gap-5 p-7 md:flex-row md:items-center"><ShieldAlert className="size-10 text-amber-700" /><div className="flex-1"><h1 className="text-2xl font-bold">{pick("ফ্যামিলি access সক্রিয় নয়", "Family access is not active")}</h1><p className="mt-1 text-muted-foreground">{pick("Join code দিয়ে আবেদন করুন। Admin অনুমোদনের পর Family Tree ব্যবহার করা যাবে।", "Apply with a join code. You can use Family Tree after admin approval.")}</p></div><Button asChild className="rounded-xl"><a href="/setup">{pick("Family onboarding খুলুন", "Open family onboarding")}</a></Button></CardContent></Card></main>;
+  }
+
+  if (loadError && !loading) {
+    return <main className="mx-auto w-full max-w-[1500px] px-4 py-8 md:px-7"><Card className="rounded-3xl border-rose-500/30 py-0 shadow-none"><CardContent className="flex flex-col items-start gap-5 p-7 md:flex-row md:items-center"><ShieldAlert className="size-10 text-rose-700 dark:text-rose-300" /><div className="flex-1"><h1 className="text-2xl font-bold">{pick("ফ্যামিলি ট্রি লোড হয়নি", "Family tree could not be loaded")}</h1><p className="mt-1 text-muted-foreground">{loadError}</p></div><Button className="rounded-xl" onClick={() => setRetryKey((value) => value + 1)}>{pick("আবার চেষ্টা করুন", "Try again")}</Button></CardContent></Card></main>;
   }
 
   return <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">

@@ -1,10 +1,12 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import {
   canManageProfiles,
+  canReviewMembers,
   canViewAdministration,
   getActiveFamilyMembership,
 } from "@/lib/family-access";
 import { visibleDirectoryMembers, type DirectoryConsent } from "@/lib/member-privacy";
+import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
 import {
   BackendNotConfiguredError,
   isBackendConfigured,
@@ -69,6 +71,18 @@ type UpdateMemberBody = {
 const optionalText = (value: unknown, max = 160) =>
   typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 
+async function readAllMemberRows<T>(table: string, query: URLSearchParams): Promise<T[]> {
+  return collectPaginatedRows(
+    (offset, limit) => {
+      const pageQuery = new URLSearchParams(query);
+      pageQuery.set("offset", String(offset));
+      pageQuery.set("limit", String(limit));
+      return supabaseRest<T[]>(`${table}?${pageQuery}`);
+    },
+    { pageSize: 500, maxRows: 20000 },
+  );
+}
+
 export async function GET() {
   try {
     if (!isBackendConfigured()) throw new BackendNotConfiguredError();
@@ -88,11 +102,9 @@ export async function GET() {
         "id,family_id,auth_user_id,name_bn,name_en,email,phone,relationship_text,gender,date_of_birth,blood_group,occupation,city,country,profile_status,created_at",
       family_id: `eq.${membership.family_id}`,
       profile_status: "neq.archived",
-      order: "created_at.asc",
+      order: "created_at.asc,id.asc",
     });
-    const members = await supabaseRest<MemberProfileRow[]>(
-      `member_profiles?${memberQuery}`,
-    );
+    const members = await readAllMemberRows<MemberProfileRow>("member_profiles", memberQuery);
 
     let relationships: FamilyRelationshipRow[] = [];
     let migrationRequired = false;
@@ -100,32 +112,36 @@ export async function GET() {
       const relationshipQuery = new URLSearchParams({
         select: "id,from_member_id,to_member_id,relationship_type",
         family_id: `eq.${membership.family_id}`,
-        order: "created_at.asc",
+        order: "created_at.asc,id.asc",
       });
-      relationships = await supabaseRest<FamilyRelationshipRow[]>(
-        `family_relationships?${relationshipQuery}`,
-      );
+      relationships = await readAllMemberRows<FamilyRelationshipRow>("family_relationships", relationshipQuery);
     } catch (error) {
-      if (error instanceof SupabaseRequestError) migrationRequired = true;
+      if (error instanceof SupabaseRequestError && /PGRST205|42P01|42703/.test(error.message)) migrationRequired = true;
       else throw error;
     }
 
     const membersWithPhotos = members.map((member) => ({ ...member, profile_photo_file_id: null as string | null }));
     try {
-      const photoMemories = await supabaseRest<Array<{ id: string; people_tags: string[]; created_at: string }>>(`archive_memories?${new URLSearchParams({
+      const photoMemories = await readAllMemberRows<{ id: string; people_tags: string[]; created_at: string }>("archive_memories", new URLSearchParams({
         select: "id,people_tags,created_at",
         family_id: `eq.${membership.family_id}`,
         place: "eq.__profile_photo__",
         status: "eq.active",
-        order: "created_at.desc",
-      })}`);
+        order: "created_at.desc,id.asc",
+      }));
       if (photoMemories.length) {
-        const photoFiles = await supabaseRest<Array<{ id: string; entity_id: string }>>(`archive_files?${new URLSearchParams({
-          select: "id,entity_id",
-          family_id: `eq.${membership.family_id}`,
-          entity_type: "eq.memory",
-          entity_id: `in.(${photoMemories.map((item) => item.id).join(",")})`,
-        })}`);
+        const photoFiles: Array<{ id: string; entity_id: string }> = [];
+        for (let index = 0; index < photoMemories.length; index += 100) {
+          const memoryIds = photoMemories.slice(index, index + 100).map((item) => item.id);
+          photoFiles.push(...await readAllMemberRows<{ id: string; entity_id: string }>("archive_files", new URLSearchParams({
+            select: "id,entity_id",
+            family_id: `eq.${membership.family_id}`,
+            entity_type: "eq.memory",
+            entity_id: `in.(${memoryIds.join(",")})`,
+            order: "id.asc",
+          })));
+          if (photoFiles.length > 20000) throw new PaginatedRowLimitError(20000);
+        }
         const fileByMemory = new Map(photoFiles.map((file) => [file.entity_id, file.id]));
         const photoByMember = new Map<string, string>();
         photoMemories.forEach((memory) => {
@@ -141,11 +157,12 @@ export async function GET() {
 
     // Privacy is a required authorization input. A missing migration or backend failure
     // must fail closed instead of returning the unfiltered profile list.
-    const privacyRows = await supabaseRest<DirectoryConsent[]>(
-      `family_privacy_consents?${new URLSearchParams({
+    const privacyRows = await readAllMemberRows<DirectoryConsent>(
+      "family_privacy_consents", new URLSearchParams({
         select: "user_id,directory_visibility,show_email_to_family,show_phone_to_family",
         family_id: `eq.${membership.family_id}`,
-      })}`,
+        order: "user_id.asc",
+      }),
     );
     const visibleMembers = visibleDirectoryMembers(
       membersWithPhotos,
@@ -173,7 +190,10 @@ export async function GET() {
       relationships,
       viewerMemberId: members.find((member) => member.auth_user_id === user.userId)?.id ?? null,
       migrationRequired,
-      permissions: { canManage: canManageProfiles(membership.role) },
+      permissions: {
+        canManage: canManageProfiles(membership.role),
+        canCreate: canReviewMembers(membership.role),
+      },
     });
   } catch (error) {
     return memberErrorResponse(error, "Unable to load family members");
@@ -193,9 +213,9 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
-    if (!canManageProfiles(membership.role)) {
+    if (!canReviewMembers(membership.role)) {
       return Response.json(
-        { error: "Member profile তৈরি করার permission নেই।" },
+        { error: "নতুন সদস্য যোগ করতে Family Owner বা Admin অনুমোদন প্রয়োজন।" },
         { status: 403 },
       );
     }
@@ -401,6 +421,9 @@ async function writeMemberAudit(familyId: string, actorUserId: string, action: s
 }
 
 function memberErrorResponse(error: unknown, logMessage: string) {
+  if (error instanceof PaginatedRowLimitError) {
+    return Response.json({ code: "DIRECTORY_ROW_LIMIT", maxRows: error.maxRows, error: `Family directory exceeds ${error.maxRows} rows in one section. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });
+  }
   if (error instanceof BackendNotConfiguredError) {
     return Response.json(
       { error: "PostgreSQL connection has not been configured yet." },

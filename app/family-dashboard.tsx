@@ -16,6 +16,7 @@ import {
   House,
   Languages,
   LifeBuoy,
+  BookOpen,
   LockKeyhole,
   MapPin,
   Megaphone,
@@ -26,6 +27,7 @@ import {
   Palette,
   Search,
   Settings,
+  ShieldAlert,
   ShieldCheck,
   Sun,
   UserCheck,
@@ -85,6 +87,7 @@ const GovernanceCenter = lazy(() => import("./governance-center").then((module) 
 const MagazineCenter = lazy(() => import("./magazine-center").then((module) => ({ default: module.MagazineCenter })));
 const AdminCenter = lazy(() => import("./admin-center").then((module) => ({ default: module.AdminCenter })));
 const ContactCenter = lazy(() => import("./contact-center").then((module) => ({ default: module.ContactCenter })));
+const HelpCenter = lazy(() => import("./help-center").then((module) => ({ default: module.HelpCenter })));
 const NotificationCenter = lazy(() => import("./notification-center").then((module) => ({ default: module.NotificationCenter })));
 const PrivacyCenter = lazy(() => import("./privacy-center").then((module) => ({ default: module.PrivacyCenter })));
 
@@ -141,17 +144,18 @@ const mainNavigation = [
   { id: "notifications", href: "/notifications", label: "নোটিফিকেশন", english: "Notifications", icon: Bell },
   { id: "privacy", href: "/privacy", label: "Privacy ও Data Rights", english: "Privacy & data", icon: LockKeyhole },
   { id: "contact", href: "/contact", label: "যোগাযোগ ও সহায়তা", english: "Contact & support", icon: LifeBuoy },
+  { id: "help", href: "/help", label: "ব্যবহার নির্দেশিকা", english: "Help center", icon: BookOpen },
   { id: "admin", href: "/admin", label: "অ্যাডমিন কন্ট্রোল", english: "Admin control", icon: ShieldCheck },
 ];
 
 const numberBn = new Intl.NumberFormat("bn-BD", { maximumFractionDigits: 2 });
-const moneyBn = new Intl.NumberFormat("bn-BD", { style: "currency", currency: "BDT", maximumFractionDigits: 0 });
+const moneyBn = new Intl.NumberFormat("bn-BD", { style: "currency", currency: "BDT", minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const dateBn = new Intl.DateTimeFormat("bn-BD", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 const eventDateBn = new Intl.DateTimeFormat("bn-BD", { day: "2-digit", month: "short" });
 const relativeBn = new Intl.RelativeTimeFormat("bn-BD", { numeric: "auto" });
 const relativeEn = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" });
 const numberEn = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
-const moneyEn = new Intl.NumberFormat("en-US", { style: "currency", currency: "BDT", maximumFractionDigits: 0 });
+const moneyEn = new Intl.NumberFormat("en-US", { style: "currency", currency: "BDT", minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const dateEn = new Intl.DateTimeFormat("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 const eventDateEn = new Intl.DateTimeFormat("en-US", { day: "2-digit", month: "short" });
 
@@ -259,22 +263,38 @@ function NotificationLink({ href, icon: Icon, title, detail, active }: { href: s
 export function FamilyDashboard({
   view = "dashboard",
 }: {
-  view?: "dashboard" | "directory" | "tree" | "members" | "notices" | "events" | "magazine" | "qurbani" | "finance" | "chat" | "health" | "welfare" | "household" | "archives" | "governance" | "notifications" | "privacy" | "contact" | "admin";
+  view?: "dashboard" | "directory" | "tree" | "members" | "notices" | "events" | "magazine" | "qurbani" | "finance" | "chat" | "health" | "welfare" | "household" | "archives" | "governance" | "notifications" | "privacy" | "contact" | "help" | "admin";
 }) {
   const { locale, pick, setLocale } = useLocale();
   const [theme, setTheme] = useState<ThemeId>("heritage");
-  const [dark, setDark] = useState(false);
-  const [modePreference, setModePreference] = useState<"system" | "light" | "dark">("system");
+  const [dark, setDark] = useState(true);
+  const [modePreference, setModePreference] = useState<"system" | "light" | "dark">("dark");
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(view === "dashboard");
+  const [dashboardError, setDashboardError] = useState(false);
   const [themeSaving, setThemeSaving] = useState(false);
   const [localeSaving, setLocaleSaving] = useState(false);
+  const [familySwitching, setFamilySwitching] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [dashboardNow, setDashboardNow] = useState<number | null>(null);
   const [setupRequired, setSetupRequired] = useState(false);
   const [, setFeedback] = useActionFeedback();
+
+  useEffect(() => {
+    if (window.sessionStorage.getItem("fms_family_switch_result") !== "success") return;
+    window.sessionStorage.removeItem("fms_family_switch_result");
+    queueMicrotask(() => setFeedback(locale === "bn" ? "পরিবারের ওয়ার্কস্পেস সফলভাবে পরিবর্তন হয়েছে।" : "Family workspace changed successfully."));
+  }, [locale, setFeedback]);
+
+  useEffect(() => {
+    const onFamilySwitch = (event: StorageEvent) => {
+      if (event.key === "fms_family_switch_event") window.location.reload();
+    };
+    window.addEventListener("storage", onFamilySwitch);
+    return () => window.removeEventListener("storage", onFamilySwitch);
+  }, []);
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("family-theme") as ThemeId | null;
@@ -285,7 +305,8 @@ export function FamilyDashboard({
         setModePreference(savedMode);
         setDark(savedMode === "dark");
       } else {
-        setDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
+        setModePreference("dark");
+        setDark(true);
       }
       setDashboardNow(Date.now());
       setPreferencesReady(true);
@@ -313,21 +334,35 @@ export function FamilyDashboard({
     let active = true;
     void (async () => {
       try {
+        setDashboardLoading(true);
         const response = await fetch("/api/dashboard", { cache: "no-store" });
         const payload = await response.json() as DashboardPayload & { code?: string; error?: string };
         if (response.status === 409 && payload.code === "FAMILY_SETUP_REQUIRED") {
-          if (active) setSetupRequired(true);
+          if (active) { setDashboard(null); setWorkspace(null); setDashboardError(false); setSetupRequired(true); }
           return;
         }
         if (!response.ok) throw new Error(payload.error ?? "Dashboard data পাওয়া যায়নি।");
         if (!active) return;
         setSetupRequired(false);
+        setDashboardError(false);
         setDashboard(payload);
         setWorkspace({ family: payload.family, viewer: payload.viewer, permissions: { canManageTheme: ["owner", "family_admin"].includes(payload.viewer.role) } });
         setLocale(payload.viewer.preferredLocale);
         setTheme(payload.family.theme);
+        try {
+          const workspaceResponse = await fetch("/api/workspace", { cache: "no-store" });
+          const workspacePayload = await workspaceResponse.json() as WorkspacePayload & { error?: string };
+          if (!workspaceResponse.ok) throw new Error(workspacePayload.error ?? "Family choices could not be loaded.");
+          if (workspacePayload.family.id !== payload.family.id) {
+            window.location.reload();
+            return;
+          }
+          if (active) setWorkspace(workspacePayload);
+        } catch (error) {
+          if (active) setFeedback(error instanceof Error ? error.message : "Family choices could not be loaded.");
+        }
       } catch (error) {
-        if (active) setFeedback(error instanceof Error ? error.message : "Dashboard data পাওয়া যায়নি।");
+        if (active) { setDashboard(null); setWorkspace(null); setDashboardError(true); setFeedback(error instanceof Error ? error.message : "Dashboard data পাওয়া যায়নি।"); }
       } finally {
         if (active) setDashboardLoading(false);
       }
@@ -344,12 +379,12 @@ export function FamilyDashboard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ theme: nextTheme }),
       });
+      if (response.status === 499) return;
       const payload = await response.json() as { family?: WorkspacePayload["family"]; message?: string; error?: string };
       if (!response.ok || !payload.family) throw new Error(payload.error ?? "Theme update হয়নি।");
       setTheme(payload.family.theme);
       setWorkspace((current) => current ? { ...current, family: payload.family! } : current);
       setDashboard((current) => current ? { ...current, family: payload.family! } : current);
-      setFeedback(payload.message ?? "Family theme সবার জন্য update হয়েছে।");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Theme update হয়নি।");
     } finally {
@@ -366,16 +401,38 @@ export function FamilyDashboard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "update_locale", preferredLocale: nextLocale }),
       });
+      if (response.status === 499) return;
       const payload = await response.json() as { preferredLocale?: AppLocale; message?: string; error?: string };
       if (!response.ok || !payload.preferredLocale) throw new Error(payload.error ?? "Language preference could not be saved.");
       setLocale(payload.preferredLocale);
       setWorkspace((current) => current ? { ...current, viewer: { ...current.viewer, preferredLocale: payload.preferredLocale! } } : current);
       setDashboard((current) => current ? { ...current, viewer: { ...current.viewer, preferredLocale: payload.preferredLocale! } } : current);
-      setFeedback(payload.message ?? (payload.preferredLocale === "bn" ? "ভাষার পছন্দ সংরক্ষিত হয়েছে।" : "Language preference saved."));
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Language preference could not be saved.");
     } finally {
       setLocaleSaving(false);
+    }
+  }
+
+  async function switchFamily(familyId: string) {
+    if (!workspace || familySwitching || familyId === workspace.family.id) return;
+    if (!workspace.availableFamilies?.some((family) => family.id === familyId)) return;
+    setFamilySwitching(true);
+    try {
+      const response = await fetch("/api/workspace/select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "select_family", familyId }),
+      });
+      if (response.status === 499) return;
+      if (!response.ok) return;
+      window.sessionStorage.setItem("fms_family_switch_result", "success");
+      try { window.localStorage.setItem("fms_family_switch_event", String(Date.now())); } catch { /* Cross-tab storage may be unavailable. */ }
+      window.location.assign(window.location.pathname);
+    } catch {
+      // The global action modal shows the connection failure.
+    } finally {
+      setFamilySwitching(false);
     }
   }
 
@@ -455,6 +512,21 @@ export function FamilyDashboard({
               <p className="truncate text-xs text-sidebar-foreground/60">{familyName}</p>
             </div>
           </div>
+          {(workspace?.availableFamilies?.length ?? 0) > 1 ? (
+            <div className="mt-3 px-2 group-data-[collapsible=icon]:hidden">
+              <label htmlFor="active-family" className="mb-1.5 block text-xs font-medium text-sidebar-foreground/65">{pick("সক্রিয় পরিবার", "Active family")}</label>
+              <select
+                id="active-family"
+                aria-label={pick("পরিবার পরিবর্তন করুন", "Switch family")}
+                value={workspace?.family.id ?? ""}
+                disabled={familySwitching}
+                onChange={(event) => void switchFamily(event.target.value)}
+                className="h-10 w-full rounded-xl border border-sidebar-border bg-sidebar-accent/60 px-3 text-sm text-sidebar-foreground outline-none focus:ring-2 focus:ring-sidebar-primary/30"
+              >
+                {workspace?.availableFamilies?.map((family) => <option key={family.id} value={family.id}>{locale === "bn" ? family.name_bn : family.name_en}</option>)}
+              </select>
+            </div>
+          ) : null}
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
@@ -556,7 +628,7 @@ export function FamilyDashboard({
         </header>
 
         <Suspense fallback={<main className="grid min-h-[calc(100vh-4rem)] place-items-center text-sm text-muted-foreground">{pick("মডিউল লোড হচ্ছে…", "Loading module…")}</main>}>
-        {view === "directory" ? <MemberDirectory /> : view === "tree" ? <FamilyTreeView /> : view === "members" ? <MemberApprovals /> : view === "notices" ? <NoticeCenter /> : view === "events" ? <EventCenter /> : view === "magazine" ? <MagazineCenter /> : view === "qurbani" ? <QurbaniSuite /> : view === "finance" ? <PersonalFinanceCenter /> : view === "chat" ? <FamilyChat /> : view === "health" ? <HealthCenter /> : view === "welfare" ? <WelfareCenter /> : view === "household" ? <HouseholdCenter /> : view === "archives" ? <ArchiveCenter /> : view === "governance" ? <GovernanceCenter /> : view === "notifications" ? <NotificationCenter /> : view === "privacy" ? <PrivacyCenter /> : view === "contact" ? <ContactCenter /> : view === "admin" ? <AdminCenter /> : setupRequired ? <main className="grid min-h-[calc(100vh-4rem)] place-items-center px-4 py-10"><Card className="w-full max-w-xl rounded-3xl"><CardContent className="flex flex-col items-center p-8 text-center md:p-10"><span className="grid size-16 place-items-center rounded-2xl bg-primary/10 text-primary"><UserCheck className="size-8" /></span><h1 className="mt-6 text-2xl font-bold">{pick("ফ্যামিলি অ্যাক্সেস সক্রিয় নয়", "Family access is not active")}</h1><p className="mt-3 max-w-md leading-7 text-muted-foreground">{pick("Join code দিয়ে আবেদন করুন। Family Owner বা Admin অনুমোদন করার পর dashboard এবং protected module ব্যবহার করতে পারবেন।", "Apply with a join code. You can use the dashboard and protected modules after the Family Owner or Admin approves your request.")}</p><Button asChild className="mt-7 rounded-xl"><a href="/setup">{pick("ফ্যামিলিতে যোগ দিন", "Join a family")}</a></Button></CardContent></Card></main> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
+        {view === "directory" ? <MemberDirectory /> : view === "tree" ? <FamilyTreeView /> : view === "members" ? <MemberApprovals /> : view === "notices" ? <NoticeCenter /> : view === "events" ? <EventCenter /> : view === "magazine" ? <MagazineCenter /> : view === "qurbani" ? <QurbaniSuite /> : view === "finance" ? <PersonalFinanceCenter /> : view === "chat" ? <FamilyChat /> : view === "health" ? <HealthCenter /> : view === "welfare" ? <WelfareCenter /> : view === "household" ? <HouseholdCenter /> : view === "archives" ? <ArchiveCenter /> : view === "governance" ? <GovernanceCenter /> : view === "notifications" ? <NotificationCenter /> : view === "privacy" ? <PrivacyCenter /> : view === "contact" ? <ContactCenter /> : view === "help" ? <HelpCenter /> : view === "admin" ? <AdminCenter /> : setupRequired ? <main className="grid min-h-[calc(100vh-4rem)] place-items-center px-4 py-10"><Card className="w-full max-w-xl rounded-3xl"><CardContent className="flex flex-col items-center p-8 text-center md:p-10"><span className="grid size-16 place-items-center rounded-2xl bg-primary/10 text-primary"><UserCheck className="size-8" /></span><h1 className="mt-6 text-2xl font-bold">{pick("ফ্যামিলি অ্যাক্সেস সক্রিয় নয়", "Family access is not active")}</h1><p className="mt-3 max-w-md leading-7 text-muted-foreground">{pick("Join code দিয়ে আবেদন করুন। Family Owner বা Admin অনুমোদন করার পর dashboard এবং protected module ব্যবহার করতে পারবেন।", "Apply with a join code. You can use the dashboard and protected modules after the Family Owner or Admin approves your request.")}</p><Button asChild className="mt-7 rounded-xl"><a href="/setup">{pick("ফ্যামিলিতে যোগ দিন", "Join a family")}</a></Button></CardContent></Card></main> : dashboardError && !dashboardLoading ? <main className="grid min-h-[calc(100vh-4rem)] place-items-center px-4 py-10"><Card className="w-full max-w-xl rounded-3xl"><CardContent className="flex flex-col items-center p-8 text-center md:p-10"><ShieldAlert className="size-10 text-muted-foreground" /><h1 className="mt-5 text-xl font-bold">{pick("ড্যাশবোর্ডের তথ্য লোড হয়নি", "Dashboard data did not load")}</h1><p className="mt-2 text-sm text-muted-foreground">{pick("পুরোনো হিসাব দেখানো হচ্ছে না। আবার চেষ্টা করুন।", "Previous totals have been cleared. Please try again.")}</p><Button className="mt-5" onClick={() => window.location.reload()}>{pick("আবার চেষ্টা করুন", "Retry")}</Button></CardContent></Card></main> : <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
           <section className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">

@@ -1,5 +1,6 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canReviewMembers, getActiveFamilyMembership } from "@/lib/family-access";
+import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
 import type { FamilyTheme, WorkspacePayload } from "@/lib/workspace-types";
 import {
   BackendNotConfiguredError,
@@ -9,6 +10,12 @@ import {
 } from "@/lib/supabase-rest";
 
 const themes: FamilyTheme[] = ["heritage", "emerald", "indigo", "terracotta"];
+
+type FamilyChoiceRow = {
+  family_id: string;
+  role: WorkspacePayload["viewer"]["role"];
+  families: { id: string; name_bn: string; name_en: string; status: string } | null;
+};
 
 async function context() {
   if (!isBackendConfigured()) throw new BackendNotConfiguredError();
@@ -39,6 +46,14 @@ export async function GET() {
       profile_status: "eq.active",
       limit: "1",
     })}`);
+    const memberships = await collectPaginatedRows<FamilyChoiceRow>((offset, limit) => supabaseRest<FamilyChoiceRow[]>(`family_memberships?${new URLSearchParams({
+      select: "family_id,role,families(id,name_bn,name_en,status)",
+      auth_user_id: `eq.${user.userId}`,
+      status: "eq.active",
+      order: "created_at.asc",
+      offset: String(offset),
+      limit: String(limit),
+    })}`), { pageSize: 100, maxRows: 1000 });
     const payload: WorkspacePayload = {
       family,
       viewer: {
@@ -47,6 +62,9 @@ export async function GET() {
         preferredLocale: membership.preferred_locale,
       },
       permissions: { canManageTheme: canReviewMembers(membership.role) },
+      availableFamilies: memberships
+        .filter((entry) => entry.families?.status === "active")
+        .map((entry) => ({ id: entry.family_id, name_bn: entry.families!.name_bn, name_en: entry.families!.name_en, role: entry.role })),
     };
     return Response.json(payload);
   } catch (error) {
@@ -119,6 +137,9 @@ export async function PATCH(request: Request) {
 }
 
 function workspaceError(error: unknown, message: string) {
+  if (error instanceof PaginatedRowLimitError) {
+    return Response.json({ error: "Too many family memberships to list safely." }, { status: 413 });
+  }
   if (error instanceof BackendNotConfiguredError) {
     return Response.json({ error: "PostgreSQL connection has not been configured yet." }, { status: 503 });
   }

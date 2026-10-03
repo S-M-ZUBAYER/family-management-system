@@ -48,6 +48,7 @@ type ApprovalPayload = {
   family?: { id: string; name_bn: string; name_en: string; join_code: string } | null;
   requests?: ApiMemberRequest[];
   metrics?: { pending: number; duplicates: number; approvedThisMonth: number };
+  code?: string;
   error?: string;
 };
 
@@ -90,14 +91,26 @@ export function MemberApprovals() {
   }), [applicants, filter, query]);
 
   const loadRequests = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch("/api/member-requests", { cache: "no-store", signal });
-    const payload = await response.json() as ApprovalPayload;
-    if (!response.ok) throw new Error(payload.error ?? pick("সদস্য আবেদন লোড করা যায়নি।", "Could not load member requests."));
-    const rows = (payload.requests ?? []).map((request) => applicantFromApi(request, locale));
-    setApplicants(rows);
-    setFamily(payload.family ?? null);
-    setMetrics(payload.metrics ?? { pending: rows.length, duplicates: rows.filter((item) => item.duplicate).length, approvedThisMonth: 0 });
-    setDataSource("postgresql");
+    try {
+      const response = await fetch("/api/member-requests", { cache: "no-store", signal });
+      const payload = await response.json() as ApprovalPayload;
+      if (payload.code === "MEMBER_REQUESTS_ROW_LIMIT") throw new Error(pick("সদস্য আবেদনের কোনো অংশ ২০,০০০ সারির সীমা ছাড়িয়েছে। অসম্পূর্ণ আবেদন বা XLSX তথ্য দেখানো হয়নি।", "One section of member requests exceeds 20,000 rows. No partial approvals or XLSX data was shown."));
+      if (!response.ok) throw new Error(payload.error ?? pick("সদস্য আবেদন লোড করা যায়নি।", "Could not load member requests."));
+      const rows = (payload.requests ?? []).map((request) => applicantFromApi(request, locale));
+      setApplicants(rows);
+      setFamily(payload.family ?? null);
+      setMetrics(payload.metrics ?? { pending: rows.length, duplicates: rows.filter((item) => item.duplicate).length, approvedThisMonth: 0 });
+      setDataSource("postgresql");
+    } catch (error) {
+      if ((error as { name?: string }).name !== "AbortError") {
+        setApplicants([]);
+        setFamily(null);
+        setMetrics({ pending: 0, duplicates: 0, approvedThisMonth: 0 });
+        setSelected(null);
+        setDataSource("error");
+      }
+      throw error;
+    }
   }, [locale, pick]);
 
   useEffect(() => {
