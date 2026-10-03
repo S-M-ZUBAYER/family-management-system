@@ -1,5 +1,8 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageQurbani, getActiveFamilyMembership } from "@/lib/family-access";
+import { editableFamilyQurbaniCampaign, findFamilyQurbaniCampaign, qurbaniDatabaseConflict } from "@/lib/qurbani-access";
+import { canTransitionQurbaniCampaign } from "@/lib/qurbani-policy";
+import type { QurbaniCampaignStatus } from "@/lib/qurbani-types";
 import {
   BackendNotConfiguredError,
   SupabaseRequestError,
@@ -57,12 +60,27 @@ export async function PATCH(request: Request) {
       id: `eq.${id}`,
       family_id: `eq.${membership.family_id}`,
     });
+    if (entity === "campaign") {
+      const campaign = await findFamilyQurbaniCampaign(membership.family_id, id);
+      if (!campaign) return Response.json({ error: "Campaign পাওয়া যায়নি।" }, { status: 404 });
+      if (!canTransitionQurbaniCampaign(campaign.status, status as QurbaniCampaignStatus)) {
+        return Response.json({ error: "Settled campaign শুধু close করা যাবে; closed campaign আর পরিবর্তন করা যাবে না।" }, { status: 409 });
+      }
+      query.set("status", `eq.${campaign.status}`);
+    } else {
+      const recordQuery = new URLSearchParams({ select: "id,campaign_id", id: `eq.${id}`, family_id: `eq.${membership.family_id}`, limit: "1" });
+      const record = (await supabaseRest<Array<{ id: string; campaign_id: string }>>(`${config.table}?${recordQuery}`))[0];
+      if (!record) return Response.json({ error: "Record পাওয়া যায়নি।" }, { status: 404 });
+      const campaign = await editableFamilyQurbaniCampaign(membership.family_id, record.campaign_id);
+      if (campaign instanceof Response) return campaign;
+      query.set("campaign_id", `eq.${record.campaign_id}`);
+    }
     const rows = await supabaseRest<Array<Record<string, unknown>>>(`${config.table}?${query}`, {
       method: "PATCH",
       headers: { Prefer: "return=representation" },
       body: JSON.stringify({ status, updated_at: new Date().toISOString() }),
     });
-    if (!rows.length) return Response.json({ error: "Record পাওয়া যায়নি।" }, { status: 404 });
+    if (!rows.length) return Response.json({ error: "Record বা status পরিবর্তিত হয়েছে। আবার লোড করুন।" }, { status: 409 });
 
     await supabaseRest("audit_logs", {
       method: "POST",
@@ -78,6 +96,8 @@ export async function PATCH(request: Request) {
     });
     return Response.json({ record: rows[0] });
   } catch (error) {
+    const conflict = qurbaniDatabaseConflict(error);
+    if (conflict) return conflict;
     if (error instanceof BackendNotConfiguredError) {
       return Response.json({ error: "Backend configured নয়।" }, { status: 503 });
     }

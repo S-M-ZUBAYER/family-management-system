@@ -38,6 +38,7 @@ import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { canDeleteWelfareDocument } from "@/lib/welfare-document-policy";
 import type { WelfareContribution, WelfareDocument, WelfareExpense, WelfareFund, WelfarePayload, WelfarePledge, WelfareRequest } from "@/lib/welfare-types";
 
 type CreateKind = "fund" | "contribution" | "expense" | "request" | "pledge";
@@ -68,7 +69,7 @@ function initialForm(kind: CreateKind, fundId = ""): FormState {
 
 export function WelfareCenter() {
   const { locale, pick } = useLocale();
-  const money = useMemo(() => new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", maximumFractionDigits: 0 }), [locale]);
+  const money = useMemo(() => new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", minimumFractionDigits: 0, maximumFractionDigits: 2 }), [locale]);
   const dateLabel = useMemo(() => new Intl.DateTimeFormat(locale === "bn" ? "bn-BD" : "en-BD", { dateStyle: "medium" }), [locale]);
   const titleByKind = locale === "bn" ? titleByKindBn : titleByKindEn;
   const [family, setFamily] = useState<WelfarePayload["family"]>();
@@ -93,14 +94,19 @@ export function WelfareCenter() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
 
   const load = useCallback(async () => {
+    const clearLoadedWelfare = () => {
+      setFamily(undefined); setFunds([]); setContributions([]); setExpenses([]); setRequests([]); setPledges([]); setDocuments([]);
+      setCanManage(false); setMigrationRequired(false);
+    };
     try {
       const response = await fetch("/api/welfare", { cache: "no-store" });
       const payload = await response.json() as WelfarePayload;
-      if (payload.code === "FAMILY_SETUP_REQUIRED") { setSetupRequired(true); return; }
+      if (payload.code === "FAMILY_SETUP_REQUIRED") { clearLoadedWelfare(); setSetupRequired(true); return; }
+      if (payload.code === "WELFARE_ROW_LIMIT") throw new Error(pick("কল্যাণ তহবিলের একটি বিভাগে ২০,০০০-এর বেশি রেকর্ড আছে। অসম্পূর্ণ হিসাব দেখানো হয়নি; পৃষ্ঠা-ভিত্তিক এক্সপোর্টের জন্য সাপোর্টে যোগাযোগ করুন।", "A Welfare Fund section has more than 20,000 records. No partial accounts were shown; contact support for a paged export."));
       if (!response.ok) throw new Error(payload.error ?? pick("কল্যাণ তহবিল লোড হয়নি।", "Welfare Fund could not be loaded."));
       setFamily(payload.family); setFunds(payload.funds ?? []); setContributions(payload.contributions ?? []); setExpenses(payload.expenses ?? []); setRequests(payload.requests ?? []); setPledges(payload.pledges ?? []); setDocuments(payload.documents ?? []);
       setCanManage(Boolean(payload.permissions?.canManage)); setMigrationRequired(Boolean(payload.migrationRequired)); setSetupRequired(false);
-    } catch (error) { setFeedback(error instanceof Error ? error.message : pick("কল্যাণ তহবিল লোড হয়নি।", "Welfare Fund could not be loaded.")); }
+    } catch (error) { clearLoadedWelfare(); setSetupRequired(false); setFeedback(error instanceof Error ? error.message : pick("কল্যাণ তহবিল লোড হয়নি।", "Welfare Fund could not be loaded.")); }
     finally { setLoading(false); }
   }, [pick, setFeedback]);
 
@@ -112,6 +118,14 @@ export function WelfareCenter() {
   const balance = openingBalance + approvedIncome - paidExpense;
   const pendingApprovals = contributions.filter((item) => item.status === "pending").length + expenses.filter((item) => item.status === "pending").length + requests.filter((item) => ["submitted", "under_review"].includes(item.status)).length;
   const myPledge = pledges.filter((item) => item.is_mine && item.status === "active").reduce((sum, item) => sum + num(item.amount), 0);
+
+  function documentIsDraft(item: WelfareDocument) {
+    const parentStatus = item.entity_type === "fund" ? funds.find((fund) => fund.id === item.entity_id)?.status
+      : item.entity_type === "contribution" ? contributions.find((contribution) => contribution.id === item.entity_id)?.status
+      : item.entity_type === "expense" ? expenses.find((expense) => expense.id === item.entity_id)?.status
+      : requests.find((request) => request.id === item.entity_id)?.status;
+    return canDeleteWelfareDocument(item.entity_type, parentStatus ?? null);
+  }
 
   function openCreate(nextKind: CreateKind) {
     setEditingRecord(null);
@@ -133,8 +147,10 @@ export function WelfareCenter() {
 
   async function postAction(action: string, data: Record<string, unknown>) {
     const response = await fetch("/api/welfare/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, data }) });
+    if (response.status === 499) return false;
     const payload = await response.json() as { error?: string };
     if (!response.ok) throw new Error(payload.error ?? pick("রেকর্ড সংরক্ষণ হয়নি।", "Could not save the record."));
+    return true;
   }
 
   async function createRecord() {
@@ -143,8 +159,9 @@ export function WelfareCenter() {
     try {
       if (editingRecord) {
         const response = await fetch("/api/welfare/records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, recordId: editingRecord.id, data: form }) });
+        if (response.status === 499) return;
         const payload = await response.json() as { error?: string }; if (!response.ok) throw new Error(payload.error ?? pick("রেকর্ড হালনাগাদ হয়নি।", "Could not update the record."));
-      } else await postAction(`create_${kind}`, form);
+      } else if (!(await postAction(`create_${kind}`, form))) return;
       setKind(null); setEditingRecord(null); await load(); setFeedback(editingRecord ? pick("রেকর্ড হালনাগাদ হয়েছে।", "Record updated.") : pick("রেকর্ড সংরক্ষিত হয়েছে।", "Record saved."));
     } catch (error) { setFeedback(error instanceof Error ? error.message : pick("রেকর্ড সংরক্ষণ হয়নি।", "Could not save the record.")); }
     finally { setSaving(false); }
@@ -152,14 +169,23 @@ export function WelfareCenter() {
 
   async function deleteRecord(recordKind: CreateKind, recordId: string) {
     setSaving(true);
-    try { const response = await fetch("/api/welfare/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: recordKind, recordId }) }); const payload = await response.json() as { error?: string; message?: string }; if (!response.ok) throw new Error(payload.error ?? pick("রেকর্ড মুছতে ব্যর্থ হয়েছে।", "Could not delete the record.")); await load(); setFeedback(payload.message ?? pick("রেকর্ড মুছে দেওয়া হয়েছে।", "Record deleted.")); }
+    try {
+      const response = await fetch("/api/welfare/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: recordKind, recordId }) });
+      if (response.status === 499) return;
+      const payload = await response.json() as { code?: string; error?: string };
+      if (!response.ok) throw new Error(payload.code === "WELFARE_DOCUMENTS_ATTACHED"
+        ? pick("এই খসড়া রেকর্ডের নথি আগে মুছুন।", "Remove this draft record's documents first.")
+        : payload.error ?? pick("রেকর্ড মুছতে ব্যর্থ হয়েছে।", "Could not delete the record."));
+      await load();
+      setFeedback(pick("রেকর্ড মুছে দেওয়া হয়েছে।", "Record deleted."));
+    }
     catch (error) { setFeedback(error instanceof Error ? error.message : pick("রেকর্ড মুছতে ব্যর্থ হয়েছে।", "Could not delete the record.")); }
     finally { setSaving(false); }
   }
 
   async function changeStatus(entity: string, id: string, status: string, extra: Record<string, unknown> = {}) {
     setSaving(true);
-    try { await postAction("update_status", { entity, id, status, ...extra }); await load(); setFeedback(pick(`স্ট্যাটাস ${welfareValueLabel(status, "bn")} করা হয়েছে।`, `Status changed to ${welfareValueLabel(status, "en")}.`)); }
+    try { if (!(await postAction("update_status", { entity, id, status, ...extra }))) return; await load(); setFeedback(pick(`স্ট্যাটাস ${welfareValueLabel(status, "bn")} করা হয়েছে।`, `Status changed to ${welfareValueLabel(status, "en")}.`)); }
     catch (error) { setFeedback(error instanceof Error ? error.message : pick("স্ট্যাটাস হালনাগাদ হয়নি।", "Could not update the status.")); }
     finally { setSaving(false); }
   }
@@ -177,7 +203,9 @@ export function WelfareCenter() {
     const body = new FormData(); body.set("file", uploadFile); body.set("entityType", entityType); body.set("entityId", entityId); body.set("documentType", uploadForm.documentType || "other"); body.set("title", uploadForm.title || uploadFile.name); body.set("visibility", uploadForm.visibility || "admins");
     setSaving(true);
     try {
-      const response = await fetch("/api/welfare/upload", { method: "POST", body }); const payload = await response.json() as { error?: string };
+      const response = await fetch("/api/welfare/upload", { method: "POST", body });
+      if (response.status === 499) return;
+      const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? pick("নথি আপলোড হয়নি।", "Could not upload the document."));
       setUploadOpen(false); setUploadFile(null); setUploadForm({ documentType: "receipt", visibility: "admins" }); await load(); setFeedback(pick("নথি নিরাপদ ভল্টে সংরক্ষিত হয়েছে।", "Document saved in the private vault."));
     } catch (error) { setFeedback(error instanceof Error ? error.message : pick("নথি আপলোড হয়নি।", "Could not upload the document.")); }
@@ -186,7 +214,20 @@ export function WelfareCenter() {
 
   async function deleteDocument(id: string) {
     setSaving(true);
-    try { const response = await fetch(`/api/welfare-document/${id}`, { method: "DELETE" }); const payload = await response.json() as { error?: string; message?: string }; if (!response.ok) throw new Error(payload.error ?? pick("নথি মোছা যায়নি।", "Could not delete the document.")); await load(); setFeedback(pick("নথি মুছে দেওয়া হয়েছে।", "Document deleted.")); }
+    try {
+      const response = await fetch(`/api/welfare-document/${id}`, { method: "DELETE" });
+      if (response.status === 499) return;
+      const payload = await response.json() as { code?: string; error?: string; cleanupPending?: boolean };
+      if (!response.ok) throw new Error(payload.code === "WELFARE_DOCUMENT_FINALIZED"
+        ? pick("পর্যালোচিত, বন্ধ বা পরিশোধিত রেকর্ডের প্রমাণ স্থায়ীভাবে মুছা যাবে না।", "Evidence for a reviewed, closed, or paid record cannot be permanently deleted.")
+        : payload.code === "WELFARE_DOCUMENT_PARENT_MISSING"
+          ? pick("সংযুক্ত কল্যাণ রেকর্ডটি আর নেই।", "The linked Welfare record no longer exists.")
+          : payload.error ?? pick("নথি মোছা যায়নি।", "Could not delete the document."));
+      await load();
+      setFeedback(payload.cleanupPending
+        ? pick("নথির রেকর্ড মুছে গেছে; ব্যক্তিগত ফাইলের স্টোরেজ পরিষ্কার করা বাকি আছে।", "The document record was removed; private file storage cleanup is pending.")
+        : pick("নথি মুছে দেওয়া হয়েছে।", "Document deleted."));
+    }
     catch (error) { setFeedback(error instanceof Error ? error.message : pick("নথি মোছা যায়নি।", "Could not delete the document.")); }
     finally { setSaving(false); }
   }
@@ -235,7 +276,7 @@ export function WelfareCenter() {
       <TabsContent value="requests"><DataCard title={pick("সহায়তার আবেদন", "Assistance requests")} description={pick("সংবেদনশীল আবেদন, পর্যালোচনা, অনুমোদন ও বিতরণ", "Sensitive requests, review, approval, and disbursement")} action={<Button className="rounded-xl" onClick={() => openCreate("request")} disabled={migrationRequired}><Plus /> {pick("আবেদন", "Request")}</Button>}><div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">{requests.map((item) => <RequestCard key={item.id} request={item} fund={funds.find((fund) => fund.id === item.fund_id)} canManage={canManage} saving={saving} onStatus={(status, extra) => void changeStatus("request", item.id, status, extra)} onEdit={() => openEdit("request", item)} onDelete={() => void deleteRecord("request", item.id)} />)}{!requests.length ? <div className="md:col-span-2 xl:col-span-3"><Empty icon={<HeartHandshake />} title={pick("কোনো সহায়তার আবেদন নেই", "No assistance requests")} text={pick("চিকিৎসা, শিক্ষা, জরুরি বা জীবিকা সহায়তার আবেদন করা যাবে।", "Members can request medical, education, emergency, or livelihood assistance.")} /></div> : null}</div></DataCard></TabsContent>
       <TabsContent value="expenses"><DataCard title={pick("ব্যয় ও বিতরণ খতিয়ান", "Expense & disbursement ledger")} description={pick("অনুমোদিত সহায়তা, পরিচালনা ও পেমেন্ট ইতিহাস", "Approved assistance, operations, and payment trail")} action={canManage ? <Button className="rounded-xl" onClick={() => openCreate("expense")} disabled={!funds.length || migrationRequired}><Plus /> {pick("ব্যয়", "Expense")}</Button> : undefined}><TableWrap><Table><TableHeader><TableRow><TableHead>{pick("তারিখ", "Date")}</TableHead><TableHead>{pick("ব্যয়", "Expense")}</TableHead><TableHead>{pick("তহবিল", "Fund")}</TableHead><TableHead>{pick("উপকারভোগী", "Beneficiary")}</TableHead><TableHead>{pick("পরিমাণ", "Amount")}</TableHead><TableHead>{pick("স্ট্যাটাস", "Status")}</TableHead>{canManage ? <TableHead /> : null}</TableRow></TableHeader><TableBody>{expenses.map((item) => <TableRow key={item.id}><TableCell>{dateLabel.format(new Date(item.expense_date))}</TableCell><TableCell><p className="font-semibold">{item.title}</p><p className="text-xs text-muted-foreground">{locale === "bn" ? categoryLabelsBn[item.category] ?? item.category : categoryLabels[item.category] ?? item.category}</p></TableCell><TableCell>{fundName(funds, item.fund_id)}</TableCell><TableCell>{item.beneficiary_name || "—"}</TableCell><TableCell className="font-bold">{money.format(num(item.amount))}</TableCell><TableCell><Status value={item.status} /></TableCell>{canManage ? <TableCell><Actions disabled={saving} items={[...(item.status === "pending" ? [[pick("অনুমোদন", "Approve"), () => void changeStatus("expense", item.id, "approved")], [pick("প্রত্যাখ্যান", "Reject"), () => void changeStatus("expense", item.id, "rejected")]] as Array<[string, () => void]> : item.status === "approved" ? [[pick("পরিশোধিত করুন", "Mark paid"), () => void changeStatus("expense", item.id, "paid")]] as Array<[string, () => void]> : []), ...(item.status === "pending" ? [[pick("বিস্তারিত সম্পাদনা", "Edit details"), () => openEdit("expense", item)], [pick("স্থায়ীভাবে মুছুন", "Delete permanently"), () => void deleteRecord("expense", item.id)]] as Array<[string, () => void]> : [])]} /></TableCell> : null}</TableRow>)}<EmptyRows show={!expenses.length} columns={canManage ? 7 : 6} /></TableBody></Table></TableWrap></DataCard></TabsContent>
       <TabsContent value="pledges"><DataCard title={pick("পুনরাবৃত্ত অঙ্গীকার", "Recurring commitments")} description={pick("মাসিক, ত্রৈমাসিক, বার্ষিক ও এককালীন প্রতিশ্রুতি", "Monthly, quarterly, yearly, and one-time promises")} action={<Button className="rounded-xl" onClick={() => openCreate("pledge")} disabled={!funds.length || migrationRequired}><Plus /> {pick("অঙ্গীকার", "Pledge")}</Button>}><TableWrap><Table><TableHeader><TableRow><TableHead>{pick("সদস্য", "Member")}</TableHead><TableHead>{pick("তহবিল", "Fund")}</TableHead><TableHead>{pick("পুনরাবৃত্তি", "Frequency")}</TableHead><TableHead>{pick("পরিমাণ", "Amount")}</TableHead><TableHead>{pick("পরবর্তী তারিখ", "Next due")}</TableHead><TableHead>{pick("স্ট্যাটাস", "Status")}</TableHead><TableHead /></TableRow></TableHeader><TableBody>{pledges.map((item) => <TableRow key={item.id}><TableCell className="font-semibold">{item.member_name}</TableCell><TableCell>{fundName(funds, item.fund_id)}</TableCell><TableCell className="capitalize">{locale === "bn" ? valueLabelsBn[item.frequency] ?? item.frequency : item.frequency.replaceAll("_", " ")}</TableCell><TableCell>{money.format(num(item.amount))}</TableCell><TableCell>{item.next_due_date ? dateLabel.format(new Date(item.next_due_date)) : "—"}</TableCell><TableCell><Status value={item.status} /></TableCell><TableCell><Actions disabled={saving} items={(item.is_mine || canManage) && ["active", "paused"].includes(item.status) ? [...(item.status === "active" ? [[pick("স্থগিত", "Pause"), () => void changeStatus("pledge", item.id, "paused")], [pick("বাতিল", "Cancel"), () => void changeStatus("pledge", item.id, "cancelled")]] as Array<[string, () => void]> : item.status === "paused" ? [[pick("পুনরায় চালু", "Resume"), () => void changeStatus("pledge", item.id, "active")]] as Array<[string, () => void]> : []), [pick("বিস্তারিত সম্পাদনা", "Edit details"), () => openEdit("pledge", item)], [pick("স্থায়ীভাবে মুছুন", "Delete permanently"), () => void deleteRecord("pledge", item.id)]] : []} /></TableCell></TableRow>)}<EmptyRows show={!pledges.length} columns={7} /></TableBody></Table></TableWrap></DataCard></TabsContent>
-      <TabsContent value="documents"><DataCard title={pick("রসিদ ও প্রমাণ ভল্ট", "Receipt & evidence vault")} description={pick("অ্যাক্সেস-নিয়ন্ত্রিত রসিদ, চালান, অনুমোদনপত্র ও প্রমাণ", "Access-controlled receipts, invoices, approval letters, and evidence")} action={<Button className="rounded-xl" onClick={() => setUploadOpen(true)} disabled={!uploadTargets.length || migrationRequired}><Upload /> {pick("আপলোড", "Upload")}</Button>}><div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">{documents.map((item) => <article key={item.id} className="rounded-2xl border p-4 transition hover:border-primary/40 hover:bg-muted/30"><div className="flex items-start justify-between gap-3"><a href={`/api/welfare-document/${item.id}`} target="_blank" rel="noreferrer" className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><FileText className="size-5" /></a><div className="flex items-center"><Badge variant="outline">{locale === "bn" ? valueLabelsBn[item.visibility] ?? item.visibility : item.visibility}</Badge>{canManage ? <Button size="icon-sm" variant="ghost" className="text-destructive" disabled={saving} onClick={() => void deleteDocument(item.id)}><Trash2 /><span className="sr-only">{pick("নথি মুছুন", "Delete document")}</span></Button> : null}</div></div><a href={`/api/welfare-document/${item.id}`} target="_blank" rel="noreferrer"><p className="mt-3 font-semibold">{item.title}</p><p className="mt-1 truncate text-xs text-muted-foreground">{item.file_name}</p><p className="mt-3 text-xs text-muted-foreground">{locale === "bn" ? valueLabelsBn[item.document_type] ?? item.document_type : item.document_type} · {item.uploaded_by_name} · {dateLabel.format(new Date(item.created_at))}</p></a></article>)}{!documents.length ? <div className="md:col-span-2 xl:col-span-3"><Empty icon={<ReceiptText />} title={pick("কোনো নথি নেই", "No documents")} text={pick("অনুদানের রসিদ, ব্যয়ের চালান বা আবেদনের প্রমাণ আপলোড করুন।", "Upload contribution receipts, expense invoices, or request evidence.")} /></div> : null}</div></DataCard></TabsContent>
+      <TabsContent value="documents"><DataCard title={pick("রসিদ ও প্রমাণ ভল্ট", "Receipt & evidence vault")} description={pick("অ্যাক্সেস-নিয়ন্ত্রিত রসিদ, চালান, অনুমোদনপত্র ও প্রমাণ", "Access-controlled receipts, invoices, approval letters, and evidence")} action={<Button className="rounded-xl" onClick={() => setUploadOpen(true)} disabled={!uploadTargets.length || migrationRequired}><Upload /> {pick("আপলোড", "Upload")}</Button>}><div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">{documents.map((item) => <article key={item.id} className="rounded-2xl border p-4 transition hover:border-primary/40 hover:bg-muted/30"><div className="flex items-start justify-between gap-3"><a href={`/api/welfare-document/${item.id}`} target="_blank" rel="noreferrer" className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><FileText className="size-5" /></a><div className="flex items-center"><Badge variant="outline">{locale === "bn" ? valueLabelsBn[item.visibility] ?? item.visibility : item.visibility}</Badge>{(canManage || item.is_mine) && documentIsDraft(item) ? <Button size="icon-sm" variant="ghost" className="text-destructive" disabled={saving} onClick={() => void deleteDocument(item.id)}><Trash2 /><span className="sr-only">{pick("নথি মুছুন", "Delete document")}</span></Button> : null}</div></div><a href={`/api/welfare-document/${item.id}`} target="_blank" rel="noreferrer"><p className="mt-3 font-semibold">{item.title}</p><p className="mt-1 truncate text-xs text-muted-foreground">{item.file_name}</p><p className="mt-3 text-xs text-muted-foreground">{locale === "bn" ? valueLabelsBn[item.document_type] ?? item.document_type : item.document_type} · {item.uploaded_by_name} · {dateLabel.format(new Date(item.created_at))}</p></a></article>)}{!documents.length ? <div className="md:col-span-2 xl:col-span-3"><Empty icon={<ReceiptText />} title={pick("কোনো নথি নেই", "No documents")} text={pick("অনুদানের রসিদ, ব্যয়ের চালান বা আবেদনের প্রমাণ আপলোড করুন।", "Upload contribution receipts, expense invoices, or request evidence.")} /></div> : null}</div></DataCard></TabsContent>
     </Tabs>
 
     <Dialog open={Boolean(kind)} onOpenChange={(open) => { if (!open) { setKind(null); setEditingRecord(null); } }}><DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-2xl"><DialogHeader><DialogTitle>{kind ? titleByKind[kind] : pick("নতুন রেকর্ড", "New record")} {editingRecord ? pick("সম্পাদনা", "edit") : ""}</DialogTitle><DialogDescription>{editingRecord ? pick("প্রয়োজনীয় তথ্য দিয়ে নিরাপদ পারিবারিক রেকর্ডটি হালনাগাদ করুন।", "Update the secure family record with the required information.") : pick("প্রয়োজনীয় তথ্য দিয়ে একটি নিরাপদ পারিবারিক রেকর্ড তৈরি করুন।", "Create a secure family record with the required information.")}</DialogDescription></DialogHeader>{kind ? <CreateForm kind={kind} form={form} setForm={setForm} funds={funds} canManage={canManage} isEditing={Boolean(editingRecord)} /> : null}<DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => { setKind(null); setEditingRecord(null); }}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" onClick={() => void createRecord()} disabled={saving}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingRecord ? <Pencil className="size-4" /> : <CheckCircle2 className="size-4" />} {editingRecord ? pick("হালনাগাদ", "Update") : pick("সংরক্ষণ", "Save")}</Button></DialogFooter></DialogContent></Dialog>
@@ -265,10 +306,10 @@ function Field({ label, children }: { label: string; children: ReactNode }) { re
 function SelectNative({ value, onChange, options, placeholder }: { value?: string; onChange: (value: string) => void; options: string[][]; placeholder?: string }) { return <select value={value ?? ""} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15">{placeholder ? <option value="">{placeholder}</option> : null}{options.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>; }
 function fundName(funds: WelfareFund[], id: string) { return funds.find((item) => item.id === id)?.name ?? "Restricted fund"; }
 function Metric({ icon, label, value, note, tone = "blue" }: { icon: ReactNode; label: string; value: string; note: string; tone?: "blue" | "emerald" | "amber" | "rose" }) { const colors = { blue: "bg-sky-500/10 text-sky-700 dark:text-sky-300", emerald: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300", amber: "bg-amber-500/10 text-amber-700 dark:text-amber-300", rose: "bg-rose-500/10 text-rose-700 dark:text-rose-300" }; return <Card className="rounded-2xl shadow-none"><CardContent className="flex items-start gap-4 p-5"><span className={`grid size-11 shrink-0 place-items-center rounded-2xl ${colors[tone]}`}>{icon}</span><div className="min-w-0"><p className="text-sm text-muted-foreground">{label}</p><p className="mt-1 truncate text-2xl font-black">{value}</p><p className="mt-1 text-xs text-muted-foreground">{note}</p></div></CardContent></Card>; }
-function FundCard({ fund, contributions, expenses, canManage, saving, onStatus, onEdit }: { fund: WelfareFund; contributions: WelfareContribution[]; expenses: WelfareExpense[]; canManage: boolean; saving: boolean; onStatus: (status: string) => void; onEdit: () => void }) { const { locale, pick } = useLocale(); const formatter = new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", maximumFractionDigits: 0 }); const income = contributions.filter((item) => item.fund_id === fund.id && item.status === "approved").reduce((sum, item) => sum + num(item.amount), 0); const spent = expenses.filter((item) => item.fund_id === fund.id && item.status === "paid").reduce((sum, item) => sum + num(item.amount), 0); const available = num(fund.opening_balance) + income - spent; const progress = num(fund.target_amount) ? Math.min(100, ((num(fund.opening_balance) + income) / num(fund.target_amount)) * 100) : 0; return <article className="rounded-2xl border p-4"><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap gap-2"><Badge variant="secondary">{locale === "bn" ? categoryLabelsBn[fund.category] ?? fund.category : categoryLabels[fund.category] ?? fund.category}</Badge><Status value={fund.status} /></div><h3 className="mt-3 text-lg font-bold">{fund.name}</h3></div>{canManage ? <Actions disabled={saving} items={[...(fund.status === "active" ? [["Pause fund", () => onStatus("paused")], ["Close fund", () => onStatus("closed")]] as Array<[string, () => void]> : fund.status === "paused" ? [["Activate fund", () => onStatus("active")], ["Close fund", () => onStatus("closed")]] as Array<[string, () => void]> : []), ["Edit details", onEdit]]} /> : null}</div><p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{fund.description || pick("পারিবারিক কল্যাণের উদ্দেশ্যে তহবিল", "Family welfare purpose fund")}</p><div className="mt-4 flex justify-between text-sm"><span>{pick("বর্তমান ব্যালান্স", "Available")}</span><strong>{formatter.format(available)}</strong></div>{num(fund.target_amount) ? <><Progress value={progress} className="mt-2" /><div className="mt-1 flex justify-between text-xs text-muted-foreground"><span>{Math.round(progress)}%</span><span>{pick("লক্ষ্যমাত্রা", "Target")} {formatter.format(num(fund.target_amount))}</span></div></> : <p className="mt-2 text-xs text-muted-foreground">{pick("নির্দিষ্ট লক্ষ্যমাত্রা নেই", "No fixed target")}</p>}</article>; }
+function FundCard({ fund, contributions, expenses, canManage, saving, onStatus, onEdit }: { fund: WelfareFund; contributions: WelfareContribution[]; expenses: WelfareExpense[]; canManage: boolean; saving: boolean; onStatus: (status: string) => void; onEdit: () => void }) { const { locale, pick } = useLocale(); const formatter = new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", minimumFractionDigits: 0, maximumFractionDigits: 2 }); const income = contributions.filter((item) => item.fund_id === fund.id && item.status === "approved").reduce((sum, item) => sum + num(item.amount), 0); const spent = expenses.filter((item) => item.fund_id === fund.id && item.status === "paid").reduce((sum, item) => sum + num(item.amount), 0); const available = num(fund.opening_balance) + income - spent; const progress = num(fund.target_amount) ? Math.min(100, ((num(fund.opening_balance) + income) / num(fund.target_amount)) * 100) : 0; return <article className="rounded-2xl border p-4"><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap gap-2"><Badge variant="secondary">{locale === "bn" ? categoryLabelsBn[fund.category] ?? fund.category : categoryLabels[fund.category] ?? fund.category}</Badge><Status value={fund.status} /></div><h3 className="mt-3 text-lg font-bold">{fund.name}</h3></div>{canManage ? <Actions disabled={saving} items={[...(fund.status === "active" ? [["Pause fund", () => onStatus("paused")], ["Close fund", () => onStatus("closed")]] as Array<[string, () => void]> : fund.status === "paused" ? [["Activate fund", () => onStatus("active")], ["Close fund", () => onStatus("closed")]] as Array<[string, () => void]> : []), ["Edit details", onEdit]]} /> : null}</div><p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{fund.description || pick("পারিবারিক কল্যাণের উদ্দেশ্যে তহবিল", "Family welfare purpose fund")}</p><div className="mt-4 flex justify-between text-sm"><span>{pick("বর্তমান ব্যালান্স", "Available")}</span><strong>{formatter.format(available)}</strong></div>{num(fund.target_amount) ? <><Progress value={progress} className="mt-2" /><div className="mt-1 flex justify-between text-xs text-muted-foreground"><span>{Math.round(progress)}%</span><span>{pick("লক্ষ্যমাত্রা", "Target")} {formatter.format(num(fund.target_amount))}</span></div></> : <p className="mt-2 text-xs text-muted-foreground">{pick("নির্দিষ্ট লক্ষ্যমাত্রা নেই", "No fixed target")}</p>}</article>; }
 function RequestCard({ request, fund, canManage, saving, onStatus, onEdit, onDelete }: { request: WelfareRequest; fund?: WelfareFund; canManage: boolean; saving: boolean; onStatus: (status: string, extra?: Record<string, unknown>) => void; onEdit: () => void; onDelete: () => void }) {
   const { locale, pick } = useLocale();
-  const formatter = new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", maximumFractionDigits: 0 });
+  const formatter = new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", minimumFractionDigits: 0, maximumFractionDigits: 2 });
   const [review, setReview] = useState<{ status: "approved" | "rejected" | "disbursed"; amount: string; note: string; paymentMethod: string; reference: string } | null>(null);
   const openReview = (status: "approved" | "rejected" | "disbursed") => setReview({
     status, amount: String(num(request.approved_amount) || num(request.requested_amount)),

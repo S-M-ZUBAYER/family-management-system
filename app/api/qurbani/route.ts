@@ -1,5 +1,6 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageQurbani, getActiveFamilyMembership } from "@/lib/family-access";
+import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
 import type {
   QurbaniAnimal,
   QurbaniCampaign,
@@ -16,6 +17,15 @@ import {
   SupabaseRequestError,
   supabaseRest,
 } from "@/lib/supabase-rest";
+
+async function readAllQurbaniRows<T>(table: string, query: URLSearchParams): Promise<T[]> {
+  return collectPaginatedRows((offset, limit) => {
+    const pageQuery = new URLSearchParams(query);
+    pageQuery.set("limit", String(limit));
+    pageQuery.set("offset", String(offset));
+    return supabaseRest<T[]>(`${table}?${pageQuery}`);
+  }, { pageSize: 500, maxRows: 20000 });
+}
 
 export async function GET() {
   try {
@@ -59,58 +69,58 @@ export async function GET() {
         campaigns: new URLSearchParams({
           select: "id,family_id,title,year,hijri_year,status,registration_deadline,share_price,target_shares,location,slaughter_date,notes,created_at,updated_at",
           ...common,
-          order: "year.desc,created_at.desc",
+          order: "year.desc,created_at.desc,id.asc",
         }),
         participants: new URLSearchParams({
           select: "id,campaign_id,animal_id,member_name,phone,share_count,amount_due,amount_paid,status,notes,created_at,updated_at",
           ...common,
-          order: "created_at.asc",
+          order: "created_at.asc,id.asc",
         }),
         animals: new URLSearchParams({
           select: "id,campaign_id,tag_code,animal_type,breed,color,live_weight_kg,estimated_meat_kg,purchase_price,vendor_name,purchase_date,health_status,vet_notes,transport_cost,feed_cost,status,created_at,updated_at",
           ...common,
-          order: "tag_code.asc",
+          order: "tag_code.asc,id.asc",
         }),
         transactions: new URLSearchParams({
           select: "id,campaign_id,participant_id,animal_id,transaction_type,category,amount,payment_method,reference,transaction_date,notes,created_at",
           ...common,
-          order: "transaction_date.desc,created_at.desc",
+          order: "transaction_date.desc,created_at.desc,id.asc",
         }),
         vendors: new URLSearchParams({
           select: "id,campaign_id,name,vendor_type,phone,address,agreed_amount,paid_amount,status,notes,created_at,updated_at",
           ...common,
-          order: "created_at.asc",
+          order: "created_at.asc,id.asc",
         }),
         schedules: new URLSearchParams({
           select: "id,campaign_id,animal_id,sequence_no,scheduled_at,location,butcher_team,status,notes,created_at,updated_at",
           ...common,
-          order: "sequence_no.asc,scheduled_at.asc",
+          order: "sequence_no.asc,scheduled_at.asc,id.asc",
         }),
         tasks: new URLSearchParams({
           select: "id,campaign_id,title,category,assigned_to,due_at,priority,status,notes,created_at,updated_at",
           ...common,
-          order: "due_at.asc.nullslast,created_at.asc",
+          order: "due_at.asc.nullslast,created_at.asc,id.asc",
         }),
         distributions: new URLSearchParams({
           select: "id,campaign_id,recipient_name,recipient_type,weight_kg,package_count,collected_at,notes,created_at",
           ...common,
-          order: "created_at.asc",
+          order: "created_at.asc,id.asc",
         }),
       };
 
       [campaigns, participants, animals, transactions, vendors, schedules, tasks, distributions] =
         await Promise.all([
-          supabaseRest<QurbaniCampaign[]>(`qurbani_campaigns?${queries.campaigns}`),
-          supabaseRest<QurbaniParticipant[]>(`qurbani_participants?${queries.participants}`),
-          supabaseRest<QurbaniAnimal[]>(`qurbani_animals?${queries.animals}`),
-          supabaseRest<QurbaniTransaction[]>(`qurbani_transactions?${queries.transactions}`),
-          supabaseRest<QurbaniVendor[]>(`qurbani_vendors?${queries.vendors}`),
-          supabaseRest<QurbaniSchedule[]>(`qurbani_schedules?${queries.schedules}`),
-          supabaseRest<QurbaniTask[]>(`qurbani_tasks?${queries.tasks}`),
-          supabaseRest<QurbaniDistribution[]>(`qurbani_distributions?${queries.distributions}`),
+          readAllQurbaniRows<QurbaniCampaign>("qurbani_campaigns", queries.campaigns),
+          readAllQurbaniRows<QurbaniParticipant>("qurbani_participants", queries.participants),
+          readAllQurbaniRows<QurbaniAnimal>("qurbani_animals", queries.animals),
+          readAllQurbaniRows<QurbaniTransaction>("qurbani_transactions", queries.transactions),
+          readAllQurbaniRows<QurbaniVendor>("qurbani_vendors", queries.vendors),
+          readAllQurbaniRows<QurbaniSchedule>("qurbani_schedules", queries.schedules),
+          readAllQurbaniRows<QurbaniTask>("qurbani_tasks", queries.tasks),
+          readAllQurbaniRows<QurbaniDistribution>("qurbani_distributions", queries.distributions),
         ]);
     } catch (error) {
-      if (error instanceof SupabaseRequestError) migrationRequired = true;
+      if (error instanceof SupabaseRequestError && /PGRST205|42P01|42703/.test(error.message)) migrationRequired = true;
       else throw error;
     }
 
@@ -144,6 +154,9 @@ export async function GET() {
       permissions: { canManage },
     });
   } catch (error) {
+    if (error instanceof PaginatedRowLimitError) {
+      return Response.json({ code: "QURBANI_ROW_LIMIT", maxRows: error.maxRows, error: `Qurbani history exceeds ${error.maxRows} rows in one section. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });
+    }
     if (error instanceof BackendNotConfiguredError) {
       return Response.json(
         { error: "PostgreSQL connection has not been configured yet." },

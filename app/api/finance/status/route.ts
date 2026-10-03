@@ -1,5 +1,6 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getActiveFamilyMembership } from "@/lib/family-access";
+import { financeMoney } from "@/lib/personal-finance-validation";
 import {
   BackendNotConfiguredError,
   SupabaseRequestError,
@@ -62,11 +63,11 @@ export async function PATCH(request: Request) {
 
     const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (entity === "debt" || entity === "goal") {
-      const amount = Number(body.amount);
-      const target = Number(
+      const amount = financeMoney(body.amount);
+      const target = financeMoney(
         entity === "debt" ? existing.principal_amount : existing.target_amount,
       );
-      if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(target)) {
+      if (amount === undefined || amount < 0 || target === undefined) {
         return Response.json({ error: "Valid progress amount প্রয়োজন।" }, { status: 400 });
       }
       if (entity === "debt") {

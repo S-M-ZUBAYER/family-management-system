@@ -82,7 +82,7 @@ type ProgressTarget = {
   maximum: number;
 } | null;
 
-const moneyFor = (locale: AppLocale) => new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", maximumFractionDigits: 0 });
+const moneyFor = (locale: AppLocale) => new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const dateFor = (locale: AppLocale) => new Intl.DateTimeFormat(locale === "bn" ? "bn-BD" : "en-BD", { dateStyle: "medium" });
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -137,7 +137,7 @@ export function PersonalFinanceCenter() {
   const [debts, setDebts] = useState<FinanceDebt[]>([]);
   const [bills, setBills] = useState<FinanceBill[]>([]);
   const [goals, setGoals] = useState<FinanceGoal[]>([]);
-  const [month, setMonth] = useState(currentMonth());
+  const [month, setMonth] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -149,15 +149,34 @@ export function PersonalFinanceCenter() {
   const [form, setForm] = useState<FormState>({});
   const [progressTarget, setProgressTarget] = useState<ProgressTarget>(null);
 
+  useEffect(() => {
+    queueMicrotask(() => setMonth((current) => current || currentMonth()));
+  }, []);
+
   const loadFinance = useCallback(async () => {
+    const clearLoadedFinance = () => {
+      setFamily(undefined);
+      setViewer(undefined);
+      setAccounts([]);
+      setTransactions([]);
+      setBudgets([]);
+      setDebts([]);
+      setBills([]);
+      setGoals([]);
+      setMigrationRequired(false);
+    };
     setLoading(true);
     setFeedback(null);
     try {
       const response = await fetch("/api/finance", { cache: "no-store" });
       const payload = (await response.json()) as FinancePayload;
       if (payload.code === "FAMILY_SETUP_REQUIRED") {
+        clearLoadedFinance();
         setSetupRequired(true);
         return;
+      }
+      if (payload.code === "FINANCE_ROW_LIMIT") {
+        throw new Error(pick("ব্যক্তিগত হিসাবের একটি বিভাগে ২০,০০০-এর বেশি রেকর্ড আছে। অসম্পূর্ণ তথ্য দেখানো হয়নি; পৃষ্ঠা-ভিত্তিক এক্সপোর্টের জন্য সাপোর্টে যোগাযোগ করুন।", "A private finance section has more than 20,000 records. No partial data was shown; contact support for a paged export."));
       }
       if (!response.ok) throw new Error(payload.error ?? "ব্যক্তিগত হিসাব পাওয়া যায়নি।");
       setFamily(payload.family);
@@ -171,6 +190,8 @@ export function PersonalFinanceCenter() {
       setMigrationRequired(Boolean(payload.migrationRequired));
       setSetupRequired(false);
     } catch (error) {
+      clearLoadedFinance();
+      setSetupRequired(false);
       setFeedback(error instanceof Error ? error.message : pick("ব্যক্তিগত হিসাব লোড হয়নি।", "Personal finance could not be loaded."));
     } finally {
       setLoading(false);
@@ -230,7 +251,7 @@ export function PersonalFinanceCenter() {
       net: income - expense,
       balance,
       budgetLimit,
-      budgetUsed: budgetLimit ? Math.min(100, (expense / budgetLimit) * 100) : 0,
+      budgetUsed: budgetLimit ? (expense / budgetLimit) * 100 : 0,
       lentOutstanding,
       borrowedOutstanding,
       pendingBills: pendingBills.length,
@@ -279,6 +300,7 @@ export function PersonalFinanceCenter() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind: recordKind, recordId: editingRecord?.id, data: form }),
       });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { record?: unknown; error?: string };
       if (!response.ok || !payload.record) throw new Error(payload.error ?? pick("রেকর্ড সেভ হয়নি।", "The record could not be saved."));
       const label = kindLabels[recordKind];
@@ -296,6 +318,7 @@ export function PersonalFinanceCenter() {
     setFeedback(null);
     try {
       const response = await fetch("/api/finance/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, recordId }) });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { message?: string; error?: string };
       if (!response.ok) throw new Error(payload.error ?? pick("রেকর্ড মোছা যায়নি।", "The record could not be deleted."));
       await loadFinance();
@@ -312,6 +335,7 @@ export function PersonalFinanceCenter() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entity, id, status }),
       });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { record?: unknown; error?: string };
       if (!response.ok || !payload.record) throw new Error(payload.error ?? pick("আপডেট হয়নি।", "The record could not be updated."));
       await loadFinance();
@@ -335,6 +359,7 @@ export function PersonalFinanceCenter() {
           amount: progressTarget.amount,
         }),
       });
+      if (response.status === 499) return;
       const payload = (await response.json()) as { record?: unknown; error?: string };
       if (!response.ok || !payload.record) throw new Error(payload.error ?? pick("অগ্রগতি আপডেট হয়নি।", "Progress could not be updated."));
       setProgressTarget(null);
@@ -448,12 +473,17 @@ export function PersonalFinanceCenter() {
         workbook,
         familyName + "-private-finance-" + month + (single ? "-" + single.name.toLowerCase() : "-complete") + ".xlsx",
       );
+      setFeedback(pick("ব্যক্তিগত হিসাবের XLSX তৈরি হয়েছে।", "Personal finance XLSX was created."));
+    } catch (error) {
+      const detail = error instanceof Error ? ` ${error.message}` : "";
+      setFeedback(pick("ব্যক্তিগত হিসাবের XLSX তৈরি হয়নি।", "Personal finance XLSX could not be created.") + detail);
     } finally {
       setExporting(false);
     }
   }
 
   useEffect(() => {
+    if (!month) return;
     const modelContext = (
       document as Document & {
         modelContext?: {
@@ -594,7 +624,7 @@ export function PersonalFinanceCenter() {
                       </div>
                       <div>
                         <div className="mb-2 flex items-center justify-between gap-3 text-sm"><span>{pick("মাসিক বাজেট ব্যবহার", "Monthly budget used")}</span><strong>{Math.round(totals.budgetUsed)}%</strong></div>
-                        <Progress value={totals.budgetUsed} className="h-2.5" />
+                        <Progress value={Math.min(100, totals.budgetUsed)} className="h-2.5" />
                         <p className="mt-2 text-xs text-muted-foreground">{money.format(totals.expense)} {pick("এর মধ্যে", "of")} {money.format(totals.budgetLimit || 0)}</p>
                       </div>
                       <div className="space-y-3">
@@ -694,7 +724,7 @@ export function PersonalFinanceCenter() {
       <Dialog open={Boolean(progressTarget)} onOpenChange={(open) => !open && setProgressTarget(null)}>
         <DialogContent className="rounded-3xl sm:max-w-md">
           <DialogHeader><DialogTitle>{pick("অগ্রগতি হালনাগাদ", "Update progress")}</DialogTitle><DialogDescription>{progressTarget?.title} · {pick("সর্বোচ্চ", "maximum")} {money.format(progressTarget?.maximum ?? 0)}</DialogDescription></DialogHeader>
-          <FormField label={progressTarget?.entity === "debt" ? pick("মোট নিষ্পত্তির পরিমাণ", "Total settled amount") : pick("মোট সঞ্চিত পরিমাণ", "Total saved amount")} id="progress-amount"><Input id="progress-amount" type="number" min="0" max={progressTarget?.maximum} value={progressTarget?.amount ?? ""} onChange={(event) => setProgressTarget((current) => current ? { ...current, amount: event.target.value } : current)} /></FormField>
+          <FormField label={progressTarget?.entity === "debt" ? pick("মোট নিষ্পত্তির পরিমাণ", "Total settled amount") : pick("মোট সঞ্চিত পরিমাণ", "Total saved amount")} id="progress-amount"><Input id="progress-amount" type="number" min="0" max={progressTarget?.maximum} step="0.01" value={progressTarget?.amount ?? ""} onChange={(event) => setProgressTarget((current) => current ? { ...current, amount: event.target.value } : current)} /></FormField>
           <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setProgressTarget(null)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving} onClick={() => void saveProgress().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("হালনাগাদ হয়নি।", "Could not update.")))}>{pick("হালনাগাদ করুন", "Update")}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
@@ -791,8 +821,8 @@ function FinanceForm({ kind, form, setForm, accounts }: { kind: FinanceRecordKin
 
   if (kind === "account") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("name", pick("অ্যাকাউন্ট / ওয়ালেটের নাম", "Account / wallet name"))}{select("accountType", pick("অ্যাকাউন্টের ধরন", "Account type"), [["cash", pick("নগদ", "Cash")], ["bank", pick("ব্যাংক", "Bank")], ["mobile", pick("মোবাইল ব্যাংকিং", "Mobile banking")], ["savings", pick("সঞ্চয়", "Savings")], ["credit", pick("ক্রেডিট", "Credit")]])}{input("openingBalance", pick("প্রারম্ভিক ব্যালান্স", "Opening balance"), "number", { step: "0.01" })}{notes}</div>;
   if (kind === "transaction") return <div className="grid gap-4 py-2 sm:grid-cols-2">{select("accountId", pick("অ্যাকাউন্ট", "Account"), accounts.map((item) => [item.id, item.name]))}{select("direction", pick("ধরন", "Type"), [["expense", pick("ব্যয়", "Expense")], ["income", pick("আয়", "Income")]])}{category}{suggestions}{input("amount", pick("পরিমাণ", "Amount"), "number", { min: "0.01", step: "0.01" })}{input("transactionDate", pick("তারিখ", "Date"), "date")}{select("paymentMethod", pick("পরিশোধ পদ্ধতি", "Payment method"), [["cash", pick("নগদ", "Cash")], ["bank", pick("ব্যাংক", "Bank")], ["mobile", pick("মোবাইল ব্যাংকিং", "Mobile banking")], ["card", pick("কার্ড", "Card")], ["other", pick("অন্যান্য", "Other")]])}{select("isRecurring", pick("পুনরাবৃত্ত এন্ট্রি", "Recurring entry"), [["false", pick("না", "No")], ["true", pick("হ্যাঁ", "Yes")]])}{input("reference", pick("রেফারেন্স", "Reference"))}{notes}</div>;
-  if (kind === "budget") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("budgetMonth", pick("বাজেটের মাস", "Budget month"), "month")}{category}{suggestions}{input("limitAmount", pick("সীমার পরিমাণ", "Limit amount"), "number", { min: "0.01" })}{input("alertPercent", pick("সতর্কতা %", "Alert at %"), "number", { min: "1", max: "100" })}{notes}</div>;
-  if (kind === "debt") return <div className="grid gap-4 py-2 sm:grid-cols-2">{select("debtType", pick("ধরন", "Type"), [["lent", pick("আমি ধার দিয়েছি", "I lent money")], ["borrowed", pick("আমি ধার নিয়েছি", "I borrowed money")]])}{input("counterparty", pick("ব্যক্তি / প্রতিষ্ঠান", "Person / organization"))}{input("principalAmount", pick("মূল পরিমাণ", "Principal amount"), "number", { min: "0.01" })}{input("settledAmount", pick("ইতিমধ্যে নিষ্পত্তি", "Already settled"), "number", { min: "0" })}{input("dueDate", pick("নির্ধারিত তারিখ", "Due date"), "date")}{notes}</div>;
-  if (kind === "bill") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("title", pick("বিলের নাম", "Bill name"))}{category}{suggestions}{input("amount", pick("পরিমাণ", "Amount"), "number", { min: "0.01" })}{input("dueDate", pick("নির্ধারিত তারিখ", "Due date"), "date")}{select("recurrence", pick("পুনরাবৃত্তি", "Recurrence"), [["none", pick("একবার", "One time")], ["monthly", pick("মাসিক", "Monthly")], ["yearly", pick("বার্ষিক", "Yearly")]])}{notes}</div>;
-  return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("title", pick("লক্ষ্যের শিরোনাম", "Goal title"))}{input("targetAmount", pick("লক্ষ্যের পরিমাণ", "Target amount"), "number", { min: "0.01" })}{input("currentAmount", pick("ইতিমধ্যে সঞ্চিত", "Already saved"), "number", { min: "0" })}{input("targetDate", pick("লক্ষ্যের তারিখ", "Target date"), "date")}{notes}</div>;
+  if (kind === "budget") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("budgetMonth", pick("বাজেটের মাস", "Budget month"), "month")}{category}{suggestions}{input("limitAmount", pick("সীমার পরিমাণ", "Limit amount"), "number", { min: "0.01", step: "0.01" })}{input("alertPercent", pick("সতর্কতা %", "Alert at %"), "number", { min: "1", max: "100", step: "1" })}{notes}</div>;
+  if (kind === "debt") return <div className="grid gap-4 py-2 sm:grid-cols-2">{select("debtType", pick("ধরন", "Type"), [["lent", pick("আমি ধার দিয়েছি", "I lent money")], ["borrowed", pick("আমি ধার নিয়েছি", "I borrowed money")]])}{input("counterparty", pick("ব্যক্তি / প্রতিষ্ঠান", "Person / organization"))}{input("principalAmount", pick("মূল পরিমাণ", "Principal amount"), "number", { min: "0.01", step: "0.01" })}{input("settledAmount", pick("ইতিমধ্যে নিষ্পত্তি", "Already settled"), "number", { min: "0", step: "0.01" })}{input("dueDate", pick("নির্ধারিত তারিখ", "Due date"), "date")}{notes}</div>;
+  if (kind === "bill") return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("title", pick("বিলের নাম", "Bill name"))}{category}{suggestions}{input("amount", pick("পরিমাণ", "Amount"), "number", { min: "0.01", step: "0.01" })}{input("dueDate", pick("নির্ধারিত তারিখ", "Due date"), "date")}{select("recurrence", pick("পুনরাবৃত্তি", "Recurrence"), [["none", pick("একবার", "One time")], ["monthly", pick("মাসিক", "Monthly")], ["yearly", pick("বার্ষিক", "Yearly")]])}{notes}</div>;
+  return <div className="grid gap-4 py-2 sm:grid-cols-2">{input("title", pick("লক্ষ্যের শিরোনাম", "Goal title"))}{input("targetAmount", pick("লক্ষ্যের পরিমাণ", "Target amount"), "number", { min: "0.01", step: "0.01" })}{input("currentAmount", pick("ইতিমধ্যে সঞ্চিত", "Already saved"), "number", { min: "0", step: "0.01" })}{input("targetDate", pick("লক্ষ্যের তারিখ", "Target date"), "date")}{notes}</div>;
 }

@@ -29,21 +29,6 @@ async function fundExists(familyId: string, fundId: string, activeOnly = false) 
   return Boolean((await supabaseRest<Array<{ id: string }>>(`welfare_funds?${query}`))[0]);
 }
 
-async function availableFundBalance(familyId: string, fundId: string) {
-  const base = { family_id: `eq.${familyId}`, fund_id: `eq.${fundId}` };
-  const fundQuery = new URLSearchParams({ select: "opening_balance", id: `eq.${fundId}`, family_id: `eq.${familyId}`, limit: "1" });
-  const contributionQuery = new URLSearchParams({ select: "amount", ...base, status: "eq.approved" });
-  const expenseQuery = new URLSearchParams({ select: "amount", ...base, status: "eq.paid" });
-  const [fund, contributions, expenses] = await Promise.all([
-    supabaseRest<Array<{ opening_balance: number | string }>>(`welfare_funds?${fundQuery}`),
-    supabaseRest<Array<{ amount: number | string }>>(`welfare_contributions?${contributionQuery}`),
-    supabaseRest<Array<{ amount: number | string }>>(`welfare_expenses?${expenseQuery}`),
-  ]);
-  return Number(fund[0]?.opening_balance ?? 0)
-    + contributions.reduce((sum, item) => sum + Number(item.amount), 0)
-    - expenses.reduce((sum, item) => sum + Number(item.amount), 0);
-}
-
 export async function POST(request: Request) {
   try {
     const user = await getChatGPTUser();
@@ -211,6 +196,10 @@ export async function DELETE(request: Request) {
       fund: [], contribution: ["pending"], expense: ["pending"], request: ["submitted"], pledge: ["active", "paused"],
     };
     if (!deletableStatuses[kind].includes(String(existing.status))) return Response.json({ error: "This reviewed or finalized record cannot be deleted; its audit history is retained." }, { status: 409 });
+    if (kind === "contribution" || kind === "expense" || kind === "request") {
+      const linkedDocuments = await supabaseRest<Array<{ id: string }>>(`welfare_documents?${new URLSearchParams({ select: "id", family_id: `eq.${membership.family_id}`, entity_type: `eq.${kind}`, entity_id: `eq.${recordId}`, limit: "1" })}`);
+      if (linkedDocuments.length) return Response.json({ error: "Remove this draft record's documents before deleting the record." }, { status: 409 });
+    }
     await supabaseRest(`${table}?${new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
     await audit(membership.family_id, user.userId, `welfare_${kind}_deleted`, table, recordId); return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।` });
   } catch (error) { return welfareErrorResponse(error, "Unable to delete Welfare Fund record"); }
@@ -276,6 +265,33 @@ async function updateStatus(data: Record<string, unknown>, familyId: string, use
       // Members may withdraw only their own request.
     } else return Response.json({ error: "এই record update করার অনুমতি নেই।" }, { status: 403 });
   }
+  if ((entity === "expense" && status === "paid") || (entity === "request" && status === "disbursed") || (entity === "contribution" && status === "refunded")) {
+    const approvedAmount = entity === "request" ? amount(data.approvedAmount, Number(existing.approved_amount ?? 0)) : null;
+    if (entity === "request" && (!approvedAmount || approvedAmount <= 0 || approvedAmount > Number(existing.requested_amount))) {
+      return Response.json({ error: "Approved amount requested amount-এর মধ্যে দিন।" }, { status: 400 });
+    }
+    try {
+      const updated = await supabaseRest<Record<string, unknown>>("rpc/settle_welfare_outflow", {
+        method: "POST",
+        body: JSON.stringify({
+          p_family_id: familyId,
+          p_entity: entity,
+          p_record_id: id,
+          p_actor_user_id: userId,
+          p_actor_name: userName,
+          p_approved_amount: approvedAmount,
+          p_admin_note: text(data.adminNote, 3000),
+          p_payment_method: choice(data.paymentMethod, ["cash", "bank", "mobile", "card", "other"] as const, "cash"),
+          p_reference: text(data.reference, 180),
+        }),
+      });
+      return Response.json({ record: updated });
+    } catch (error) {
+      const response = welfareOutflowErrorResponse(error);
+      if (response) return response;
+      throw error;
+    }
+  }
   const now = new Date().toISOString();
   const changes: Record<string, unknown> = { status, updated_at: now };
   if (["contribution", "expense"].includes(entity) && ["approved", "paid"].includes(status)) Object.assign(changes, { approved_by_user_id: userId, approved_by_name: userName, approved_at: now });
@@ -285,29 +301,6 @@ async function updateStatus(data: Record<string, unknown>, familyId: string, use
     if (["approved", "disbursed"].includes(status) && (!approvedAmount || approvedAmount <= 0 || approvedAmount > Number(existing.requested_amount))) return Response.json({ error: "Approved amount requested amount-এর মধ্যে দিন।" }, { status: 400 });
     Object.assign(changes, { approved_amount: approvedAmount ?? 0, admin_note: text(data.adminNote, 3000), reviewed_by_user_id: userId, reviewed_by_name: userName, reviewed_at: now });
   }
-  if (entity === "request" && status === "disbursed" && !existing.fund_id) return Response.json({ error: "Disbursement-এর আগে একটি fund নির্বাচন করুন।" }, { status: 400 });
-  if (entity === "expense" && status === "paid") {
-    const available = await availableFundBalance(familyId, String(existing.fund_id));
-    if (Number(existing.amount) > available) return Response.json({ error: `Fund balance পর্যাপ্ত নয়। Available: ${available.toFixed(2)}` }, { status: 409 });
-  }
-  if (entity === "request" && status === "disbursed") {
-    const duplicateQuery = new URLSearchParams({ select: "id,fund_id,amount,status", family_id: `eq.${familyId}`, linked_request_id: `eq.${id}`, limit: "1" });
-    const duplicate = (await supabaseRest<Array<{ id: string; fund_id: string; amount: number | string; status: string }>>(`welfare_expenses?${duplicateQuery}`))[0];
-    if (duplicate) {
-      if (duplicate.fund_id !== existing.fund_id || Number(duplicate.amount) !== Number(changes.approved_amount) || duplicate.status !== "paid") {
-        return Response.json({ error: "The linked disbursement conflicts with this request. An admin must review the ledger." }, { status: 409 });
-      }
-    } else {
-      const available = await availableFundBalance(familyId, String(existing.fund_id));
-      if (Number(changes.approved_amount) > available) return Response.json({ error: `Fund balance পর্যাপ্ত নয়। Available: ${available.toFixed(2)}` }, { status: 409 });
-      try {
-        await supabaseRest("welfare_expenses", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: familyId, fund_id: existing.fund_id, linked_request_id: id, title: `সহায়তা: ${existing.title}`, beneficiary_name: existing.requester_name, category: requestExpenseCategory(String(existing.request_type)), amount: changes.approved_amount, expense_date: now.slice(0, 10), payment_method: choice(data.paymentMethod, ["cash", "bank", "mobile", "card", "other"] as const, "cash"), reference: text(data.reference, 180), notes: text(data.adminNote, 3000), status: "paid", requested_by_user_id: userId, approved_by_user_id: userId, approved_by_name: userName, approved_at: now, paid_at: now }) });
-      } catch (error) {
-        if (error instanceof SupabaseRequestError && error.status === 409) return Response.json({ error: "This request may already have been disbursed. Reload the ledger before trying again." }, { status: 409 });
-        throw error;
-      }
-    }
-  }
   const filter = new URLSearchParams({ id: `eq.${id}`, family_id: `eq.${familyId}`, status: `eq.${String(existing.status)}` });
   const [updated] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${filter}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
   if (!updated) return Response.json({ error: "This record changed while you were reviewing it. Reload and try again." }, { status: 409 });
@@ -315,8 +308,21 @@ async function updateStatus(data: Record<string, unknown>, familyId: string, use
   return Response.json({ record: updated });
 }
 
-function requestExpenseCategory(type: string) {
-  return ["medical", "education", "emergency", "charity"].includes(type) ? type : "other";
+function welfareOutflowErrorResponse(error: unknown): Response | null {
+  if (!(error instanceof SupabaseRequestError)) return null;
+  if (error.message.includes("PGRST202") || error.status === 404) return Response.json({ code: "MIGRATION_REQUIRED", error: "Welfare atomic-outflow migration apply করুন।" }, { status: 503 });
+  const cases: Array<[string, string, number]> = [
+    ["WELFARE_UNAUTHORIZED", "এই fund-এর টাকা ছাড় করার অনুমতি নেই।", 403],
+    ["WELFARE_INVALID_AMOUNT", "Approved amount requested amount-এর মধ্যে দিন।", 400],
+    ["WELFARE_INVALID_PAYMENT_METHOD", "Valid payment method নির্বাচন করুন।", 400],
+    ["WELFARE_FUND_REQUIRED", "Disbursement-এর আগে একটি fund নির্বাচন করুন।", 400],
+    ["WELFARE_FUND_INACTIVE", "এই fund-এ এখন লেনদেন করা যাবে না।", 409],
+    ["WELFARE_INSUFFICIENT_BALANCE", "Fund balance পর্যাপ্ত নয়। Ledger আবার দেখুন।", 409],
+    ["WELFARE_DISBURSEMENT_CONFLICT", "The linked disbursement conflicts with this request. An admin must review the ledger.", 409],
+    ["WELFARE_INVALID_TRANSITION", "This record changed while you were reviewing it. Reload and try again.", 409],
+  ];
+  const match = cases.find(([code]) => error.message.includes(code));
+  return match ? Response.json({ error: match[1] }, { status: match[2] }) : null;
 }
 
 async function audit(familyId: string, userId: string, action: string, entityType: string, entityId: string) {

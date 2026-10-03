@@ -8,12 +8,25 @@ import type {
   FinanceGoal,
   FinanceTransaction,
 } from "@/lib/personal-finance-types";
+import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
 import {
   BackendNotConfiguredError,
   isBackendConfigured,
   SupabaseRequestError,
   supabaseRest,
 } from "@/lib/supabase-rest";
+
+async function readAllPrivateFinanceRows<T>(table: string, query: URLSearchParams): Promise<T[]> {
+  return collectPaginatedRows(
+    (offset, limit) => {
+      const pageQuery = new URLSearchParams(query);
+      pageQuery.set("offset", String(offset));
+      pageQuery.set("limit", String(limit));
+      return supabaseRest<T[]>(`${table}?${pageQuery}`);
+    },
+    { pageSize: 500, maxRows: 20000 },
+  );
+}
 
 export async function GET() {
   try {
@@ -56,44 +69,44 @@ export async function GET() {
         accounts: new URLSearchParams({
           select: "id,name,account_type,opening_balance,currency,status,created_at,updated_at",
           ...owner,
-          order: "status.asc,created_at.asc",
+          order: "status.asc,created_at.asc,id.asc",
         }),
         transactions: new URLSearchParams({
           select: "id,account_id,direction,category,amount,transaction_date,payment_method,reference,notes,is_recurring,created_at",
           ...owner,
-          order: "transaction_date.desc,created_at.desc",
+          order: "transaction_date.desc,created_at.desc,id.asc",
         }),
         budgets: new URLSearchParams({
           select: "id,budget_month,category,limit_amount,alert_percent,notes,created_at,updated_at",
           ...owner,
-          order: "budget_month.desc,category.asc",
+          order: "budget_month.desc,category.asc,id.asc",
         }),
         debts: new URLSearchParams({
           select: "id,debt_type,counterparty,principal_amount,settled_amount,due_date,status,notes,created_at,updated_at",
           ...owner,
-          order: "status.asc,due_date.asc.nullslast,created_at.desc",
+          order: "status.asc,due_date.asc.nullslast,created_at.desc,id.asc",
         }),
         bills: new URLSearchParams({
           select: "id,title,category,amount,due_date,recurrence,status,notes,created_at,updated_at",
           ...owner,
-          order: "due_date.asc,created_at.desc",
+          order: "due_date.asc,created_at.desc,id.asc",
         }),
         goals: new URLSearchParams({
           select: "id,title,target_amount,current_amount,target_date,status,notes,created_at,updated_at",
           ...owner,
-          order: "status.asc,target_date.asc.nullslast,created_at.desc",
+          order: "status.asc,target_date.asc.nullslast,created_at.desc,id.asc",
         }),
       };
       [accounts, transactions, budgets, debts, bills, goals] = await Promise.all([
-        supabaseRest<FinanceAccount[]>(`personal_finance_accounts?${queries.accounts}`),
-        supabaseRest<FinanceTransaction[]>(`personal_finance_transactions?${queries.transactions}`),
-        supabaseRest<FinanceBudget[]>(`personal_finance_budgets?${queries.budgets}`),
-        supabaseRest<FinanceDebt[]>(`personal_finance_debts?${queries.debts}`),
-        supabaseRest<FinanceBill[]>(`personal_finance_bills?${queries.bills}`),
-        supabaseRest<FinanceGoal[]>(`personal_finance_goals?${queries.goals}`),
+        readAllPrivateFinanceRows<FinanceAccount>("personal_finance_accounts", queries.accounts),
+        readAllPrivateFinanceRows<FinanceTransaction>("personal_finance_transactions", queries.transactions),
+        readAllPrivateFinanceRows<FinanceBudget>("personal_finance_budgets", queries.budgets),
+        readAllPrivateFinanceRows<FinanceDebt>("personal_finance_debts", queries.debts),
+        readAllPrivateFinanceRows<FinanceBill>("personal_finance_bills", queries.bills),
+        readAllPrivateFinanceRows<FinanceGoal>("personal_finance_goals", queries.goals),
       ]);
     } catch (error) {
-      if (error instanceof SupabaseRequestError) migrationRequired = true;
+      if (error instanceof SupabaseRequestError && /PGRST205|42P01|42703/.test(error.message)) migrationRequired = true;
       else throw error;
     }
 
@@ -109,6 +122,9 @@ export async function GET() {
       migrationRequired,
     });
   } catch (error) {
+    if (error instanceof PaginatedRowLimitError) {
+      return Response.json({ code: "FINANCE_ROW_LIMIT", maxRows: error.maxRows, error: `Private finance data exceeds ${error.maxRows} rows in one section. Nothing was truncated; contact support for a paged export.` }, { status: 413 });
+    }
     if (error instanceof BackendNotConfiguredError) {
       return Response.json({ error: "PostgreSQL connection has not been configured yet." }, { status: 503 });
     }
