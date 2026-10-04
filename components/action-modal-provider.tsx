@@ -23,6 +23,7 @@ import { welfareActionCopy } from "@/lib/welfare-action-copy";
 import { archiveActionCopy, archiveFileDeleteActionCopy, archiveUploadActionCopy } from "@/lib/archive-action-copy";
 import { memberActionCopy, memberActionResult } from "@/lib/member-action-copy";
 import { memberRequestActionCopy } from "@/lib/member-request-action-copy";
+import { noticeActionCopy } from "@/lib/notice-action-copy";
 import { qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "@/lib/qurbani-action-copy";
 import {
   Dialog,
@@ -236,6 +237,10 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
     const requestCopy = memberRequestActionCopy(pathname, method, body, locale);
     if (requestCopy) return requestCopy;
   }
+  if (pathname === "/api/notices" || pathname.startsWith("/api/notices/")) {
+    const noticeCopy = noticeActionCopy(pathname, method, body, locale);
+    if (noticeCopy) return noticeCopy;
+  }
 
   const nested = typeof body.data === "object" && body.data ? body.data as Record<string, unknown> : {};
   const decision = typeof body.decision === "string" ? body.decision : "";
@@ -381,7 +386,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
           const memberPayload = response.ok && ["/api/members", "/api/members/photo"].includes(url.pathname)
             ? await response.clone().json().catch(() => ({})) as Record<string, unknown> : null;
           const memberResult = memberPayload ? memberActionResult(url.pathname, method, parseBody(init?.body), memberPayload, locale, copy.successMessage, response.status) : null;
-          const message = memberResult ? memberResult.message : response.ok && response.status !== 202 && ["/api/qurbani/records", "/api/household/records", "/api/welfare/records", "/api/archives/records", "/api/archives/upload"].includes(url.pathname)
+          const message = memberResult ? memberResult.message : response.ok && response.status !== 202 && (url.pathname === "/api/notices" || url.pathname.startsWith("/api/notices/") || ["/api/qurbani/records", "/api/household/records", "/api/welfare/records", "/api/archives/records", "/api/archives/upload"].includes(url.pathname))
             ? copy.successMessage
             : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."));
           const nextResult = memberResult?.noChange

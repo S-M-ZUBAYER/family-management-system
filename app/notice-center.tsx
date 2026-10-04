@@ -206,7 +206,7 @@ export function NoticeCenter() {
       setCreateOpen(false);
       setEditingNotice(null);
       setForm(emptyForm);
-      setFeedback(payload.message ?? pick("নোটিশের বিস্তারিত আপডেট হয়েছে।", "Notice details updated."));
+      setFeedback(pick("নোটিশের বিস্তারিত আপডেট হয়েছে।", "Notice details updated."));
     } finally {
       setSaving(false);
     }
@@ -245,7 +245,7 @@ export function NoticeCenter() {
       if (!response.ok) throw new Error(payload.error ?? pick("নোটিশ মোছা যায়নি।", "The notice could not be deleted."));
       setNotices((current) => current.filter((notice) => notice.id !== id));
       setSelected((current) => current?.id === id ? null : current);
-      setFeedback(payload.message ?? pick("নোটিশ মুছে ফেলা হয়েছে।", "Notice deleted."));
+      setFeedback(pick("নোটিশ মুছে ফেলা হয়েছে।", "Notice deleted."));
     } finally {
       setUpdatingId(null);
     }
@@ -331,9 +331,10 @@ export function NoticeCenter() {
       const XLSX = await import("xlsx");
       const worksheet = XLSX.utils.json_to_sheet(visibleNotices.map((notice, index) => ({
         [pick("ক্রমিক", "Serial")]: index + 1,
-        [pick("শিরোনাম", "Title")]: notice.title_bn,
+        [pick("শিরোনাম (বাংলা)", "Title (Bangla)")]: notice.title_bn,
         [pick("শিরোনাম (ইংরেজি)", "Title (English)")]: notice.title_en ?? "",
-        [pick("বিস্তারিত", "Details")]: notice.body_bn,
+        [pick("বিস্তারিত (বাংলা)", "Details (Bangla)")]: notice.body_bn,
+        [pick("বিস্তারিত (ইংরেজি)", "Details (English)")]: notice.body_en ?? "",
         [pick("ক্যাটাগরি", "Category")]: categoryLabels[notice.category],
         [pick("অগ্রাধিকার", "Priority")]: priorityLabels[notice.priority],
         [pick("অবস্থা", "Status")]: statusLabels[notice.status],
@@ -342,7 +343,7 @@ export function NoticeCenter() {
         [pick("মেয়াদ শেষ", "Expiry")]: notice.expires_at ? dateFormatter.format(new Date(notice.expires_at)) : "",
         [pick("তৈরির সময়", "Created at")]: dateFormatter.format(new Date(notice.created_at)),
       })));
-      worksheet["!cols"] = [8, 34, 30, 60, 20, 18, 16, 12, 24, 24, 24].map((wch) => ({ wch }));
+      worksheet["!cols"] = [8, 34, 30, 60, 60, 20, 18, 16, 12, 24, 24, 24].map((wch) => ({ wch }));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, pick("পারিবারিক নোটিশ", "Family Notices"));
       XLSX.writeFile(workbook, `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-notices.xlsx`);
