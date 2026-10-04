@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { feedbackResult, mutationResponseResult, repeatsMutationFeedback } from "../lib/action-feedback.ts";
+import { feedbackResult, mutationResponseResult, repeatsMutationFeedback, resultTitleForLocale } from "../lib/action-feedback.ts";
+
+test("generic success title follows the current locale after a language switch", () => {
+  const result = mutationResponseResult(200, "Language preference saved.", "bn");
+  assert.equal(resultTitleForLocale(result, "en"), "Completed successfully");
+  assert.equal(resultTitleForLocale(result, "bn"), "সফল হয়েছে");
+  assert.equal(resultTitleForLocale({ kind: "error", title: "Connection error", message: "Offline" }, "bn"), "Connection error");
+});
 
 test("common English and Bengali completions show success", () => {
   for (const message of ["Record deleted.", "Status changed to paid.", "Privacy request submitted.", "রেকর্ড সংরক্ষণ হয়েছে।"]) {

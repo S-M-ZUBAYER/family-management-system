@@ -6,6 +6,14 @@ export type ResultState = {
   message: string;
 };
 
+export function resultTitleForLocale(result: ResultState | null, locale: AppLocale): string | undefined {
+  if (!result) return undefined;
+  if (result.kind === "success" && ["সফল হয়েছে", "Completed successfully"].includes(result.title)) {
+    return locale === "bn" ? "সফল হয়েছে" : "Completed successfully";
+  }
+  return result.title;
+}
+
 export function repeatsMutationFeedback(last: { kind: ResultState["kind"]; message: string; at: number } | null, next: ResultState, now: number): boolean {
   return Boolean(last && now - last.at >= 0 && now - last.at < 10000 &&
     (last.message === next.message || (last.kind === "success" && next.kind === "success")));

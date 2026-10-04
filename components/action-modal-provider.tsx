@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useLocale, type AppLocale } from "@/components/locale-provider";
-import { feedbackResult, mutationResponseResult, repeatsMutationFeedback, type ResultState } from "@/lib/action-feedback";
+import { feedbackResult, mutationResponseResult, repeatsMutationFeedback, resultTitleForLocale, type ResultState } from "@/lib/action-feedback";
 import { householdActionCopy } from "@/lib/household-action-copy";
 import { qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "@/lib/qurbani-action-copy";
 import {
@@ -443,7 +443,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
             <div className={`grid size-16 place-items-center rounded-2xl ${resultStyle.className}`}>
               <ResultIcon className="size-8" />
             </div>
-            <DialogTitle className="pt-2 text-xl">{result?.title}</DialogTitle>
+            <DialogTitle className="pt-2 text-xl">{resultTitleForLocale(result, locale)}</DialogTitle>
             <DialogDescription className="max-w-sm text-pretty leading-6">{result?.message}</DialogDescription>
           </DialogHeader>
           <DialogFooter className="sm:justify-center">

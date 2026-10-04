@@ -18,6 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type { Household, HouseholdDocument, HouseholdPayload, HouseholdTask, MaintenanceRequest, ServiceContact, ShoppingItem, ShoppingList, UtilityBill } from "@/lib/household-types";
+import { householdExportHeaders, type HouseholdExportSheet } from "@/lib/household-export-headers";
 
 type Kind = "household" | "list" | "item" | "bill" | "task" | "contact" | "maintenance";
 type EditableHouseholdRecord = Household | ShoppingList | ShoppingItem | UtilityBill | HouseholdTask | ServiceContact | MaintenanceRequest;
@@ -151,7 +152,13 @@ export function HouseholdCenter() {
 
   async function exportXlsx() {
     setExporting(true); try {
-      const XLSX = await import("xlsx"), workbook = XLSX.utils.book_new(); const add = (bn: string, en: string, rows: Array<Record<string, unknown>>) => XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), locale === "bn" ? bn : en);
+      const XLSX = await import("xlsx"), workbook = XLSX.utils.book_new();
+      const add = (bn: string, en: HouseholdExportSheet, rows: Array<Record<string, unknown>>) => {
+        const headers = householdExportHeaders(en, locale);
+        const sheet = XLSX.utils.aoa_to_sheet([headers]);
+        if (rows.length) XLSX.utils.sheet_add_json(sheet, rows, { header: headers, skipHeader: true, origin: "A2" });
+        XLSX.utils.book_append_sheet(workbook, sheet, locale === "bn" ? bn : en);
+      };
       add("বাসাসমূহ", "Households", households.map((item) => ({ [pick("নাম", "Name")]: item.name, [pick("ঠিকানা", "Address")]: item.address ?? "", [pick("শহর", "City")]: item.city ?? "", [pick("অবস্থা", "Status")]: householdValueLabel(item.status, locale), [pick("নোট", "Notes")]: item.notes ?? "" })));
       add("বাজারের তালিকা", "Shopping Lists", lists.map((item) => ({ [pick("বাসা", "Household")]: householdName(item.household_id), [pick("তালিকা", "List")]: item.title, [pick("বাজেট", "Budget")]: n(item.budget_amount), [pick("প্রয়োজনের তারিখ", "Needed by")]: item.needed_by ?? "", [pick("অবস্থা", "Status")]: householdValueLabel(item.status, locale), [pick("তৈরিকারী", "Creator")]: item.created_by_name })));
       add("বাজারের আইটেম", "Shopping Items", items.map((item) => ({ [pick("তালিকা", "List")]: listName(item.list_id), [pick("আইটেম", "Item")]: item.item_name, [pick("শ্রেণি", "Category")]: householdValueLabel(item.category, locale), [pick("পরিমাণ", "Quantity")]: n(item.quantity), [pick("একক", "Unit")]: householdValueLabel(item.unit, locale), [pick("আনুমানিক", "Estimated")]: n(item.estimated_cost), [pick("প্রকৃত", "Actual")]: n(item.actual_cost), [pick("অগ্রাধিকার", "Priority")]: householdValueLabel(item.priority, locale), [pick("দায়িত্বপ্রাপ্ত", "Assigned")]: item.assigned_to_name ?? "", [pick("অবস্থা", "Status")]: householdValueLabel(item.status, locale), [pick("ক্রেতা", "Purchased by")]: item.purchased_by_name ?? "" })));
