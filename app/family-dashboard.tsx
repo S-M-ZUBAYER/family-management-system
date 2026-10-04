@@ -285,10 +285,11 @@ export function FamilyDashboard({
   const [, setFeedback] = useActionFeedback();
 
   useEffect(() => {
+    if (!workspace || workspace.viewer.preferredLocale !== locale) return;
     if (window.sessionStorage.getItem("fms_family_switch_result") !== "success") return;
     window.sessionStorage.removeItem("fms_family_switch_result");
     queueMicrotask(() => setFeedback(locale === "bn" ? "পরিবারের ওয়ার্কস্পেস সফলভাবে পরিবর্তন হয়েছে।" : "Family workspace changed successfully."));
-  }, [locale, setFeedback]);
+  }, [locale, setFeedback, workspace]);
 
   useEffect(() => {
     const onFamilySwitch = (event: StorageEvent) => {
