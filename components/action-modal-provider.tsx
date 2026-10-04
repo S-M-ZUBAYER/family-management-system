@@ -21,6 +21,7 @@ import { feedbackResult, mutationResponseResult, repeatsMutationFeedback, result
 import { householdActionCopy } from "@/lib/household-action-copy";
 import { welfareActionCopy } from "@/lib/welfare-action-copy";
 import { archiveActionCopy, archiveFileDeleteActionCopy, archiveUploadActionCopy } from "@/lib/archive-action-copy";
+import { memberActionCopy, memberActionResult } from "@/lib/member-action-copy";
 import { qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "@/lib/qurbani-action-copy";
 import {
   Dialog,
@@ -226,6 +227,10 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
     if (archiveCopy) return archiveCopy;
   }
   if (pathname.startsWith("/api/archive-file/") && method === "DELETE") return archiveFileDeleteActionCopy(locale);
+  if (pathname === "/api/members" || pathname === "/api/members/photo") {
+    const memberCopy = memberActionCopy(pathname, method, body, locale);
+    if (memberCopy) return memberCopy;
+  }
 
   const nested = typeof body.data === "object" && body.data ? body.data as Record<string, unknown> : {};
   const decision = typeof body.decision === "string" ? body.decision : "";
@@ -368,10 +373,15 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
       try {
         const response = await originalFetch(input, init);
         if (mounted.current) {
-          const message = response.ok && response.status !== 202 && ["/api/qurbani/records", "/api/household/records", "/api/welfare/records", "/api/archives/records", "/api/archives/upload"].includes(url.pathname)
+          const memberPayload = response.ok && ["/api/members", "/api/members/photo"].includes(url.pathname)
+            ? await response.clone().json().catch(() => ({})) as Record<string, unknown> : null;
+          const memberResult = memberPayload ? memberActionResult(url.pathname, method, parseBody(init?.body), memberPayload, locale, copy.successMessage, response.status) : null;
+          const message = memberResult ? memberResult.message : response.ok && response.status !== 202 && ["/api/qurbani/records", "/api/household/records", "/api/welfare/records", "/api/archives/records", "/api/archives/upload"].includes(url.pathname)
             ? copy.successMessage
             : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."));
-          const nextResult = mutationResponseResult(response.status, message, locale);
+          const nextResult = memberResult?.noChange
+            ? { kind: "info" as const, title: locale === "bn" ? "পরিবর্তন প্রয়োজন নেই" : "No change needed", message }
+            : mutationResponseResult(memberResult?.status ?? response.status, message, locale);
           lastMutationResult.current = { kind: nextResult.kind, message: nextResult.message, at: Date.now() };
           showResult(nextResult);
         }

@@ -521,7 +521,7 @@ export function MemberDirectory() {
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={pick("নাম, সম্পর্ক, পেশা বা রক্তের গ্রুপ", "Name, relationship, profession, or blood group")} className="h-10 rounded-xl pl-10" />
           </div>
-          <Badge variant="secondary" className="w-fit rounded-full px-3">{visibleMembers.length.toLocaleString(locale === "bn" ? "bn-BD" : "en-US")} {pick("জন", "members")}</Badge>
+          <Badge variant="secondary" className="w-fit rounded-full px-3">{visibleMembers.length.toLocaleString(locale === "bn" ? "bn-BD" : "en-US")} {locale === "bn" ? "জন" : visibleMembers.length === 1 ? "member" : "members"}</Badge>
         </div>
         {loading ? (
           <div className="flex min-h-72 items-center justify-center gap-3 text-muted-foreground"><LoaderCircle className="size-5 animate-spin" /> {pick("Directory লোড হচ্ছে", "Loading directory")}</div>

@@ -389,12 +389,12 @@ export async function PATCH(request: Request) {
       }
       const scopedMembers = await supabaseRest<Array<{ id: string }>>(`member_profiles?${new URLSearchParams({ select: "id", family_id: `eq.${membership.family_id}`, id: `in.(${fromMemberId},${toMemberId})` })}`);
       if (scopedMembers.length !== 2) return Response.json({ error: "নির্বাচিত সদস্যরা এই পরিবারের নয়।" }, { status: 400 });
-      const [relationship] = await supabaseRest<FamilyRelationshipRow[]>("family_relationships", {
+      const [relationship] = await supabaseRest<FamilyRelationshipRow[]>("family_relationships?on_conflict=family_id,from_member_id,to_member_id,relationship_type", {
         method: "POST",
         headers: { Prefer: "return=representation,resolution=ignore-duplicates" },
         body: JSON.stringify({ family_id: membership.family_id, from_member_id: fromMemberId, to_member_id: toMemberId, relationship_type: relationshipType, created_by_user_id: user.userId }),
       });
-      await writeMemberAudit(membership.family_id, user.userId, action, "family_relationship", relationship?.id ?? null, { from_member_id: fromMemberId, to_member_id: toMemberId, relationship_type: relationshipType });
+      if (relationship) await writeMemberAudit(membership.family_id, user.userId, action, "family_relationship", relationship.id, { from_member_id: fromMemberId, to_member_id: toMemberId, relationship_type: relationshipType });
       return Response.json({ relationship: relationship ?? null, message: relationship ? "Family relationship সংরক্ষিত হয়েছে।" : "এই relationship আগে থেকেই আছে।" });
     }
 
