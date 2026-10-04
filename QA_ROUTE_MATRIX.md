@@ -6,7 +6,7 @@ Legend: **Partial** = at least one local workflow observed; **Open** = no suffic
 
 | Page | Related application APIs | Observed local coverage | Still needed |
 | --- | --- | --- | --- |
-| `/` dashboard | `/api/dashboard` | Partial: data/card read | Export contents, empty/error states, role visibility |
+| `/` dashboard | `/api/dashboard`, `/api/workspace` | Partial: owner card read, empty approvals/event state, English/Bengali XLSX downloads opened and checked (4 localized sheets, empty-section headers, numeric member/year cells); transient dashboard GET retry tested, module routes now load workspace first and ignore optional sidebar-summary failure | Reproduce/root-cause intermittent upstream 502, real member-role approval visibility/export, large-row and two-family isolation, hosted Site |
 | `/directory` | `/api/members`, `/api/members/photo` | Partial: profile create/edit, family switch | Photo upload/access, relationship changes, privacy roles; profile hard-delete is not exposed |
 | `/family-tree` | `/api/members` | Partial: seeded tree/view | Relationship editing, large tree, XLSX contents, privacy roles |
 | `/members` | `/api/member-requests`, `/api/member-requests/[id]` | Open | Separate-account request → approve/reject/suspend, modal and tenant isolation |

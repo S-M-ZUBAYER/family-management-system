@@ -69,6 +69,8 @@ import { DashboardNoticeTicker } from "./notice-ticker";
 import { useActionFeedback } from "@/components/action-modal-provider";
 import { useLocale, type AppLocale } from "@/components/locale-provider";
 import type { DashboardPayload } from "@/lib/dashboard-types";
+import { fetchDashboardWithRetry } from "@/lib/dashboard-request";
+import { dashboardExportHeaders, type DashboardExportSheet } from "@/lib/dashboard-export-headers";
 import type { WorkspacePayload } from "@/lib/workspace-types";
 
 const MemberApprovals = lazy(() => import("./member-approvals").then((module) => ({ default: module.MemberApprovals })));
@@ -332,10 +334,47 @@ export function FamilyDashboard({
 
   useEffect(() => {
     let active = true;
+    if (view !== "dashboard") {
+      void (async () => {
+        try {
+          const workspaceResponse = await fetch("/api/workspace", { cache: "no-store" });
+          const workspacePayload = await workspaceResponse.json() as WorkspacePayload & { code?: string; error?: string };
+          if (workspaceResponse.status === 409 && workspacePayload.code === "FAMILY_SETUP_REQUIRED") {
+            if (active) { setDashboard(null); setWorkspace(null); setDashboardError(false); setSetupRequired(true); }
+            return;
+          }
+          if (!workspaceResponse.ok) throw new Error(workspacePayload.error ?? "Family choices could not be loaded.");
+          if (!active) return;
+          setWorkspace(workspacePayload);
+          setLocale(workspacePayload.viewer.preferredLocale);
+          setTheme(workspacePayload.family.theme);
+          setSetupRequired(false);
+          setDashboardError(false);
+          // Optional sidebar counts load after the workspace and module, without
+          // turning an unrelated module into a dashboard error screen.
+          void (async () => {
+            try {
+              const response = await fetchDashboardWithRetry(window.fetch.bind(window));
+              if (!response.ok || !active) return;
+              const payload = await response.json() as DashboardPayload;
+              if (payload.family.id !== workspacePayload.family.id) { window.location.reload(); return; }
+              if (active) setDashboard(payload);
+            } catch {
+              // The module and workspace remain usable without optional counts.
+            }
+          })();
+        } catch (error) {
+          if (active) { setWorkspace(null); setFeedback(error instanceof Error ? error.message : "Family choices could not be loaded."); }
+        } finally {
+          if (active) setDashboardLoading(false);
+        }
+      })();
+      return () => { active = false; };
+    }
     void (async () => {
       try {
         setDashboardLoading(true);
-        const response = await fetch("/api/dashboard", { cache: "no-store" });
+        const response = await fetchDashboardWithRetry(window.fetch.bind(window));
         const payload = await response.json() as DashboardPayload & { code?: string; error?: string };
         if (response.status === 409 && payload.code === "FAMILY_SETUP_REQUIRED") {
           if (active) { setDashboard(null); setWorkspace(null); setDashboardError(false); setSetupRequired(true); }
@@ -441,6 +480,13 @@ export function FamilyDashboard({
     try {
       const XLSX = await import("xlsx");
       const workbook = XLSX.utils.book_new();
+      const appendSheet = (sheet: DashboardExportSheet, rows: Record<string, string | number>[], nameBn: string) => {
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.json_to_sheet(rows, { header: dashboardExportHeaders(sheet, locale) }),
+          locale === "bn" ? nameBn : sheet,
+        );
+      };
       const metric = pick("সূচক", "Metric"), value = pick("মান", "Value");
       const overview = [
         [pick("মোট সদস্য", "Total members"), dashboard.stats.totalMembers],
@@ -450,13 +496,13 @@ export function FamilyDashboard({
         [pick("অপঠিত বার্তা", "Unread messages"), dashboard.stats.unreadMessages],
         [pick("অপঠিত চ্যানেল", "Unread channels"), dashboard.stats.unreadChannels],
       ].map(([label, amount]) => ({ [metric]: label, [value]: amount }));
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(overview), pick("সারসংক্ষেপ", "Overview"));
-      if (canReviewApprovals) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dashboard.approvals.map((item) => ({
+      appendSheet("Overview", overview, "সারসংক্ষেপ");
+      if (canReviewApprovals) appendSheet("Member Requests", dashboard.approvals.map((item) => ({
         [pick("নাম", "Name")]: item.name,
         [pick("সম্পর্ক", "Relationship")]: item.relationship,
         [pick("আবেদনের সময়", "Requested at")]: item.createdAt,
-      }))), pick("সদস্য আবেদন", "Member Requests"));
-      if (dashboard.qurbani) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
+      })), "সদস্য আবেদন");
+      appendSheet("Qurbani", dashboard.qurbani ? [{
         [pick("ক্যাম্পেইন", "Campaign")]: dashboard.qurbani.title,
         [pick("বছর", "Year")]: dashboard.qurbani.year,
         [pick("অবস্থা", "Status")]: campaignStatusLabel(dashboard.qurbani.status, locale),
@@ -464,14 +510,14 @@ export function FamilyDashboard({
         [pick("নিবন্ধিত শেয়ার", "Registered shares")]: dashboard.qurbani.registeredShares,
         [pick("সংগৃহীত অর্থ", "Collected")]: dashboard.qurbani.collected,
         [pick("বকেয়া", "Due")]: dashboard.qurbani.due,
-      }]), pick("কোরবানি", "Qurbani"));
-      if (dashboard.nextEvent) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
+      }] : [], "কোরবানি");
+      appendSheet("Next Event", dashboard.nextEvent ? [{
         [pick("ইভেন্ট", "Event")]: dashboard.nextEvent.title,
         [pick("শুরুর সময়", "Starts at")]: dashboard.nextEvent.startAt,
         [pick("স্থান", "Venue")]: dashboard.nextEvent.venue,
         [pick("শহর", "City")]: dashboard.nextEvent.city ?? "",
         [pick("অংশগ্রহণকারী", "Going")]: dashboard.nextEvent.goingCount,
-      }]), pick("পরবর্তী ইভেন্ট", "Next Event"));
+      }] : [], "পরবর্তী ইভেন্ট");
       XLSX.writeFile(workbook, `${dashboard.family.name_en.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-dashboard.xlsx`);
       setFeedback(pick("Dashboard XLSX সফলভাবে তৈরি হয়েছে।", "The dashboard XLSX was created successfully."));
     } catch (error) {
