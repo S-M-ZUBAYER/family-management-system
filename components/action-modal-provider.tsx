@@ -20,6 +20,7 @@ import { useLocale, type AppLocale } from "@/components/locale-provider";
 import { feedbackResult, mutationResponseResult, repeatsMutationFeedback, resultTitleForLocale, type ResultState } from "@/lib/action-feedback";
 import { householdActionCopy } from "@/lib/household-action-copy";
 import { welfareActionCopy } from "@/lib/welfare-action-copy";
+import { archiveActionCopy, archiveFileDeleteActionCopy, archiveUploadActionCopy } from "@/lib/archive-action-copy";
 import { qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "@/lib/qurbani-action-copy";
 import {
   Dialog,
@@ -168,6 +169,7 @@ const destructiveWords = [
 ];
 
 function parseBody(body: BodyInit | null | undefined) {
+  if (body instanceof FormData) return { mode: body.get("mode") } as Record<string, unknown>;
   if (typeof body !== "string") return {} as Record<string, unknown>;
   try {
     return JSON.parse(body) as Record<string, unknown>;
@@ -215,6 +217,15 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
     const welfareCopy = welfareActionCopy(body, method, locale);
     if (welfareCopy) return welfareCopy;
   }
+  if (pathname === "/api/archives/records") {
+    const archiveCopy = archiveActionCopy(body, method, locale);
+    if (archiveCopy) return archiveCopy;
+  }
+  if (pathname === "/api/archives/upload" && method === "POST") {
+    const archiveCopy = archiveUploadActionCopy(body.mode, locale);
+    if (archiveCopy) return archiveCopy;
+  }
+  if (pathname.startsWith("/api/archive-file/") && method === "DELETE") return archiveFileDeleteActionCopy(locale);
 
   const nested = typeof body.data === "object" && body.data ? body.data as Record<string, unknown> : {};
   const decision = typeof body.decision === "string" ? body.decision : "";
@@ -357,7 +368,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
       try {
         const response = await originalFetch(input, init);
         if (mounted.current) {
-          const message = response.ok && response.status !== 202 && ["/api/qurbani/records", "/api/household/records", "/api/welfare/records"].includes(url.pathname)
+          const message = response.ok && response.status !== 202 && ["/api/qurbani/records", "/api/household/records", "/api/welfare/records", "/api/archives/records", "/api/archives/upload"].includes(url.pathname)
             ? copy.successMessage
             : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."));
           const nextResult = mutationResponseResult(response.status, message, locale);

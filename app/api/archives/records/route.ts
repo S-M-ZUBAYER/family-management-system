@@ -1,16 +1,21 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canMutateArchiveRecord } from "@/lib/archive-access";
+import { redactLockedCapsule } from "@/lib/archive-capsule-privacy";
 import { canManageArchives, getActiveFamilyMembership } from "@/lib/family-access";
+import { PROFILE_PHOTO_MARKER } from "@/lib/member-privacy";
 import { supabaseRest } from "@/lib/supabase-rest";
 import { archiveErrorResponse } from "../route";
 
 const actions = ["create_collection", "create_story", "create_asset", "create_capsule", "update_status"] as const;
 type Action = (typeof actions)[number];
 type ArchiveKind = "collection" | "story" | "asset" | "capsule";
+type EditableKind = ArchiveKind | "memory" | "vault";
 const archiveTables: Record<ArchiveKind, string> = { collection: "archive_collections", story: "archive_stories", asset: "family_assets", capsule: "time_capsules" };
+const editableTables: Record<EditableKind, string> = { ...archiveTables, memory: "archive_memories", vault: "archive_vault_documents" };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const text = (value: unknown, max: number) => typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 const number = (value: unknown, fallback?: number) => { if (value === "" || value === null || value === undefined) return fallback; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : undefined; };
+const date = (value: unknown) => { if (value === "" || value === null || value === undefined) return null; if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined; const parsed = new Date(`${value}T00:00:00Z`); return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value ? value : undefined; };
 function choice<T extends string>(value: unknown, values: readonly T[], fallback: T) { const candidate = text(value, 40); return candidate && values.includes(candidate as T) ? candidate as T : fallback; }
 function tags(value: unknown) { return typeof value === "string" ? value.split(",").map((item) => item.trim()).filter(Boolean).slice(0, 30).map((item) => item.slice(0, 80)) : []; }
 
@@ -33,7 +38,7 @@ export async function POST(request: Request) {
       const title = text(data.title, 180), value = number(data.estimatedValue, 0); if (!title || value === undefined || value < 0) return Response.json({ error: "Asset title ও value সঠিকভাবে দিন।" }, { status: 400 });
       table = "family_assets"; record = { family_id: membership.family_id, title, asset_type: choice(data.assetType, ["land", "house", "flat", "vehicle", "business", "investment", "jewelry", "other"] as const, "other"), ownership: text(data.ownership, 300), location: text(data.location, 1000), identifier_masked: text(data.identifierMasked, 180), acquisition_date: text(data.acquisitionDate, 10), estimated_value: value, notes: text(data.notes, 3000), visibility: choice(data.visibility, ["family", "admins"] as const, "admins"), status: "active", created_by_user_id: user.userId };
     } else if (body.action === "create_capsule") {
-      const title = text(data.title, 180), message = text(data.message, 20000), unlockAt = text(data.unlockAt, 40); if (!title || !message || !unlockAt || new Date(unlockAt).getTime() <= Date.now() + 60000) return Response.json({ error: "Title, message এবং ভবিষ্যতের unlock time প্রয়োজন।" }, { status: 400 });
+      const title = text(data.title, 180), message = text(data.message, 20000), unlockAt = text(data.unlockAt, 40); if (!title || !message || !unlockAt || !Number.isFinite(new Date(unlockAt).getTime()) || new Date(unlockAt).getTime() <= Date.now() + 60000) return Response.json({ error: "Title, message এবং ভবিষ্যতের unlock time প্রয়োজন।" }, { status: 400 });
       table = "time_capsules"; record = { family_id: membership.family_id, title, message, recipient_names: text(data.recipientNames, 1000), unlock_at: unlockAt, visibility: choice(data.visibility, ["family", "admins"] as const, "family"), status: "locked", created_by_user_id: user.userId, created_by_name: user.displayName };
     } else return updateStatus(data, membership.family_id, user.userId, canManage);
     const [created] = await supabaseRest<Array<Record<string, unknown>>>(table, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(record) });
@@ -45,17 +50,18 @@ export async function PATCH(request: Request) {
   try {
     const user = await getChatGPTUser(); if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
     const membership = await getActiveFamilyMembership(user.userId); if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
-    const canManage = canManageArchives(membership.role), body = await request.json() as { kind?: ArchiveKind; recordId?: unknown; data?: Record<string, unknown> };
-    const kind = body.kind, recordId = text(body.recordId, 80); if (!kind || !(kind in archiveTables) || !recordId || !uuid.test(recordId)) return Response.json({ error: "Valid archive record প্রয়োজন।" }, { status: 400 });
-    const table = archiveTables[kind], existing = (await supabaseRest<Array<Record<string, unknown>>>(`${table}?${new URLSearchParams({ select: "*", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
+    const canManage = canManageArchives(membership.role), body = await request.json() as { kind?: EditableKind; recordId?: unknown; data?: Record<string, unknown> };
+    const kind = body.kind, recordId = text(body.recordId, 80); if (!kind || !Object.hasOwn(editableTables, kind) || !recordId || !uuid.test(recordId)) return Response.json({ error: "Valid archive record প্রয়োজন।" }, { status: 400 });
+    const table = editableTables[kind], existing = (await supabaseRest<Array<Record<string, unknown>>>(`${table}?${new URLSearchParams({ select: "*", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
     if (!existing) return Response.json({ error: "Archive record পাওয়া যায়নি।" }, { status: 404 });
-    const ownerId = kind === "story" ? existing.author_user_id : existing.created_by_user_id;
+    if (kind === "memory" && existing.place === PROFILE_PHOTO_MARKER) return Response.json({ error: "Profile photo metadata directory থেকে পরিচালনা করুন।" }, { status: 409 });
+    const ownerId = kind === "story" ? existing.author_user_id : kind === "memory" || kind === "vault" ? existing.uploaded_by_user_id : existing.created_by_user_id;
     if (!canMutateArchiveRecord(String(existing.visibility), String(ownerId ?? ""), user.userId, canManage)) return Response.json({ error: "এই record edit করার permission নেই।" }, { status: 403 });
-    if (!canManage && !["story", "capsule"].includes(kind)) return Response.json({ error: "Family Admin action প্রয়োজন।" }, { status: 403 });
+    if (!canManage && !["story", "capsule", "memory", "vault"].includes(kind)) return Response.json({ error: "Family Admin action প্রয়োজন।" }, { status: 403 });
     if (kind === "capsule" && (existing.status !== "locked" || new Date(String(existing.unlock_at)).getTime() <= Date.now())) return Response.json({ error: "Opened/unlocked capsule edit করা যাবে না।" }, { status: 409 });
     const changes = archiveChanges(kind, body.data ?? {}, canManage); if (changes instanceof Response) return changes; changes.updated_at = new Date().toISOString();
     const [updated] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}` })}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
-    await audit(membership.family_id, user.userId, `archive_${kind}_updated`, table, recordId, String(updated.visibility ?? existing.visibility)); return Response.json({ record: updated });
+    await audit(membership.family_id, user.userId, `archive_${kind}_updated`, table, recordId, String(updated.visibility ?? existing.visibility)); return Response.json({ record: kind === "capsule" ? redactLockedCapsule(updated as Record<string, unknown> & { unlock_at: string; message: string }) : updated });
   } catch (error) { return archiveErrorResponse(error, "Unable to update archive record"); }
 }
 
@@ -76,12 +82,24 @@ export async function DELETE(request: Request) {
   } catch (error) { return archiveErrorResponse(error, "Unable to delete archive record"); }
 }
 
-function archiveChanges(kind: ArchiveKind, data: Record<string, unknown>, canManage: boolean): Record<string, unknown> | Response {
+function archiveChanges(kind: EditableKind, data: Record<string, unknown>, canManage: boolean): Record<string, unknown> | Response {
+  if (kind === "memory" || kind === "vault") {
+    const title = text(data.title, 180);
+    if (!title) return Response.json({ error: "Title প্রয়োজন।" }, { status: 400 });
+    if (kind === "memory") { const memoryDate = date(data.memoryDate); if (memoryDate === undefined) return Response.json({ error: "স্মৃতির বৈধ তারিখ দিন।" }, { status: 400 }); return { title, description: text(data.description, 3000), memory_date: memoryDate, place: text(data.place, 220), people_tags: tags(data.peopleTags) }; }
+    const categories = ["property_deed", "nid", "passport", "birth_certificate", "legal", "financial", "insurance", "education", "other"];
+    const category = text(data.category, 40), issueDate = date(data.issueDate), expiryDate = date(data.expiryDate);
+    if (!category || !categories.includes(category) || issueDate === undefined || expiryDate === undefined || (issueDate && expiryDate && expiryDate < issueDate)) return Response.json({ error: "Category, issue date ও expiry date যাচাই করুন।" }, { status: 400 });
+    return { title, category, owner_name: text(data.ownerName, 180), document_number_masked: text(data.documentNumberMasked, 180), issue_date: issueDate, expiry_date: expiryDate, issuer: text(data.issuer, 220), notes: text(data.notes, 3000) };
+  }
   if (kind === "collection") { if (!canManage) return Response.json({ error: "Family Admin collection edit করবেন।" }, { status: 403 }); const name = text(data.name, 160); if (!name) return Response.json({ error: "Collection name প্রয়োজন।" }, { status: 400 }); return { name, description: text(data.description, 2000), collection_type: choice(data.collectionType, ["album", "heritage", "documents", "property", "time_capsule", "other"] as const, "album"), cover_color: text(data.coverColor, 20) ?? "#153A5B", visibility: choice(data.visibility, ["family", "admins", "private"] as const, "family") }; }
   if (kind === "story") { const title = text(data.title, 180), content = text(data.content, 20000); if (!title || !content) return Response.json({ error: "Story title ও content প্রয়োজন।" }, { status: 400 }); return { title, content, story_date: text(data.storyDate, 10), storyteller: text(data.storyteller, 180), people_tags: tags(data.peopleTags), place: text(data.place, 220), visibility: choice(data.visibility, ["family", "admins"] as const, "family") }; }
   if (kind === "asset") { if (!canManage) return Response.json({ error: "Family Admin asset edit করবেন।" }, { status: 403 }); const title = text(data.title, 180), value = number(data.estimatedValue, 0); if (!title || value === undefined || value < 0) return Response.json({ error: "Asset title ও value সঠিকভাবে দিন।" }, { status: 400 }); return { title, asset_type: choice(data.assetType, ["land", "house", "flat", "vehicle", "business", "investment", "jewelry", "other"] as const, "other"), ownership: text(data.ownership, 300), location: text(data.location, 1000), identifier_masked: text(data.identifierMasked, 180), acquisition_date: text(data.acquisitionDate, 10), estimated_value: value, notes: text(data.notes, 3000), visibility: choice(data.visibility, ["family", "admins"] as const, "admins") }; }
-  const title = text(data.title, 180), message = text(data.message, 20000), unlockAt = text(data.unlockAt, 40); if (!title || !message || !unlockAt || new Date(unlockAt).getTime() <= Date.now() + 60000) return Response.json({ error: "Title, message এবং ভবিষ্যতের unlock time প্রয়োজন।" }, { status: 400 });
-  return { title, message, recipient_names: text(data.recipientNames, 1000), unlock_at: unlockAt, visibility: choice(data.visibility, ["family", "admins"] as const, "family") };
+  const title = text(data.title, 180), message = text(data.message, 20000), unlockAt = text(data.unlockAt, 40);
+  if (!title || !unlockAt || !Number.isFinite(new Date(unlockAt).getTime()) || new Date(unlockAt).getTime() <= Date.now() + 60000) return Response.json({ error: "Title এবং ভবিষ্যতের unlock time প্রয়োজন।" }, { status: 400 });
+  // The GET route deliberately redacts a locked capsule's message. An empty edit field
+  // must preserve that existing secret instead of forcing it back into the client.
+  return { title, ...(message ? { message } : {}), recipient_names: text(data.recipientNames, 1000), unlock_at: unlockAt, visibility: choice(data.visibility, ["family", "admins"] as const, "family") };
 }
 
 async function updateStatus(data: Record<string, unknown>, familyId: string, userId: string, canManage: boolean) {
@@ -98,7 +116,7 @@ async function updateStatus(data: Record<string, unknown>, familyId: string, use
   if (entity === "capsule" && status === "opened" && new Date(String(existing.unlock_at)).getTime() > Date.now()) return Response.json({ error: "Time capsule এখনও locked।" }, { status: 409 });
   const changes: Record<string, unknown> = { status, updated_at: new Date().toISOString() }; if (entity === "capsule" && status === "opened") changes.opened_at = new Date().toISOString();
   const filter = new URLSearchParams({ id: `eq.${id}`, family_id: `eq.${familyId}` }); const [updated] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${filter}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
-  await audit(familyId, userId, `archive_${entity}_${status}`, table, id, String(existing.visibility)); return Response.json({ record: updated });
+  await audit(familyId, userId, `archive_${entity}_${status}`, table, id, String(existing.visibility)); return Response.json({ record: entity === "capsule" ? redactLockedCapsule(updated as Record<string, unknown> & { unlock_at: string; message: string }) : updated });
 }
 
 async function audit(familyId: string, userId: string, action: string, entityType: string, entityId: string, visibility: string) { await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: familyId, actor_user_id: userId, action, entity_type: entityType, entity_id: entityId, metadata: { module: "archives", visibility } }) }); }

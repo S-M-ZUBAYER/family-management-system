@@ -1,4 +1,5 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { redactLockedCapsule } from "@/lib/archive-capsule-privacy";
 import type { ArchiveCollection, ArchiveFile, ArchiveMemory, ArchivePayload, ArchiveStory, FamilyAsset, TimeCapsule, VaultDocument } from "@/lib/archive-types";
 import { canManageArchives, getActiveFamilyMembership } from "@/lib/family-access";
 import { PROFILE_PHOTO_COLLECTION, PROFILE_PHOTO_MARKER } from "@/lib/member-privacy";
@@ -72,7 +73,7 @@ export async function GET() {
       stories: stories.map((item) => ({ ...item, is_mine: item.author_user_id === user.userId })),
       documents: documents.map((item) => ({ ...item, is_mine: item.uploaded_by_user_id === user.userId })),
       assets,
-      capsules: capsules.map((item) => { const unlocked = new Date(item.unlock_at).getTime() <= now || item.status === "opened"; return { ...item, message: unlocked ? item.message : null, is_mine: item.created_by_user_id === user.userId, is_unlocked: unlocked }; }),
+      capsules: capsules.map((item) => { const unlocked = new Date(item.unlock_at).getTime() <= now || item.status === "opened"; return { ...redactLockedCapsule(item, now), is_mine: item.created_by_user_id === user.userId, is_unlocked: unlocked }; }),
       files: files.map((item) => ({ ...item, is_mine: item.uploaded_by_user_id === user.userId })),
       permissions: { canManage }, migrationRequired,
     };
