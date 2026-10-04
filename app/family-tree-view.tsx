@@ -48,6 +48,8 @@ export function FamilyTreeView() {
   const [offset, setOffset] = useState<Point>({ x: 0, y: 0 });
   const [, setFeedback] = useActionFeedback();
   const drag = useRef<{ pointerId: number; x: number; y: number; originX: number; originY: number } | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const treeLayerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -96,16 +98,41 @@ export function FamilyTreeView() {
     return () => { active = false; };
   }, [pick, retryKey, setFeedback]);
 
-  const model = useMemo(() => buildTreeModel(members, relationships), [members, relationships]);
+  const model = useMemo(() => buildTreeModel(members, relationships, viewerMemberId), [members, relationships, viewerMemberId]);
   const path = useMemo(() => findPath(pathStartId, pathEndId, relationships), [pathEndId, pathStartId, relationships]);
   const highlightedNodes = useMemo(() => new Set(path), [path]);
   const pathLabel = useMemo(() => relationshipLabel(pathStartId, pathEndId, path, relationships, members, locale), [locale, members, path, pathEndId, pathStartId, relationships]);
-  const viewerRelations = useMemo(() => new Map(members.map((member) => { const memberPath = findPath(viewerMemberId, member.id, relationships); return [member.id, relationshipLabel(viewerMemberId, member.id, memberPath, relationships, members, locale)]; })), [locale, members, relationships, viewerMemberId]);
+  const viewerRelations = useMemo(() => new Map(members.map((member) => { const memberPath = findPath(viewerMemberId, member.id, relationships); return [member.id, memberPath.length ? relationshipLabel(viewerMemberId, member.id, memberPath, relationships, members, locale) : null] as const; })), [locale, members, relationships, viewerMemberId]);
   const queryNeedle = query.trim().toLowerCase();
-  const matchedIds = useMemo(() => new Set(members
+  const matchedMembers = useMemo(() => members
     .filter((member) => !queryNeedle || [member.name_bn, member.name_en, member.relationship_text, member.occupation]
-      .filter(Boolean).join(" ").toLowerCase().includes(queryNeedle))
-    .map((member) => member.id)), [members, queryNeedle]);
+      .filter(Boolean).join(" ").toLowerCase().includes(queryNeedle)), [members, queryNeedle]);
+  const matchedIds = useMemo(() => new Set(matchedMembers.map((member) => member.id)), [matchedMembers]);
+
+  function focusOnMember(memberId: string) {
+    const viewport = viewportRef.current;
+    const layer = treeLayerRef.current;
+    const card = viewport?.querySelector<HTMLButtonElement>(`button[data-tree-member-id="${memberId}"]`);
+    if (!viewport || !layer || !card) return;
+    const viewportBounds = viewport.getBoundingClientRect();
+    const layerBounds = layer.getBoundingClientRect();
+    const cardBounds = card.getBoundingClientRect();
+    const cardCenterWithinLayer = cardBounds.left + cardBounds.width / 2 - layerBounds.left;
+    setOffset((current) => ({ x: viewportBounds.width / 2 - cardCenterWithinLayer, y: current.y }));
+  }
+
+  useEffect(() => {
+    if (loading || !members.length) return;
+    const focusId = viewerMemberId || model.roots[0]?.id;
+    const viewport = viewportRef.current;
+    if (!focusId || !viewport) return;
+    const observer = new ResizeObserver(() => focusOnMember(focusId));
+    observer.observe(viewport);
+    const frame = requestAnimationFrame(() => focusOnMember(focusId));
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+    // Re-center only when a different member set loads, not on each pan or zoom.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, members, viewerMemberId]);
 
   async function exportTree() {
     setExporting(true);
@@ -142,7 +169,8 @@ export function FamilyTreeView() {
 
   function resetViewport() {
     setScale(0.85);
-    setOffset({ x: 0, y: 0 });
+    setOffset((current) => ({ ...current, y: 0 }));
+    requestAnimationFrame(() => focusOnMember(viewerMemberId || model.roots[0]?.id || ""));
   }
 
   function pointerDown(event: React.PointerEvent<HTMLDivElement>) {
@@ -176,6 +204,8 @@ export function FamilyTreeView() {
       <div className="flex flex-wrap gap-2"><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={pick("সদস্য খুঁজুন", "Search members")} className="w-56 rounded-xl pl-9" /></div><Button variant="outline" className="gap-2 rounded-xl" disabled={!members.length || exporting} onClick={() => void exportTree()}>{exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} XLSX</Button></div>
     </section>
 
+    {queryNeedle ? <section className="rounded-2xl border bg-card p-3" aria-live="polite"><p className="mb-2 text-sm text-muted-foreground">{matchedMembers.length ? pick(`${matchedMembers.length.toLocaleString("bn-BD")} জন সদস্য পাওয়া গেছে`, `${matchedMembers.length.toLocaleString("en-US")} members found`) : pick("কোনো সদস্য পাওয়া যায়নি", "No members found")}</p>{matchedMembers.length ? <div className="flex flex-wrap gap-2">{matchedMembers.slice(0, 8).map((member) => <Button key={member.id} type="button" size="sm" variant="outline" className="rounded-xl" onClick={() => setSelected(member)}>{locale === "en" ? member.name_en || member.name_bn : member.name_bn}</Button>)}{matchedMembers.length > 8 ? <span className="self-center text-xs text-muted-foreground">{pick("আরও ফলের জন্য অনুসন্ধান নির্দিষ্ট করুন", "Refine search for more results")}</span> : null}</div> : null}</section> : null}
+
     {migrationRequired ? <div className="rounded-2xl border border-amber-500/30 bg-amber-500/8 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">{pick("Relationship migration এখনও apply হয়নি। Member card দেখা যাবে, কিন্তু parent-child connection migration-এর পরে সক্রিয় হবে।", "The relationship migration has not been applied yet. Member cards remain visible, but parent-child connections activate after the migration.")}</div> : null}
 
     <Card className="rounded-3xl border-border/75 py-0 shadow-none"><CardContent className="grid gap-4 p-4 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
@@ -186,16 +216,16 @@ export function FamilyTreeView() {
 
     <Card className="overflow-hidden rounded-3xl border-border/75 py-0 shadow-none">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-4 py-3"><div className="flex items-center gap-2 text-sm text-muted-foreground"><Move className="size-4" /> {pick("খালি জায়গা drag করে pan করুন · card click করলে বিস্তারিত", "Drag empty space to pan · click a card for details")}</div><div className="flex items-center gap-1"><Button size="icon-sm" variant="outline" aria-label={pick("Zoom কমান", "Zoom out")} onClick={() => setScale((value) => Math.max(scaleMin, Number((value - 0.1).toFixed(2))))}><Minus /></Button><span className="min-w-14 text-center text-xs font-semibold">{Math.round(scale * 100)}%</span><Button size="icon-sm" variant="outline" aria-label={pick("Zoom বাড়ান", "Zoom in")} onClick={() => setScale((value) => Math.min(scaleMax, Number((value + 0.1).toFixed(2))))}><Plus /></Button><Button size="icon-sm" variant="outline" aria-label={pick("Tree view reset করুন", "Reset tree view")} onClick={resetViewport}><LocateFixed /></Button></div></div>
-      <div className="relative min-h-[620px] touch-none cursor-grab overflow-hidden bg-[radial-gradient(circle_at_1px_1px,var(--border)_1px,transparent_0)] bg-[size:24px_24px] active:cursor-grabbing" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp}>
-        {loading ? <div className="absolute inset-0 flex items-center justify-center gap-3 text-muted-foreground"><LoaderCircle className="size-5 animate-spin" /> {pick("Family tree লোড হচ্ছে", "Loading family tree")}</div> : !members.length ? <div className="absolute inset-0 flex flex-col items-center justify-center text-center"><Users className="size-11 text-muted-foreground/45" /><h2 className="mt-4 text-xl font-bold">{pick("Tree শুরু করার মতো সদস্য নেই", "No members available to start the tree")}</h2><p className="mt-1 text-sm text-muted-foreground">{pick("Directory থেকে প্রথম member profile যোগ করুন।", "Add the first member profile from the Directory.")}</p><Button asChild className="mt-5 rounded-xl"><a href="/directory">{pick("সদস্য ডিরেক্টরি খুলুন", "Open member directory")}</a></Button></div> : <div className="absolute left-1/2 top-12 origin-top transition-transform duration-150" style={{ transform: `translate(calc(-50% + ${offset.x}px), ${offset.y}px) scale(${scale})` }}><div className="flex min-w-max items-start justify-center gap-14 px-12 pb-24">{model.roots.map((root) => <TreeBranch key={root.id} member={root} childrenByParent={model.childrenByParent} highlightedNodes={highlightedNodes} matchedIds={matchedIds} queryActive={Boolean(queryNeedle)} onSelect={setSelected} visited={new Set()} viewerRelations={viewerRelations} viewerMemberId={viewerMemberId} />)}</div></div>}
+      <div ref={viewportRef} className="relative min-h-[620px] touch-none cursor-grab overflow-hidden bg-[radial-gradient(circle_at_1px_1px,var(--border)_1px,transparent_0)] bg-[size:24px_24px] active:cursor-grabbing" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp}>
+        {loading ? <div className="absolute inset-0 flex items-center justify-center gap-3 text-muted-foreground"><LoaderCircle className="size-5 animate-spin" /> {pick("Family tree লোড হচ্ছে", "Loading family tree")}</div> : !members.length ? <div className="absolute inset-0 flex flex-col items-center justify-center text-center"><Users className="size-11 text-muted-foreground/45" /><h2 className="mt-4 text-xl font-bold">{pick("Tree শুরু করার মতো সদস্য নেই", "No members available to start the tree")}</h2><p className="mt-1 text-sm text-muted-foreground">{pick("Directory থেকে প্রথম member profile যোগ করুন।", "Add the first member profile from the Directory.")}</p><Button asChild className="mt-5 rounded-xl"><a href="/directory">{pick("সদস্য ডিরেক্টরি খুলুন", "Open member directory")}</a></Button></div> : <div ref={treeLayerRef} className="absolute left-0 top-12 origin-top-left" style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}><div className="flex min-w-max items-start gap-14 px-12 pb-24">{model.roots.map((root) => <TreeBranch key={root.id} member={root} childrenByParent={model.childrenByParent} highlightedNodes={highlightedNodes} matchedIds={matchedIds} queryActive={Boolean(queryNeedle)} onSelect={setSelected} visited={new Set()} viewerRelations={viewerRelations} viewerMemberId={viewerMemberId} />)}</div></div>}
       </div>
     </Card>
 
-    <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}><DialogContent className="rounded-3xl sm:max-w-lg"><DialogHeader><DialogTitle>{locale === "en" ? selected?.name_en || selected?.name_bn : selected?.name_bn}</DialogTitle><DialogDescription>{locale === "bn" ? selected?.name_en || "ফ্যামিলি সদস্যের profile" : selected?.name_bn || "Family member profile"}</DialogDescription></DialogHeader>{selected ? <div className="grid grid-cols-[120px_1fr] gap-x-4 gap-y-3 rounded-2xl bg-muted/45 p-5 text-sm"><span className="text-muted-foreground">{pick("আমার সাথে", "Relation to me")}</span><strong>{viewerMemberId ? viewerRelations.get(selected.id) ?? pick("Connection পাওয়া যায়নি", "No connection found") : pick("নিজের member profile link করা নেই", "Your member profile is not linked")}</strong><span className="text-muted-foreground">{pick("পরিবারে পরিচয়", "Family identity")}</span><strong>{selected.relationship_text || "—"}</strong><span className="text-muted-foreground">{pick("প্রজন্ম", "Generation")}</span><strong>{Number((model.levels.get(selected.id) ?? 0) + 1).toLocaleString(locale === "bn" ? "bn-BD" : "en-US")}</strong><span className="text-muted-foreground">{pick("জন্মতারিখ", "Date of birth")}</span><strong>{selected.date_of_birth || "—"}</strong><span className="text-muted-foreground">{pick("রক্তের গ্রুপ", "Blood group")}</span><strong>{selected.blood_group || "—"}</strong><span className="text-muted-foreground">{pick("পেশা", "Occupation")}</span><strong>{selected.occupation || "—"}</strong><span className="text-muted-foreground">{pick("অবস্থান", "Location")}</span><strong>{[selected.city, selected.country].filter(Boolean).join(", ") || "—"}</strong></div> : null}</DialogContent></Dialog>
+    <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}><DialogContent className="rounded-3xl sm:max-w-lg"><DialogHeader><DialogTitle>{locale === "en" ? selected?.name_en || selected?.name_bn : selected?.name_bn}</DialogTitle><DialogDescription>{locale === "bn" ? selected?.name_en || "ফ্যামিলি সদস্যের profile" : selected?.name_bn || "Family member profile"}</DialogDescription></DialogHeader>{selected ? <div className="grid grid-cols-[120px_1fr] gap-x-4 gap-y-3 rounded-2xl bg-muted/45 p-5 text-sm"><span className="text-muted-foreground">{pick("আমার সাথে", "Relation to me")}</span><strong>{viewerMemberId ? viewerRelations.get(selected.id) ?? pick("সম্পর্ক জানা যায়নি", "Connection unknown") : pick("নিজের member profile link করা নেই", "Your member profile is not linked")}</strong><span className="text-muted-foreground">{pick("পরিবারে পরিচয়", "Family identity")}</span><strong>{selected.relationship_text || "—"}</strong><span className="text-muted-foreground">{pick("প্রজন্ম", "Generation")}</span><strong>{Number((model.levels.get(selected.id) ?? 0) + 1).toLocaleString(locale === "bn" ? "bn-BD" : "en-US")}</strong><span className="text-muted-foreground">{pick("জন্মতারিখ", "Date of birth")}</span><strong>{selected.date_of_birth || "—"}</strong><span className="text-muted-foreground">{pick("রক্তের গ্রুপ", "Blood group")}</span><strong>{selected.blood_group || "—"}</strong><span className="text-muted-foreground">{pick("পেশা", "Occupation")}</span><strong>{selected.occupation || "—"}</strong><span className="text-muted-foreground">{pick("অবস্থান", "Location")}</span><strong>{[selected.city, selected.country].filter(Boolean).join(", ") || "—"}</strong></div> : null}</DialogContent></Dialog>
   </main>;
 }
 
-function TreeBranch({ member, childrenByParent, highlightedNodes, matchedIds, queryActive, onSelect, visited, viewerRelations, viewerMemberId }: { member: FamilyMember; childrenByParent: Map<string, FamilyMember[]>; highlightedNodes: Set<string>; matchedIds: Set<string>; queryActive: boolean; onSelect: (member: FamilyMember) => void; visited: Set<string>; viewerRelations: Map<string, string>; viewerMemberId: string }) {
+function TreeBranch({ member, childrenByParent, highlightedNodes, matchedIds, queryActive, onSelect, visited, viewerRelations, viewerMemberId }: { member: FamilyMember; childrenByParent: Map<string, FamilyMember[]>; highlightedNodes: Set<string>; matchedIds: Set<string>; queryActive: boolean; onSelect: (member: FamilyMember) => void; visited: Set<string>; viewerRelations: Map<string, string | null>; viewerMemberId: string }) {
   const { locale, pick } = useLocale();
   const nextVisited = new Set(visited);
   const repeated = nextVisited.has(member.id);
@@ -203,10 +233,10 @@ function TreeBranch({ member, childrenByParent, highlightedNodes, matchedIds, qu
   const children = repeated ? [] : childrenByParent.get(member.id) ?? [];
   const highlighted = highlightedNodes.has(member.id);
   const match = matchedIds.has(member.id);
-  return <div className="flex flex-col items-center"><button type="button" onClick={() => onSelect(member)} className={`w-52 rounded-2xl border bg-card p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${highlighted ? "border-primary bg-primary/8 ring-4 ring-primary/10" : "border-border"} ${queryActive && !match ? "opacity-30 grayscale" : "opacity-100"}`}><div className="flex items-center gap-3"><Avatar className="size-11">{member.profile_photo_file_id ? <AvatarImage src={`/api/archive-file/${member.profile_photo_file_id}`} alt={member.name_bn} className="object-cover" /> : null}<AvatarFallback className="bg-primary/10 font-bold text-primary">{member.name_bn.slice(0, 2)}</AvatarFallback></Avatar><div className="min-w-0"><p className="truncate font-bold">{locale === "en" ? member.name_en || member.name_bn : member.name_bn}</p><p className="truncate text-xs text-muted-foreground">{locale === "en" ? member.name_bn : member.name_en || member.occupation || pick("পরিবারের সদস্য", "Family member")}</p></div></div><div className="mt-3 flex flex-wrap gap-1.5">{viewerMemberId ? <Badge variant={member.id === viewerMemberId ? "secondary" : "outline"} className="max-w-full truncate">{member.id === viewerMemberId ? pick("আমার profile", "My profile") : pick(`আমার ${viewerRelations.get(member.id) ?? "আত্মীয়"}`, `My ${viewerRelations.get(member.id) ?? "relative"}`)}</Badge> : member.relationship_text ? <Badge variant="outline" className="max-w-full truncate">{member.relationship_text}</Badge> : null}{member.blood_group ? <Badge variant="secondary">{member.blood_group}</Badge> : null}</div></button>{children.length ? <><div className={`h-7 border-l ${highlighted ? "border-primary" : "border-border"}`} /><div className={`flex items-start gap-6 border-t pt-7 ${highlighted ? "border-primary" : "border-border"}`}>{children.map((child) => <div key={child.id} className="relative before:absolute before:-top-7 before:left-1/2 before:h-7 before:border-l before:border-border"><TreeBranch member={child} childrenByParent={childrenByParent} highlightedNodes={highlightedNodes} matchedIds={matchedIds} queryActive={queryActive} onSelect={onSelect} visited={nextVisited} viewerRelations={viewerRelations} viewerMemberId={viewerMemberId} /></div>)}</div></> : null}</div>;
+  return <div className="flex flex-col items-center"><button type="button" data-tree-member-id={member.id} onClick={() => onSelect(member)} className={`w-52 rounded-2xl border bg-card p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${highlighted ? "border-primary bg-primary/8 ring-4 ring-primary/10" : "border-border"} ${queryActive && !match ? "opacity-30 grayscale" : "opacity-100"}`}><div className="flex items-center gap-3"><Avatar className="size-11">{member.profile_photo_file_id ? <AvatarImage src={`/api/archive-file/${member.profile_photo_file_id}`} alt={member.name_bn} className="object-cover" /> : null}<AvatarFallback className="bg-primary/10 font-bold text-primary">{member.name_bn.slice(0, 2)}</AvatarFallback></Avatar><div className="min-w-0"><p className="truncate font-bold">{locale === "en" ? member.name_en || member.name_bn : member.name_bn}</p><p className="truncate text-xs text-muted-foreground">{locale === "en" ? member.name_bn : member.name_en || member.occupation || pick("পরিবারের সদস্য", "Family member")}</p></div></div><div className="mt-3 flex flex-wrap gap-1.5">{viewerMemberId ? <Badge variant={member.id === viewerMemberId ? "secondary" : "outline"} className="max-w-full truncate">{member.id === viewerMemberId ? pick("আমার profile", "My profile") : viewerRelations.get(member.id) ? pick(`আমার ${viewerRelations.get(member.id)}`, `My ${viewerRelations.get(member.id)}`) : pick("সম্পর্ক জানা যায়নি", "Connection unknown")}</Badge> : member.relationship_text ? <Badge variant="outline" className="max-w-full truncate">{member.relationship_text}</Badge> : null}{member.blood_group ? <Badge variant="secondary">{member.blood_group}</Badge> : null}</div></button>{children.length ? <><div className={`h-7 border-l ${highlighted ? "border-primary" : "border-border"}`} /><div className={`flex items-start gap-6 border-t pt-7 ${highlighted ? "border-primary" : "border-border"}`}>{children.map((child) => <div key={child.id} className="relative before:absolute before:-top-7 before:left-1/2 before:h-7 before:border-l before:border-border"><TreeBranch member={child} childrenByParent={childrenByParent} highlightedNodes={highlightedNodes} matchedIds={matchedIds} queryActive={queryActive} onSelect={onSelect} visited={nextVisited} viewerRelations={viewerRelations} viewerMemberId={viewerMemberId} /></div>)}</div></> : null}</div>;
 }
 
-function buildTreeModel(members: FamilyMember[], relationships: FamilyRelationship[]) {
+function buildTreeModel(members: FamilyMember[], relationships: FamilyRelationship[], viewerMemberId: string) {
   const byId = new Map(members.map((member) => [member.id, member]));
   const parentEdges = relationships.filter((item) => item.relationship_type === "parent" && byId.has(item.from_member_id) && byId.has(item.to_member_id));
   const primaryParent = new Map<string, string>();
@@ -214,7 +244,14 @@ function buildTreeModel(members: FamilyMember[], relationships: FamilyRelationsh
   const childrenByParent = new Map<string, FamilyMember[]>();
   primaryParent.forEach((parentId, childId) => { const child = byId.get(childId); if (child) childrenByParent.set(parentId, [...(childrenByParent.get(parentId) ?? []), child]); });
   const roots = members.filter((member) => !primaryParent.has(member.id));
-  const safeRoots = roots.length ? roots : members;
+  const safeRoots = roots.length ? roots : [...members];
+  let focusRootId = viewerMemberId;
+  const seen = new Set<string>();
+  while (primaryParent.has(focusRootId) && !seen.has(focusRootId)) {
+    seen.add(focusRootId);
+    focusRootId = primaryParent.get(focusRootId) ?? focusRootId;
+  }
+  safeRoots.sort((a, b) => Number(b.id === focusRootId) - Number(a.id === focusRootId));
   const levels = new Map<string, number>();
   const queue = safeRoots.map((member) => ({ id: member.id, level: 0 }));
   while (queue.length) { const current = queue.shift(); if (!current || levels.has(current.id)) continue; levels.set(current.id, current.level); (childrenByParent.get(current.id) ?? []).forEach((child) => queue.push({ id: child.id, level: current.level + 1 })); }
