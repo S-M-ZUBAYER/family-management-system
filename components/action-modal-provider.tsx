@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { useLocale, type AppLocale } from "@/components/locale-provider";
 import { feedbackResult, mutationResponseResult, repeatsMutationFeedback, resultTitleForLocale, type ResultState } from "@/lib/action-feedback";
 import { householdActionCopy } from "@/lib/household-action-copy";
+import { welfareActionCopy } from "@/lib/welfare-action-copy";
 import { qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "@/lib/qurbani-action-copy";
 import {
   Dialog,
@@ -210,6 +211,10 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
     const householdCopy = householdActionCopy(body, method, locale);
     if (householdCopy) return householdCopy;
   }
+  if (pathname === "/api/welfare/records") {
+    const welfareCopy = welfareActionCopy(body, method, locale);
+    if (welfareCopy) return welfareCopy;
+  }
 
   const nested = typeof body.data === "object" && body.data ? body.data as Record<string, unknown> : {};
   const decision = typeof body.decision === "string" ? body.decision : "";
@@ -352,7 +357,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
       try {
         const response = await originalFetch(input, init);
         if (mounted.current) {
-          const message = response.ok && ["/api/qurbani/records", "/api/household/records"].includes(url.pathname)
+          const message = response.ok && response.status !== 202 && ["/api/qurbani/records", "/api/household/records", "/api/welfare/records"].includes(url.pathname)
             ? copy.successMessage
             : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."));
           const nextResult = mutationResponseResult(response.status, message, locale);

@@ -1,12 +1,14 @@
 # Family Management System — Project Handoff
 
-Last updated: 2026-10-03 (Asia/Dhaka)
+Last updated: 2026-10-04 (Asia/Dhaka)
 
 This file is the authoritative handoff for continuing the project from another Codex account. Read it completely before changing or deploying anything.
 
 This is a **source-code handoff, not a claim that the whole product is finished**. "Implemented locally" means code exists in this checkout; "applied" means a database change was previously checked; "live" means the deployed Site was independently checked. Those states must not be treated as interchangeable. The verification statements below are dated snapshots, so the next account must recheck them.
 
 ## Immediate continuation status
+
+- **2026-10-04 Welfare local acceptance:** In the Nojir family, a QA pledge was created/edited/paused/resumed; a QA assistance request was created/edited/reviewed/approved; and a QA expense was created/edited/approved. With zero fund balance, disbursement and payment both failed safely and left records approved, not paid. The pledge date-input reversion and generic mutation-dialog copy were fixed. Both actual BN/EN XLSX downloads were opened and checked across 6 sheets; empty Documents headers and numeric amounts now survive. These QA pledge/request/expense rows remain; do not delete them without fresh, specific confirmation. The user also explicitly requested that `QA Utility Bill 2026-10-03` remain. Lint, typecheck, security/cancellation/i18n audits, focused tests, and production build pass. **This is not a hosted Site deployment or full two-user/positive-balance financial acceptance.** See `QA_ACCEPTANCE_2026-10-04.md` and `QA_ROUTE_MATRIX.md`.
 
 - **2026-10-03 Qurbani payment UI acceptance (local only):** Local production-backed QA campaign was tested end-to-end after the payment-sync migration. Unlinked share payment returned the expected error modal; a linked ৳200.50 collection, edit to ৳250.75, and ৳50.25 refund updated participant paid and ledger paid together with zero mismatch after reload. A two-tab stale participant form did not overwrite a newer payment balance. The owner explicitly approved cleanup of only the three new QA records; refund, collection, then participant were permanently deleted with confirmations. Reload showed zero shares, zero ledger entries and zero balance; the existing QA campaign/animal remain. Initial page load briefly failed, then Retry succeeded; no root cause was established. This is not a deployed Site or true two-database-session concurrency acceptance. See `QA_ACCEPTANCE_2026-10-03.md`.
 
