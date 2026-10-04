@@ -29,6 +29,7 @@
     "test:member-action-copy": "node scripts/test-member-action-copy.mjs",
     "test:member-request-action-copy": "node scripts/test-member-request-action-copy.mjs",
     "test:notice-action-copy": "node scripts/test-notice-action-copy.mjs",
+    "test:event-action-copy": "node scripts/test-event-action-copy.mjs",
     "test:archive-export-headers": "node scripts/test-archive-export-headers.mjs",
     "test:household-export-headers": "node scripts/test-household-export-headers.mjs",
     "test:qurbani-validation": "node scripts/test-qurbani-validation.mjs",
