@@ -22,6 +22,7 @@ import { householdActionCopy } from "@/lib/household-action-copy";
 import { welfareActionCopy } from "@/lib/welfare-action-copy";
 import { archiveActionCopy, archiveFileDeleteActionCopy, archiveUploadActionCopy } from "@/lib/archive-action-copy";
 import { memberActionCopy, memberActionResult } from "@/lib/member-action-copy";
+import { memberRequestActionCopy } from "@/lib/member-request-action-copy";
 import { qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "@/lib/qurbani-action-copy";
 import {
   Dialog,
@@ -230,6 +231,10 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
   if (pathname === "/api/members" || pathname === "/api/members/photo") {
     const memberCopy = memberActionCopy(pathname, method, body, locale);
     if (memberCopy) return memberCopy;
+  }
+  if (pathname.startsWith("/api/member-requests/")) {
+    const requestCopy = memberRequestActionCopy(pathname, method, body, locale);
+    if (requestCopy) return requestCopy;
   }
 
   const nested = typeof body.data === "object" && body.data ? body.data as Record<string, unknown> : {};
