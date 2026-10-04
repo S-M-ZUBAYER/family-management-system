@@ -4,6 +4,8 @@ Last updated: 2026-10-04 (Asia/Dhaka)
 
 This file is the authoritative handoff for continuing the project from another Codex account. Read it completely before changing or deploying anything.
 
+**Current entry point:** read `NEXT_ACCOUNT_HANDOFF.md` first. The older copy-paste prompt and dirty-tree/SQL status snapshots later in this long file are historical, not the current checkout state. The latest verified source commit before this handoff update was `5fbd69d`, pushed to `origin/main`; `/family-tree` local QA is recorded in `QA_ACCEPTANCE_2026-10-04.md`, and `/members` is the next open route.
+
 This is a **source-code handoff, not a claim that the whole product is finished**. "Implemented locally" means code exists in this checkout; "applied" means a database change was previously checked; "live" means the deployed Site was independently checked. Those states must not be treated as interchangeable. The verification statements below are dated snapshots, so the next account must recheck them.
 
 ## Immediate continuation status

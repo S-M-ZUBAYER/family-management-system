@@ -2,7 +2,7 @@
 
 A bilingual (বাংলা/English), multi-family web application for family records and day-to-day coordination. The first family is Sheikh Monsuf Family, but the application is designed so each registered family has its own workspace and approval process.
 
-> **Project status:** This is an active, partially tested project—not a finished or newly deployed release. Code in this checkout, database migrations applied to Supabase, and the version currently hosted on Sites may differ. Read [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) and [the latest local QA log](QA_ACCEPTANCE_2026-10-03.md) before continuing or deploying.
+> **Project status:** This is an active, partially tested project—not a finished or newly deployed release. Code in this checkout, database migrations applied to Supabase, and the version currently hosted on Sites may differ. Start with [NEXT_ACCOUNT_HANDOFF.md](NEXT_ACCOUNT_HANDOFF.md), then [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) and [the latest local QA log](QA_ACCEPTANCE_2026-10-04.md) before continuing or deploying.
 
 ## What is in the application
 
