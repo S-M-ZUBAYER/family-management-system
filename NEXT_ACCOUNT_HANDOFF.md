@@ -1,12 +1,12 @@
 # Continue this project from another account
 
-Snapshot: 2026-10-04 (Asia/Dhaka). This is the current entry point; older dated sections of `PROJECT_HANDOFF.md` are history and may describe work that was later completed or superseded. Recheck facts before acting.
+Snapshot: 2026-10-05 (Asia/Dhaka). This is the current entry point; older dated sections of `PROJECT_HANDOFF.md` are history and may describe work that was later completed or superseded. Recheck facts before acting.
 
 ## Open the existing checkout
 
 - Folder: `C:\Personal project\family-management-system`
 - GitHub: `https://github.com/S-M-ZUBAYER/family-management-system.git`
-- Run `git status -sb` and `git log -1 --oneline` for the newest checkpoint; preserve any user edits. The last confirmed prior checkpoint was `/notices` at `b876496` before the `/events` work.
+- Run `git status -sb` and `git log -1 --oneline` for the newest checkpoint; preserve any user edits. The last pushed checkpoint before the `/magazine` continuation was `5d9df68`.
 - `.env.local` exists locally. Never print, paste, commit, or send its Supabase secret. It is not in GitHub, so a different PC needs a separately configured local environment.
 - Local development: from this folder run `npm.cmd run dev`, then open `http://localhost:5173/signin-with-chatgpt?return_to=/` if a local sign-in is needed. A prior browser was signed in as the Nojir family owner; a new account/browser session may need to sign in again.
 
@@ -16,14 +16,16 @@ Snapshot: 2026-10-04 (Asia/Dhaka). This is the current entry point; older dated 
 2. `PROJECT_HANDOFF.md` for the long technical history; use the newest dated entry over an older contradictory statement. Its old copy-paste prompt near the bottom is a historical snapshot, not the current starting state.
 3. `QA_ROUTE_MATRIX.md` for observed versus untested route coverage.
 4. `QA_ACCEPTANCE_2026-10-04.md` and `QA_ACCEPTANCE_2026-10-03.md` for actual local browser/database evidence and retained QA fixtures.
-5. `supabase/README.md` before any SQL action. Read-only audit first; never rerun all migrations or reset tables just because files exist.
+5. `QA_ACCEPTANCE_2026-10-05.md` for the newest Magazine browser/export evidence.
+6. `supabase/README.md` before any SQL action. Read-only audit first; never rerun all migrations or reset tables just because files exist.
 
 ## Exact current boundary
 
-- The newest interactively observed slice is `/events`. In the Sheikh owner workspace, one synthetic bilingual QA event was created with local-time schedule and decimal BDT amounts. RSVP, discussion comment, image upload/authenticated read/delete, cancelled and confirmed event edit, and registration close/reopen were observed. The QA event remains `published` with one RSVP and comment. BN/EN four-sheet XLSX downloads were opened and checked. Event confirmation/results now describe the action; the form exposes English details and two-decimal amounts. See `QA_ACCEPTANCE_2026-10-04.md` for exact fixture ID, evidence and gaps. The original Bengali preference was restored; dark mode was not changed.
+- The newest interactively observed slice is `/magazine`. In the Sheikh owner workspace, a synthetic QA draft and cover were created, read, published, liked, commented, archived, and then permanently deleted with canceled-delete/no-write checks. The old cover URL returned 404. The Bengali three-sheet XLSX was opened; empty Comments headers are now complete. Action-specific bilingual confirmation copy and duplicate-success cleanup were added. No QA Magazine record remains. See `QA_ACCEPTANCE_2026-10-05.md` for exact evidence and gaps.
+- The previous `/events` QA fixture remains `published` with its RSVP and comment. See `QA_ACCEPTANCE_2026-10-04.md` for exact fixture ID and incomplete branches.
 - `/notices` remains **Partial**: its synthetic draft remains unpublished and unpinned; do not delete it without a target-specific decision. See `QA_ACCEPTANCE_2026-10-04.md`.
 - `/members` remains **Partial**, not accepted: real separate-account request → approve/reject/suspend, nonempty XLSX, and family/role isolation remain. Its owner-browser continuation was committed as `264f0e3`. The QA browser is named `family-management-local-qa`; its `family-notices-qa` session was closed after this slice. A single owner browser or local mock identity cannot prove a second user's permissions.
-- Continue next with `/magazine` or another **Partial** route from `QA_ROUTE_MATRIX.md`. For `/events`, actual event hard-delete, terminal status branches, real roles/tenant isolation, nonempty media export, large XLSX and hosted Site remain. Do not call the whole product complete based on this route.
+- Continue next with `/qurbani` or another **Partial** route from `QA_ROUTE_MATRIX.md`. For `/magazine`, English/nonempty-comment XLSX, edit/featured/review branches, real roles/tenant isolation, large export and hosted Site remain. Do not call the whole product complete based on one route.
 - There are many other partially accepted routes. Continue one section at a time using `QA_ROUTE_MATRIX.md`; do not report the whole product complete merely because a build succeeds.
 - The owner explicitly asked to **keep** the Nojir `QA Member` → `QA Member Two Edited` parent-child relationship and `QA Utility Bill 2026-10-03`. Other QA records/files noted in the acceptance logs also remain. Do not delete or rewrite retained fixtures, production tables, financial history, or files without a fresh, target-specific authorization.
 - Production Supabase project: `olqwsnttottqitookfck`. Separate staging project: `irqomyhxdpxrmfqiyxld`. SQL files were previously run manually in Supabase SQL Editor, so Git-style migration history does not prove installation. Verify installed schema/functions with the read-only audit before any correction. Do not expose database credentials in chat.

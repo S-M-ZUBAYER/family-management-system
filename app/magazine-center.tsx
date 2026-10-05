@@ -76,15 +76,61 @@ export function MagazineCenter() {
       if (editingId) { const response = await fetch("/api/magazine/records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ articleId: editingId, data: form }) }); if (response.status === 499) return; const payload = await response.json() as { error?: string }; if (!response.ok) throw new Error(payload.error ?? pick("লেখাটি update হয়নি।", "The article could not be updated.")); }
       else { const created = await post("create_article", form); if (!created) return; articleId = created.id ?? null; }
       if (coverFile && articleId) { const body = new FormData(); body.set("articleId", articleId); body.set("file", coverFile); const response = await fetch("/api/magazine/upload", { method: "POST", body }); if (response.status === 499) { setEditingId(articleId); await load(); setFeedback(pick("লেখাটি সংরক্ষিত হয়েছে, কিন্তু কভার আপলোড বাতিল করা হয়েছে।", "The article was saved, but the cover upload was cancelled.")); return; } const payload = await response.json() as { error?: string }; if (!response.ok) throw new Error(payload.error ?? pick("Cover upload হয়নি।", "The cover could not be uploaded.")); }
-      setComposeOpen(false); setEditingId(null); setCoverFile(null); await load(); setFeedback(editingId ? pick("লেখাটি update হয়েছে।", "Article updated.") : form.publishNow === "true" ? pick("লেখাটি প্রকাশিত হয়েছে।", "Article published.") : form.saveDraft === "true" ? pick("খসড়া সংরক্ষিত হয়েছে।", "Draft saved.") : pick("লেখাটি যাচাইয়ের জন্য জমা হয়েছে।", "Article submitted for review."));
+      setComposeOpen(false); setEditingId(null); setCoverFile(null); await load();
     } catch (error) { setFeedback(error instanceof Error ? error.message : pick("লেখাটি সংরক্ষণ হয়নি।", "The article could not be saved.")); } finally { setSaving(false); }
   }
-  async function status(article: MagazineArticle, next: string, featured?: boolean) { setSaving(true); try { if (!(await post("set_status", { articleId: article.id, status: next, ...(featured === undefined ? {} : { featured }) }))) return; await load(); setFeedback(featured === true ? pick("লেখাটি featured হয়েছে।", "Article featured.") : featured === false ? pick("লেখাটি featured তালিকা থেকে সরানো হয়েছে।", "Article removed from featured.") : pick(`লেখাটির অবস্থা ${statusLabel(next, locale)} হয়েছে।`, `Article status changed to ${statusLabel(next, locale)}.`)); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("অবস্থা update হয়নি।", "Status could not be updated.")); } finally { setSaving(false); } }
-  async function removeArticle(article: MagazineArticle) { setSaving(true); try { const response = await fetch("/api/magazine/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "article", recordId: article.id }) }); if (response.status === 499) return; const payload = await response.json() as { error?: string; message?: string }; if (!response.ok) throw new Error(payload.error ?? pick("মুছে ফেলা যায়নি।", "Could not delete the article.")); if (selectedId === article.id) setSelectedId(null); await load(); setFeedback(payload.message ?? pick("লেখাটি মুছে ফেলা হয়েছে।", "Article deleted.")); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("মুছে ফেলা যায়নি।", "Could not delete the article.")); } finally { setSaving(false); } }
+  async function status(article: MagazineArticle, next: string, featured?: boolean) { setSaving(true); try { if (!(await post("set_status", { articleId: article.id, status: next, ...(featured === undefined ? {} : { featured }) }))) return; await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("অবস্থা update হয়নি।", "Status could not be updated.")); } finally { setSaving(false); } }
+  async function removeArticle(article: MagazineArticle) { setSaving(true); try { const response = await fetch("/api/magazine/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "article", recordId: article.id }) }); if (response.status === 499) return; const payload = await response.json() as { error?: string; message?: string }; if (!response.ok) throw new Error(payload.error ?? pick("মুছে ফেলা যায়নি।", "Could not delete the article.")); if (selectedId === article.id) setSelectedId(null); await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("মুছে ফেলা যায়নি।", "Could not delete the article.")); } finally { setSaving(false); } }
   async function toggleLike(articleId: string) { setSaving(true); try { if (!(await post("toggle_like", { articleId }))) return; await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("পছন্দের অবস্থা update হয়নি।", "Like status could not be updated.")); } finally { setSaving(false); } }
-  async function addComment() { if (!selected || !commentDraft.trim()) return; setSaving(true); try { if (!(await post("add_comment", { articleId: selected.id, body: commentDraft }))) return; setCommentDraft(""); await load(); setFeedback(pick("মন্তব্য যোগ হয়েছে।", "Comment added.")); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("মন্তব্য যোগ হয়নি।", "Comment could not be added.")); } finally { setSaving(false); } }
-  async function removeComment(id: string) { setSaving(true); try { const response = await fetch("/api/magazine/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "comment", recordId: id }) }); if (response.status === 499) return; const payload = await response.json() as { error?: string }; if (!response.ok) throw new Error(payload.error ?? pick("মন্তব্য মুছে ফেলা যায়নি।", "Comment could not be deleted.")); await load(); setFeedback(pick("মন্তব্য মুছে ফেলা হয়েছে।", "Comment deleted.")); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("মন্তব্য মুছে ফেলা যায়নি।", "Comment could not be deleted.")); } finally { setSaving(false); } }
-  async function exportXlsx() { setExporting(true); try { const XLSX = await import("xlsx"), book = XLSX.utils.book_new(); const add = (name: string, rows: Array<Record<string, unknown>>) => XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(rows.length ? rows : [{ [pick("বার্তা", "Message")]: pick("কোনো রেকর্ড নেই", "No records") }]), name); add(pick("লেখা", "Articles"), articles.map((item) => ({ [pick("শিরোনাম", "Title")]: item.title, [pick("বিভাগ", "Category")]: categoryLabels[item.category], [pick("সারাংশ", "Summary")]: item.summary ?? "", Tags: item.tags.join(", "), [pick("অবস্থা", "Status")]: statusLabel(item.status, locale), Featured: item.featured ? pick("হ্যাঁ", "Yes") : pick("না", "No"), [pick("দৃশ্যমানতা", "Visibility")]: item.visibility, [pick("লেখক", "Author")]: item.author_name, Likes: item.reaction_count, [pick("মন্তব্য", "Comments")]: item.comment_count, [pick("প্রকাশের সময়", "Published")]: item.published_at ?? "", [pick("বিষয়বস্তু", "Content")]: item.content }))); add(pick("মন্তব্য", "Comments"), comments.map((item) => ({ [pick("লেখা", "Article")]: articles.find((article) => article.id === item.article_id)?.title ?? pick("লেখা", "Article"), [pick("লেখক", "Author")]: item.author_name, [pick("মন্তব্য", "Comment")]: item.body, [pick("অবস্থা", "Status")]: item.status, [pick("তৈরির সময়", "Created")]: item.created_at }))); add(pick("মিডিয়া তালিকা", "Media Index"), media.map((item) => ({ [pick("লেখা", "Article")]: articles.find((article) => article.id === item.article_id)?.title ?? pick("লেখা", "Article"), [pick("ফাইল", "File")]: item.file_name, [pick("ধরন", "Type")]: item.mime_type, [pick("আকার", "Size")]: item.file_size, [pick("তৈরির সময়", "Created")]: item.created_at }))); XLSX.writeFile(book, `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-magazine.xlsx`); setFeedback(pick("ম্যাগাজিনের XLSX export হয়েছে।", "Magazine XLSX export completed.")); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("XLSX export হয়নি।", "XLSX export could not be completed.")); } finally { setExporting(false); } }
+  async function addComment() { if (!selected || !commentDraft.trim()) return; setSaving(true); try { if (!(await post("add_comment", { articleId: selected.id, body: commentDraft }))) return; setCommentDraft(""); await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("মন্তব্য যোগ হয়নি।", "Comment could not be added.")); } finally { setSaving(false); } }
+  async function removeComment(id: string) { setSaving(true); try { const response = await fetch("/api/magazine/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "comment", recordId: id }) }); if (response.status === 499) return; const payload = await response.json() as { error?: string }; if (!response.ok) throw new Error(payload.error ?? pick("মন্তব্য মুছে ফেলা যায়নি।", "Comment could not be deleted.")); await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("মন্তব্য মুছে ফেলা যায়নি।", "Comment could not be deleted.")); } finally { setSaving(false); } }
+  async function exportXlsx() {
+    setExporting(true);
+    try {
+      const XLSX = await import("xlsx");
+      const book = XLSX.utils.book_new();
+      const articleTitle = new Map(articles.map((article) => [article.id, article.title]));
+      const add = (name: string, headers: string[], rows: Array<Array<string | number>>) =>
+        XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([headers, ...rows]), name);
+
+      add(pick("লেখা", "Articles"), [
+        pick("লেখার ID", "Article ID"), pick("শিরোনাম", "Title"), pick("বিভাগ", "Category"),
+        pick("সারাংশ", "Summary"), pick("ট্যাগ", "Tags"), pick("অবস্থা", "Status"),
+        pick("বিশেষভাবে প্রদর্শিত", "Featured"), pick("দৃশ্যমানতা", "Visibility"),
+        pick("লেখক", "Author"), pick("পছন্দ", "Likes"), pick("মন্তব্য", "Comments"),
+        pick("প্রকাশের সময় (ISO)", "Published (ISO)"), pick("তৈরির সময় (ISO)", "Created (ISO)"),
+        pick("বিষয়বস্তু", "Content"),
+      ], articles.map((item) => [
+        item.id, item.title, categoryLabels[item.category], item.summary ?? "", item.tags.join(", "),
+        statusLabel(item.status, locale), item.featured ? pick("হ্যাঁ", "Yes") : pick("না", "No"),
+        item.visibility, item.author_name, item.reaction_count, item.comment_count,
+        item.published_at ?? "", item.created_at, item.content,
+      ]));
+      add(pick("মন্তব্য", "Comments"), [
+        pick("মন্তব্যের ID", "Comment ID"), pick("লেখার ID", "Article ID"),
+        pick("লেখা", "Article"), pick("লেখক", "Author"), pick("মন্তব্য", "Comment"),
+        pick("অবস্থা", "Status"), pick("তৈরির সময় (ISO)", "Created (ISO)"),
+      ], comments.map((item) => [
+        item.id, item.article_id, articleTitle.get(item.article_id) ?? "",
+        item.author_name, item.body, item.status, item.created_at,
+      ]));
+      add(pick("মিডিয়া তালিকা", "Media Index"), [
+        pick("মিডিয়ার ID", "Media ID"), pick("লেখার ID", "Article ID"),
+        pick("লেখা", "Article"), pick("মিডিয়ার ধরন", "Media type"),
+        pick("ফাইল", "File"), pick("ফাইলের ধরন", "MIME type"),
+        pick("আকার (বাইট)", "Size (bytes)"), pick("তৈরির সময় (ISO)", "Created (ISO)"),
+      ], media.map((item) => [
+        item.id, item.article_id, articleTitle.get(item.article_id) ?? "",
+        item.media_type, item.file_name, item.mime_type, item.file_size, item.created_at,
+      ]));
+      XLSX.writeFile(book, (family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family") + "-magazine.xlsx");
+      setFeedback(pick("ম্যাগাজিনের XLSX export হয়েছে।", "Magazine XLSX export completed."));
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : pick("XLSX export হয়নি।", "XLSX export could not be completed."));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   if (loading) return <main className="grid min-h-[calc(100vh-4rem)] place-items-center"><LoaderCircle className="size-8 animate-spin text-primary" /></main>;
   if (setupRequired) return <main className="mx-auto max-w-3xl p-6 md:p-10"><Empty icon={<Users />} title={pick("ফ্যামিলি access সক্রিয় নয়", "Family access is not active")} text={pick("Admin অনুমোদনের পর Family Magazine ব্যবহার করা যাবে।", "You can use Family Magazine after admin approval.")} action={<Button asChild className="rounded-xl"><a href="/setup">{pick("ফ্যামিলি অনবোর্ডিং", "Family onboarding")}</a></Button>} /></main>;
