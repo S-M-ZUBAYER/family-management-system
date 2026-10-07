@@ -54,6 +54,14 @@ async function referenceBelongsToCampaign(
   return (await supabaseRest<Array<{ id: string }>>(`${table}?${query}`)).length === 1;
 }
 
+async function animalHasLinkedRecords(animalId: string) {
+  const tables = ["qurbani_participants", "qurbani_transactions", "qurbani_schedules"] as const;
+  const matches = await Promise.all(tables.map((table) => supabaseRest<Array<{ id: string }>>(
+    `${table}?${new URLSearchParams({ select: "id", animal_id: `eq.${animalId}`, limit: "1" })}`,
+  )));
+  return matches.some((rows) => rows.length > 0);
+}
+
 export async function POST(request: Request) {
   try {
     const user = await getChatGPTUser();
@@ -346,6 +354,9 @@ export async function DELETE(request: Request) {
     const table = tableByKind[kind];
     const existing = (await supabaseRest<Array<{ id: string }>>(`${table}?${new URLSearchParams({ select: "id", id: `eq.${recordId}`, campaign_id: `eq.${campaignId}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
     if (!existing) return Response.json({ error: "Record পাওয়া যায়নি।" }, { status: 404 });
+    if (kind === "animal" && await animalHasLinkedRecords(recordId)) {
+      return Response.json({ code: "QURBANI_ANIMAL_LINKED", error: "পশুটি অংশগ্রহণকারী, খতিয়ান বা সময়সূচির সঙ্গে যুক্ত আছে। আগে সেই সংযোগগুলো সরান বা অন্য পশুতে স্থানান্তর করুন।" }, { status: 409 });
+    }
     await supabaseRest(`${table}?${new URLSearchParams({ id: `eq.${recordId}`, campaign_id: `eq.${campaignId}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
     await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: `qurbani_${kind}_deleted`, entity_type: `qurbani_${kind}`, entity_id: recordId, metadata: { campaign_id: campaignId } }) });
     return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।` });

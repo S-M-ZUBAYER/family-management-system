@@ -12,3 +12,14 @@ The schema enables Row Level Security on every application table. Browser roles 
 
 Before live onboarding, create the first `families` row plus its owner `family_memberships` row using the authenticated owner's stable ChatGPT user ID.
 
+## Existing project: Qurbani animal-link guard
+
+For an existing project, `schema.sql` does not update old foreign keys. First run
+`qurbani_animal_link_preflight_readonly.sql` in the SQL Editor and verify all three
+named constraints are present and all orphan counts are zero. In **staging**,
+apply `migrations/20261007_qurbani_animal_link_guard.sql`, then run
+`qurbani_animal_link_guard_test.sql`. The test uses synthetic rows in a
+transaction that ends with `ROLLBACK`. Confirm three `NO ACTION` constraints
+with the preflight query again. Only then apply the migration to production
+and repeat the read-only verification. Do not rerun the entire migration folder.
+

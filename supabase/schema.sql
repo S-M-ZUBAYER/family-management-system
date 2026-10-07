@@ -432,7 +432,7 @@ create table if not exists public.qurbani_participants (
   id uuid primary key default gen_random_uuid(),
   family_id uuid not null references public.families(id) on delete cascade,
   campaign_id uuid not null references public.qurbani_campaigns(id) on delete cascade,
-  animal_id uuid references public.qurbani_animals(id) on delete set null,
+  animal_id uuid references public.qurbani_animals(id) on delete no action,
   member_name text not null,
   phone text,
   share_count numeric(10,2) not null default 1 check (share_count > 0),
@@ -454,7 +454,7 @@ create table if not exists public.qurbani_transactions (
   family_id uuid not null references public.families(id) on delete cascade,
   campaign_id uuid not null references public.qurbani_campaigns(id) on delete cascade,
   participant_id uuid references public.qurbani_participants(id) on delete set null,
-  animal_id uuid references public.qurbani_animals(id) on delete set null,
+  animal_id uuid references public.qurbani_animals(id) on delete no action,
   transaction_type text not null
     check (transaction_type in ('collection', 'expense', 'refund')),
   category text not null
@@ -498,7 +498,7 @@ create table if not exists public.qurbani_schedules (
   id uuid primary key default gen_random_uuid(),
   family_id uuid not null references public.families(id) on delete cascade,
   campaign_id uuid not null references public.qurbani_campaigns(id) on delete cascade,
-  animal_id uuid references public.qurbani_animals(id) on delete set null,
+  animal_id uuid references public.qurbani_animals(id) on delete no action,
   sequence_no integer not null default 1 check (sequence_no > 0),
   scheduled_at timestamptz not null,
   location text,

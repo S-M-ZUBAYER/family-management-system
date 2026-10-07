@@ -22,6 +22,9 @@ export function qurbaniDatabaseConflict(error: unknown): Response | null {
   if (error.message.includes("QURBANI_PAYMENT_LINKED")) {
     return Response.json({ error: "অংশগ্রহণকারী মুছতে হলে আগে তার সংযুক্ত শেয়ার পরিশোধের খতিয়ান মুছুন।" }, { status: 409 });
   }
+  if (/qurbani_(participants|transactions|schedules)_animal_id_fkey/.test(error.message)) {
+    return Response.json({ code: "QURBANI_ANIMAL_LINKED", error: "পশুটি অংশগ্রহণকারী, খতিয়ান বা সময়সূচির সঙ্গে যুক্ত আছে। আগে সংযোগ সরান বা স্থানান্তর করুন।" }, { status: 409 });
+  }
   if (error.message.includes("QURBANI_PAYMENT_LINK_INVALID")) {
     return Response.json({ error: "শেয়ার পরিশোধের ধরন বা সংযুক্ত অংশগ্রহণকারী সঠিক নয়।" }, { status: 409 });
   }
