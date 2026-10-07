@@ -72,6 +72,17 @@ npm.cmd run build
 
 The `package.json` scripts also include focused `test:*` suites for privacy, notifications, Qurbani, finance validation, pagination, chat access, welfare, archives and other policy helpers. Run the relevant suites when changing those areas. `QA_ACCEPTANCE_2026-10-03.md` distinguishes actual browser actions from static/unit checks and lists the remaining end-to-end tests.
 
+## Manual Qurbani integration QA
+
+`scripts/qa-qurbani-lifecycle.mjs` provides opt-in `seed`, `cleanup`, `verify`, `finalize-seed` and `finalize-verify` workflows. Use the actual loopback dev-server origin, exact QA family ID and (except seed modes) exact campaign ID. Mutating modes require `--allow-local-qa-writes`. These tests use the server's configured database, **which may be production**; they are not an isolated in-memory test. Do not run them against real family/financial records.
+
+```powershell
+node scripts/qa-qurbani-lifecycle.mjs verify --base-url http://localhost:5174 --family-id <QA-family-UUID> --campaign-id <QA-campaign-UUID>
+npm.cmd run test:qurbani-workbook
+```
+
+Seed creates uniquely labeled synthetic records. Cleanup only targets that runner's planning campaign, removes refunds before collections and animals after their links, and checks unrelated records are unchanged. Finalization fixtures must be retained after settlement/closure; do not bypass immutable-history guards to clean them up. See `QA_ACCEPTANCE_2026-10-07.md` for exact observed fixtures and remaining gaps. Native Excel dates store local wall-clock values; exported timestamp sheets include the IANA timezone explicitly.
+
 ## Database and security rules
 
 - Every family-scoped read and mutation must enforce the selected family's active membership **on the server**. A client-side hidden button is not authorization.
