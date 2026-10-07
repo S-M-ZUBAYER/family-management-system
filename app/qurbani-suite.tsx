@@ -6,6 +6,7 @@ import { qurbaniIsoToLocalDateTime, qurbaniLocalDateTimeToIso } from "@/lib/qurb
 import { qurbaniMoneyOutstanding, qurbaniMoneyTotal } from "@/lib/qurbani-money-total";
 import { qurbaniDistributionTotals } from "@/lib/qurbani-distribution-totals";
 import { qurbaniPaymentReconciliation } from "@/lib/qurbani-payment-reconciliation";
+import { qurbaniExportHeaders, type QurbaniExportSheet } from "@/lib/qurbani-export-headers";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
@@ -683,9 +684,21 @@ export function QurbaniSuite() {
             { name: pick("কাজ", "Tasks"), rows: taskRows },
             { name: pick("বণ্টন", "Distribution"), rows: distributionRows },
           ];
+      const currentSheetNames = new Map<string, QurbaniExportSheet>([
+        [pick("ক্যাম্পেইন সারাংশ", "Campaign Summary"), "Campaign Summary"],
+        [pick("অংশগ্রহণকারী", "Participants"), "Participants"],
+        [pick("পশু", "Animals"), "Animals"],
+        [pick("খতিয়ান", "Ledger"), "Ledger"],
+        [pick("বিক্রেতা", "Vendors"), "Vendors"],
+        [pick("সময়সূচি", "Schedule"), "Schedule"],
+        [pick("কাজ", "Tasks"), "Tasks"],
+        [pick("বণ্টন", "Distribution"), "Distribution"],
+      ]);
       sheets.forEach((sheet) => {
-        const data = sheet.rows.length ? sheet.rows : [{ [pick("তথ্য", "Information")]: pick("এখনও কোনো রেকর্ড নেই", "No records yet") }];
-        XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data), sheet.name.slice(0, 31));
+        const emptySheet = !allYears && currentSheetNames.has(sheet.name)
+          ? XLSX.utils.aoa_to_sheet([qurbaniExportHeaders(currentSheetNames.get(sheet.name)!, locale)])
+          : XLSX.utils.json_to_sheet([{ [pick("তথ্য", "Information")]: pick("এখনও কোনো রেকর্ড নেই", "No records yet") }]);
+        XLSX.utils.book_append_sheet(workbook, sheet.rows.length ? XLSX.utils.json_to_sheet(sheet.rows) : emptySheet, sheet.name.slice(0, 31));
       });
       const baseName =
         (family?.name_en || "family").replace(/[^a-z0-9]+/gi, "-").toLowerCase() +
