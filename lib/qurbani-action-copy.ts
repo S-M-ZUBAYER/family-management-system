@@ -3,6 +3,13 @@ import type { QurbaniRecordKind } from "@/lib/qurbani-types";
 type Locale = "bn" | "en";
 type MutationMethod = "POST" | "PATCH" | "DELETE";
 
+export function qurbaniErrorCopy(code: unknown, locale: Locale): string | null {
+  if (code !== "QURBANI_ANIMAL_LINKED") return null;
+  return locale === "bn"
+    ? "পশুটি অংশগ্রহণকারী, খতিয়ান বা সময়সূচির সঙ্গে যুক্ত আছে। আগে সংযোগ সরান বা স্থানান্তর করুন।"
+    : "This animal is linked to participants, ledger entries or schedules. Remove or transfer those links first.";
+}
+
 const recordNames: Record<QurbaniRecordKind, { bn: string; en: string }> = {
   participant: { bn: "অংশগ্রহণকারী ও শেয়ার", en: "participant and share" },
   animal: { bn: "পশু", en: "animal" },

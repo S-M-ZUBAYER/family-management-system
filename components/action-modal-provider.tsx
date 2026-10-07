@@ -26,7 +26,7 @@ import { memberRequestActionCopy } from "@/lib/member-request-action-copy";
 import { noticeActionCopy } from "@/lib/notice-action-copy";
 import { eventActionCopy } from "@/lib/event-action-copy";
 import { magazineActionCopy } from "@/lib/magazine-action-copy";
-import { qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "@/lib/qurbani-action-copy";
+import { qurbaniErrorCopy, qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "@/lib/qurbani-action-copy";
 import {
   Dialog,
   DialogClose,
@@ -272,9 +272,11 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
   };
 }
 
-async function responseMessage(response: Response, fallback: string) {
+async function responseMessage(response: Response, fallback: string, locale: AppLocale) {
   try {
     const payload = await response.clone().json() as Record<string, unknown>;
+    const qurbaniMessage = qurbaniErrorCopy(payload.code, locale);
+    if (!response.ok && qurbaniMessage) return qurbaniMessage;
     for (const key of ["message", "success", "warning", "error"]) {
       if (typeof payload[key] === "string" && payload[key]) return payload[key] as string;
     }
@@ -358,6 +360,13 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     mounted.current = true;
+    // Fast Refresh reruns effects but can preserve their old state. Cleanup
+    // clears dialog refs, so resync visible state to avoid an uncloseable modal.
+    queueMicrotask(() => {
+      if (!mounted.current) return;
+      setConfirmation(activeConfirmation.current);
+      setResult(activeResult.current);
+    });
     const confirmations = pendingConfirmations.current;
     const results = pendingResults.current;
     return () => {
@@ -398,7 +407,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
           const memberResult = memberPayload ? memberActionResult(url.pathname, method, parseBody(init?.body), memberPayload, locale, copy.successMessage, response.status) : null;
           const message = memberResult ? memberResult.message : response.ok && response.status !== 202 && (url.pathname === "/api/notices" || url.pathname.startsWith("/api/notices/") || url.pathname === "/api/events" || url.pathname.startsWith("/api/events/") || url.pathname.startsWith("/api/event-media/") || ["/api/magazine/records", "/api/magazine/upload", "/api/qurbani/records", "/api/household/records", "/api/welfare/records", "/api/archives/records", "/api/archives/upload"].includes(url.pathname))
             ? copy.successMessage
-            : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."));
+            : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."), locale);
           const nextResult = memberResult?.noChange
             ? { kind: "info" as const, title: locale === "bn" ? "পরিবর্তন প্রয়োজন নেই" : "No change needed", message }
             : mutationResponseResult(memberResult?.status ?? response.status, message, locale);

@@ -7,6 +7,8 @@ import { qurbaniMoneyOutstanding, qurbaniMoneyTotal } from "@/lib/qurbani-money-
 import { qurbaniDistributionTotals } from "@/lib/qurbani-distribution-totals";
 import { qurbaniPaymentReconciliation } from "@/lib/qurbani-payment-reconciliation";
 import { qurbaniAllYearsHeaders, qurbaniAllYearsRow, qurbaniExportHeaders, type QurbaniAllYearsSheet, type QurbaniExportSheet } from "@/lib/qurbani-export-headers";
+import { qurbaniWorkbookDateColumns, qurbaniWorksheet } from "@/lib/qurbani-workbook";
+import { qurbaniErrorCopy } from "@/lib/qurbani-action-copy";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
@@ -474,8 +476,8 @@ export function QurbaniSuite() {
     try {
       const response = await fetch("/api/qurbani/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, campaignId: campaign.id, recordId: id }) });
       if (response.status === 499) return;
-      const payload = await response.json() as { error?: string; message?: string };
-      if (!response.ok) throw new Error(payload.error ?? pick("রেকর্ড মোছা যায়নি।", "Record could not be deleted."));
+      const payload = await response.json() as { error?: string; message?: string; code?: string };
+      if (!response.ok) throw new Error(qurbaniErrorCopy(payload.code, locale) ?? payload.error ?? pick("রেকর্ড মোছা যায়নি।", "Record could not be deleted."));
       if (!(await loadQurbani())) return;
       setFeedback(payload.message ?? pick("রেকর্ড মোছা হয়েছে।", "Record deleted."));
     } finally { setSaving(false); }
@@ -552,7 +554,7 @@ export function QurbaniSuite() {
   }));
   const animalRows = campaignAnimals.map((item) => ({
     [pick("ট্যাগ", "Tag")]: item.tag_code,
-    [pick("ধরন", "Type")]: item.animal_type,
+    [pick("ধরন", "Type")]: statusLabel(item.animal_type, locale),
     [pick("জাত", "Breed")]: item.breed ?? "",
     [pick("রং", "Color")]: item.color ?? "",
     [pick("জীবিত ওজন কেজি", "Live weight kg")]: numberOf(item.live_weight_kg),
@@ -569,9 +571,9 @@ export function QurbaniSuite() {
   const ledgerRows = campaignTransactions.map((item) => ({
     [pick("তারিখ", "Date")]: item.transaction_date,
     [pick("ধরন", "Type")]: statusLabel(item.transaction_type, locale),
-    [pick("ক্যাটাগরি", "Category")]: item.category,
+    [pick("ক্যাটাগরি", "Category")]: statusLabel(item.category, locale),
     [pick("পরিমাণ", "Amount")]: numberOf(item.amount),
-    [pick("পদ্ধতি", "Method")]: item.payment_method,
+    [pick("পদ্ধতি", "Method")]: statusLabel(item.payment_method, locale),
     [pick("অংশগ্রহণকারী", "Participant")]:
       campaignParticipants.find((participant) => participant.id === item.participant_id)?.member_name ?? "",
     [pick("পশু", "Animal")]: campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code ?? "",
@@ -580,7 +582,7 @@ export function QurbaniSuite() {
   }));
   const vendorRows = campaignVendors.map((item) => ({
     [pick("বিক্রেতা", "Vendor")]: item.name,
-    [pick("ধরন", "Type")]: item.vendor_type,
+    [pick("ধরন", "Type")]: statusLabel(item.vendor_type, locale),
     [pick("ফোন", "Phone")]: item.phone ?? "",
     [pick("ঠিকানা", "Address")]: item.address ?? "",
     [pick("চুক্তি", "Agreed")]: numberOf(item.agreed_amount),
@@ -592,7 +594,7 @@ export function QurbaniSuite() {
   const scheduleRows = campaignSchedules.map((item) => ({
     [pick("ক্রম", "Sequence")]: item.sequence_no,
     [pick("পশু", "Animal")]: campaignAnimals.find((animal) => animal.id === item.animal_id)?.tag_code ?? "",
-    [pick("নির্ধারিত সময়", "Scheduled at")]: dateTimeFormatter.format(new Date(item.scheduled_at)),
+    [pick("নির্ধারিত সময়", "Scheduled at")]: item.scheduled_at,
     [pick("স্থান", "Location")]: item.location ?? "",
     [pick("দল", "Team")]: item.butcher_team ?? "",
     [pick("স্ট্যাটাস", "Status")]: statusLabel(item.status, locale),
@@ -600,9 +602,9 @@ export function QurbaniSuite() {
   }));
   const taskRows = campaignTasks.map((item) => ({
     [pick("কাজ", "Task")]: item.title,
-    [pick("ক্যাটাগরি", "Category")]: item.category,
+    [pick("ক্যাটাগরি", "Category")]: statusLabel(item.category, locale),
     [pick("দায়িত্বপ্রাপ্ত", "Assigned to")]: item.assigned_to ?? "",
-    [pick("সময়সীমা", "Due")]: item.due_at ? dateTimeFormatter.format(new Date(item.due_at)) : "",
+    [pick("সময়সীমা", "Due")]: item.due_at ?? "",
     [pick("অগ্রাধিকার", "Priority")]: statusLabel(item.priority, locale),
     [pick("স্ট্যাটাস", "Status")]: statusLabel(item.status, locale),
     [pick("নোট", "Notes")]: item.notes ?? "",
@@ -612,7 +614,7 @@ export function QurbaniSuite() {
     [pick("ধরন", "Type")]: statusLabel(item.recipient_type, locale),
     [pick("ওজন কেজি", "Weight kg")]: numberOf(item.weight_kg),
     [pick("প্যাকেট", "Packages")]: item.package_count,
-    [pick("সংগ্রহ", "Collected")]: item.collected_at ? dateTimeFormatter.format(new Date(item.collected_at)) : "",
+    [pick("সংগ্রহ", "Collected")]: item.collected_at ?? "",
     [pick("নোট", "Notes")]: item.notes ?? "",
   }));
 
@@ -622,6 +624,7 @@ export function QurbaniSuite() {
     try {
       const XLSX = await import("xlsx");
       const workbook = XLSX.utils.book_new();
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const campaignById = new Map(campaigns.map((item) => [item.id, item]));
       const numericFields = new Set(["year", "share_price", "target_shares", "share_count", "amount_due", "amount_paid", "live_weight_kg", "estimated_meat_kg", "purchase_price", "transport_cost", "feed_cost", "amount", "agreed_amount", "paid_amount", "sequence_no", "weight_kg", "package_count"]);
       const enumFields = new Set(["status", "health_status", "animal_type", "transaction_type", "category", "payment_method", "vendor_type", "priority", "recipient_type"]);
@@ -714,7 +717,8 @@ export function QurbaniSuite() {
         const headers = allYears
           ? qurbaniAllYearsHeaders(allYearsSheetNames.get(sheet.name)!, locale)
           : qurbaniExportHeaders(currentSheetNames.get(sheet.name)!, locale);
-        XLSX.utils.book_append_sheet(workbook, sheet.rows.length ? XLSX.utils.json_to_sheet(sheet.rows) : XLSX.utils.aoa_to_sheet([headers]), sheet.name.slice(0, 31));
+        const sheetKey = allYears ? allYearsSheetNames.get(sheet.name)! : currentSheetNames.get(sheet.name)!;
+        XLSX.utils.book_append_sheet(workbook, qurbaniWorksheet(XLSX, sheet.rows, headers, qurbaniWorkbookDateColumns(sheetKey, locale, allYears), locale, timeZone), sheet.name.slice(0, 31));
       });
       const baseName =
         (family?.name_en || "family").replace(/[^a-z0-9]+/gi, "-").toLowerCase() +

@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "../lib/qurbani-action-copy.ts";
+import { qurbaniErrorCopy, qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "../lib/qurbani-action-copy.ts";
+
+test("linked-animal failure is localized consistently for both feedback paths", () => {
+  assert.match(qurbaniErrorCopy("QURBANI_ANIMAL_LINKED", "bn"), /পশুটি অংশগ্রহণকারী/);
+  assert.match(qurbaniErrorCopy("QURBANI_ANIMAL_LINKED", "en"), /Remove or transfer those links first/);
+  assert.equal(qurbaniErrorCopy("UNKNOWN", "en"), null);
+});
 
 test("Qurbani confirmation identifies the record and the actual action", () => {
   const create = qurbaniRecordActionCopy("animal", "POST", "bn");
