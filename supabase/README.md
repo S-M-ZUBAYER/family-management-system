@@ -21,5 +21,7 @@ apply `migrations/20261007_qurbani_animal_link_guard.sql`, then run
 `qurbani_animal_link_guard_test.sql`. The test uses synthetic rows in a
 transaction that ends with `ROLLBACK`. Confirm three `NO ACTION` constraints
 with the preflight query again. Only then apply the migration to production
-and repeat the read-only verification. Do not rerun the entire migration folder.
+and repeat the read-only verification. If all three constraints already show
+`NO ACTION` and `validated = true`, do **not** reapply the migration. Do not
+rerun the entire migration folder.
 
