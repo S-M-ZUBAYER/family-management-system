@@ -6,7 +6,7 @@ import { qurbaniIsoToLocalDateTime, qurbaniLocalDateTimeToIso } from "@/lib/qurb
 import { qurbaniMoneyOutstanding, qurbaniMoneyTotal } from "@/lib/qurbani-money-total";
 import { qurbaniDistributionTotals } from "@/lib/qurbani-distribution-totals";
 import { qurbaniPaymentReconciliation } from "@/lib/qurbani-payment-reconciliation";
-import { qurbaniExportHeaders, type QurbaniExportSheet } from "@/lib/qurbani-export-headers";
+import { qurbaniAllYearsHeaders, qurbaniAllYearsRow, qurbaniExportHeaders, type QurbaniAllYearsSheet, type QurbaniExportSheet } from "@/lib/qurbani-export-headers";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
@@ -623,11 +623,16 @@ export function QurbaniSuite() {
       const XLSX = await import("xlsx");
       const workbook = XLSX.utils.book_new();
       const campaignById = new Map(campaigns.map((item) => [item.id, item]));
-      const yearRows = <T extends { campaign_id: string }>(records: T[]) => records.map((record) => ({
-        [pick("বছর", "Year")]: campaignById.get(record.campaign_id)?.year ?? "",
-        [pick("ক্যাম্পেইন", "Campaign")]: campaignById.get(record.campaign_id)?.title ?? "",
-        ...record,
-      }));
+      const numericFields = new Set(["year", "share_price", "target_shares", "share_count", "amount_due", "amount_paid", "live_weight_kg", "estimated_meat_kg", "purchase_price", "transport_cost", "feed_cost", "amount", "agreed_amount", "paid_amount", "sequence_no", "weight_kg", "package_count"]);
+      const enumFields = new Set(["status", "health_status", "animal_type", "transaction_type", "category", "payment_method", "vendor_type", "priority", "recipient_type"]);
+      const localizedRecord = (record: Record<string, unknown>) => Object.fromEntries(Object.entries(record).map(([key, value]) => [key,
+        numericFields.has(key) && value != null ? numberOf(value as number | string) :
+        enumFields.has(key) && typeof value === "string" ? statusLabel(value, locale) : value,
+      ]));
+      const yearRows = <T extends { campaign_id: string }>(sheet: QurbaniAllYearsSheet, records: T[]) => records.map((record) => {
+        const item = campaignById.get(record.campaign_id);
+        return qurbaniAllYearsRow(sheet, localizedRecord(record as Record<string, unknown>), locale, item ? { year: item.year, campaign: item.title } : undefined);
+      });
       const allYearsSummary = allYears ? campaigns.map((item) => {
         const active = participants.filter((entry) => entry.campaign_id === item.id && entry.status !== "cancelled");
         const entries = transactions.filter((entry) => entry.campaign_id === item.id);
@@ -663,14 +668,14 @@ export function QurbaniSuite() {
       const sheets = allYears
         ? [
             { name: pick("সব বছরের সারাংশ", "All Years Summary"), rows: allYearsSummary },
-            { name: pick("ক্যাম্পেইন", "Campaigns"), rows: campaigns },
-            { name: pick("অংশগ্রহণকারী", "Participants"), rows: yearRows(participants) },
-            { name: pick("পশু", "Animals"), rows: yearRows(animals) },
-            { name: pick("খতিয়ান", "Ledger"), rows: yearRows(transactions) },
-            { name: pick("বিক্রেতা", "Vendors"), rows: yearRows(vendors) },
-            { name: pick("সময়সূচি", "Schedule"), rows: yearRows(schedules) },
-            { name: pick("কাজ", "Tasks"), rows: yearRows(tasks) },
-            { name: pick("বণ্টন", "Distribution"), rows: yearRows(distributions) },
+            { name: pick("ক্যাম্পেইন", "Campaigns"), rows: campaigns.map((item) => qurbaniAllYearsRow("Campaigns", localizedRecord(item), locale)) },
+            { name: pick("অংশগ্রহণকারী", "Participants"), rows: yearRows("Participants", participants) },
+            { name: pick("পশু", "Animals"), rows: yearRows("Animals", animals) },
+            { name: pick("খতিয়ান", "Ledger"), rows: yearRows("Ledger", transactions) },
+            { name: pick("বিক্রেতা", "Vendors"), rows: yearRows("Vendors", vendors) },
+            { name: pick("সময়সূচি", "Schedule"), rows: yearRows("Schedule", schedules) },
+            { name: pick("কাজ", "Tasks"), rows: yearRows("Tasks", tasks) },
+            { name: pick("বণ্টন", "Distribution"), rows: yearRows("Distribution", distributions) },
           ]
         : single
         ? [single]
@@ -694,11 +699,22 @@ export function QurbaniSuite() {
         [pick("কাজ", "Tasks"), "Tasks"],
         [pick("বণ্টন", "Distribution"), "Distribution"],
       ]);
+      const allYearsSheetNames = new Map<string, QurbaniAllYearsSheet | "All Years Summary">([
+        [pick("সব বছরের সারাংশ", "All Years Summary"), "All Years Summary"],
+        [pick("ক্যাম্পেইন", "Campaigns"), "Campaigns"],
+        [pick("অংশগ্রহণকারী", "Participants"), "Participants"],
+        [pick("পশু", "Animals"), "Animals"],
+        [pick("খতিয়ান", "Ledger"), "Ledger"],
+        [pick("বিক্রেতা", "Vendors"), "Vendors"],
+        [pick("সময়সূচি", "Schedule"), "Schedule"],
+        [pick("কাজ", "Tasks"), "Tasks"],
+        [pick("বণ্টন", "Distribution"), "Distribution"],
+      ]);
       sheets.forEach((sheet) => {
-        const emptySheet = !allYears && currentSheetNames.has(sheet.name)
-          ? XLSX.utils.aoa_to_sheet([qurbaniExportHeaders(currentSheetNames.get(sheet.name)!, locale)])
-          : XLSX.utils.json_to_sheet([{ [pick("তথ্য", "Information")]: pick("এখনও কোনো রেকর্ড নেই", "No records yet") }]);
-        XLSX.utils.book_append_sheet(workbook, sheet.rows.length ? XLSX.utils.json_to_sheet(sheet.rows) : emptySheet, sheet.name.slice(0, 31));
+        const headers = allYears
+          ? qurbaniAllYearsHeaders(allYearsSheetNames.get(sheet.name)!, locale)
+          : qurbaniExportHeaders(currentSheetNames.get(sheet.name)!, locale);
+        XLSX.utils.book_append_sheet(workbook, sheet.rows.length ? XLSX.utils.json_to_sheet(sheet.rows) : XLSX.utils.aoa_to_sheet([headers]), sheet.name.slice(0, 31));
       });
       const baseName =
         (family?.name_en || "family").replace(/[^a-z0-9]+/gi, "-").toLowerCase() +
