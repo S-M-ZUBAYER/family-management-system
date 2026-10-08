@@ -5,6 +5,7 @@ import { useLocale } from "@/components/locale-provider";
 import { useCurrentTime } from "@/components/use-current-time";
 import { noticeErrorCopy } from "@/lib/notice-validation";
 import { noticeIsActive } from "@/lib/notice-visibility";
+import { noticeExportRows, noticeWorksheet } from "@/lib/notice-export";
 import { qurbaniIsoToLocalDateTime, qurbaniLocalDateTimeToIso } from "@/lib/qurbani-validation";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -327,27 +328,16 @@ export function NoticeCenter() {
     setExporting(true);
     try {
       const XLSX = await import("xlsx");
-      const worksheet = XLSX.utils.json_to_sheet(visibleNotices.map((notice, index) => ({
-        [pick("ক্রমিক", "Serial")]: index + 1,
-        [pick("শিরোনাম (বাংলা)", "Title (Bangla)")]: notice.title_bn,
-        [pick("শিরোনাম (ইংরেজি)", "Title (English)")]: notice.title_en ?? "",
-        [pick("বিস্তারিত (বাংলা)", "Details (Bangla)")]: notice.body_bn,
-        [pick("বিস্তারিত (ইংরেজি)", "Details (English)")]: notice.body_en ?? "",
-        [pick("ক্যাটাগরি", "Category")]: categoryLabels[notice.category],
-        [pick("অগ্রাধিকার", "Priority")]: priorityLabels[notice.priority],
-        [pick("অবস্থা", "Status")]: statusLabels[notice.status],
-        [pick("পিন করা", "Pinned")]: notice.is_pinned ? pick("হ্যাঁ", "Yes") : pick("না", "No"),
-        [pick("প্রকাশের সময়", "Publish time")]: notice.publish_at ? dateFormatter.format(new Date(notice.publish_at)) : "",
-        [pick("মেয়াদ শেষ", "Expiry")]: notice.expires_at ? dateFormatter.format(new Date(notice.expires_at)) : "",
-        [pick("তৈরির সময়", "Created at")]: dateFormatter.format(new Date(notice.created_at)),
-      })));
-      worksheet["!cols"] = [8, 34, 30, 60, 60, 20, 18, 16, 12, 24, 24, 24].map((wch) => ({ wch }));
+      const rows = noticeExportRows(visibleNotices, locale, { category: categoryLabels, priority: priorityLabels, status: statusLabels });
+      const worksheet = noticeWorksheet(XLSX, rows, locale, Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Dhaka");
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, pick("পারিবারিক নোটিশ", "Family Notices"));
       XLSX.writeFile(workbook, `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-notices.xlsx`);
       setFeedback(pick("নোটিশ XLSX তৈরি হয়েছে।", "The notices XLSX was created."));
-    } catch {
-      setFeedback(pick("নোটিশ XLSX তৈরি হয়নি। আবার চেষ্টা করুন।", "The notices XLSX could not be created. Please try again."));
+    } catch (error) {
+      setFeedback(error instanceof Error && error.message === "NOTICE_EXPORT_INVALID_DATA"
+        ? pick("নোটিশে ভুল বা Excel-অসমর্থিত তথ্য আছে। তথ্য যাচাই করুন; অসম্পূর্ণ XLSX নামানো হয়নি।", "A notice contains invalid or Excel-unsupported data. Review the records; no partial XLSX was downloaded.")
+        : pick("নোটিশ XLSX তৈরি হয়নি। আবার চেষ্টা করুন।", "The notices XLSX could not be created. Please try again."));
     } finally {
       setExporting(false);
     }
