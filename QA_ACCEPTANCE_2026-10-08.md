@@ -41,6 +41,7 @@ Status: **Partial**, not production acceptance. This is the newest continuation 
 - Debt `100.31` against principal `100.30` produced a closeable error. Corrected Bengali copy was observed on retest, then a valid `0.10` update produced a single success modal.
 - An additional `1.25` bill remained visible/editable in Bills with zero wallets. Its skipped status was confirmed in Bengali and persisted in the API.
 - Cleanup reload showed the genuine empty Finance state. Browser error log was empty; no hydration error was observed in that reload. This is not all-route hydration acceptance.
+- A later final reload reproduced the intermittent Finance load failure. The new closeable error modal classified it as an error; dismissing it revealed Retry with export/add disabled and no zero-balance metrics. Clicking Retry recovered the genuine empty workspace and re-enabled export. This confirms the observed recovery path, not the root cause or exhaustive fault injection.
 - Local screenshot `finance-qa-2026-10-08.jpg` in the task workspace captures the debt success modal; it is not a product asset or committed to Git.
 
 ## Downloaded workbook
@@ -64,6 +65,6 @@ Opened and asserted `C:\Users\S M Zubayer\Downloads\nojir-poramanik-family-priva
 - Finance action-copy/export/validation: **13 tests passed**. Feedback 6, private admin-audit visibility 3, pagination 4 tests passed.
 - TypeScript, full lint, tenant-scope, cancellation (75 handlers) and translation audits (2,949 literal pairs) passed. TypeScript, focused lint and production build passed again after the final empty-state edit.
 - Open: real separate-user/member/admin/pending privacy and login, remaining browser create/edit/delete/cancel for every kind, goal progress and duplicate-budget UI, other validation translations, physical BN/single-section/large XLSX, month scope, other account/payment/recurrence types and blank dates.
-- Load failure → Retry/refresh recovery, overlapping requests/family changes and concurrent writes still need fault-injected acceptance. Source/build/unit evidence does not replace this.
+- The observed transient load failure → Retry path passed. Root cause, deterministic fault injection, mutation-refresh failure, overlapping requests/family changes and concurrent writes remain open.
 - Complete mobile/keyboard/screen-reader/four-palette matrix and existing hosted Site deployment/smoke tests remain. Local/GitHub updates are not evidence of deployment.
 - Next: another Partial route in `QA_ROUTE_MATRIX.md`, e.g. Health appointments/measurements/files/SOS. Do not claim the full product is complete.
