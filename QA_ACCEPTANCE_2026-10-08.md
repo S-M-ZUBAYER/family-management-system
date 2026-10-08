@@ -223,3 +223,27 @@ Local localhost:5173, Nojir family, mock owner; production-backed draft/file tes
 - All **49 configured test suites**, nonincremental TypeScript, lint, tenant-security, translation (2,931 literal BN/EN pairs), cancellation (75 handlers), whitespace check and production build passed. Lower literal-pair count reflects removal of duplicated inline export mappings, not removed languages. Read-only actual-download verifier also passed. No migration/deployment.
 - Welfare and full product remain **Partial**: physical BN/large-history/mobile/keyboard exports, real separate-user owner/admin/member/pending privacy, finalized evidence API/races, storage/audit recovery, deterministic Retry/family switches and positive-balance atomic settlement/concurrency remain open.
 - Next bounded slice: inspect finalized-document rejection safely without deleting retained evidence, or begin read-only staging atomic-outflow audit/rollback-test planning. A later positive-balance test must use a separately scoped synthetic staging fixture, never retained production financial history or an actual external payment.
+
+## Welfare write outcome and audit honesty — newest slice
+
+Local localhost:5173, Nojir mock owner; production-backed **draft-only** API regression. No SQL/migration, valid funding, approval/disbursement/refund, real assistance/payment or hosted deployment. No new browser interaction or actual audit/transport failure injection in this slice.
+
+### Corrections and isolated evidence
+
+- Found ordinary create/edit/delete/non-outflow status paths persisted a record and then separately wrote an audit. If logging failed, the prior code returned a false overall failure. Shared outcome handling now returns confirmed data plus 202/auditPending, with a specific BN/EN informational warning to reload/contact support instead of resubmitting. Ordinary success feedback is suppressed after 202.
+- Lost/invalid backend write responses become 503/WELFARE_WRITE_OUTCOME_UNKNOWN, not proof of rollback. Confirmed 4xx rejections retain the existing error mapping (408 is treated conservatively as uncertain). Conditional empty PATCH/DELETE results still return known no-change 409 without an audit.
+- Browser transport failures for this records endpoint also propagate the same uncertain-outcome message. Shared modal wiring uses informational severity and existing close X; repeated identical route feedback is suppressed. Other endpoints retain their previous handling.
+- Financial settlement RPC is invoked once, validates returned record/status and owns its transactional audit. No extra REST audit, automatic retry or compensating delete/write was added. Ordinary record/audit operations are still separate; this change does not implement durable idempotency, an audit repair queue or a retry lock. A user can still manually repeat a request despite the warning; support-led reconciliation is required before doing so.
+- Nine pure/simulated tests passed: confirmed ordered write/audit, failed audit preserving save, confirmed rejection, lost response, invalid/empty result, compare-and-set no-change, one-call RPC, bilingual outcome classification and route/provider/client wiring. Browser catch/modal wiring is source-checked; actual visual fault-modal acceptance and Supabase fault injection remain open.
+
+### Observed API and cleanup
+
+- Enhanced `qa-welfare-validation-local.mjs` checks normal 200/201 responses explicitly have auditPending=false and no outcomeUnknown. Fresh run passed **203 checks**, including create/read/edit and pledge pause/resume, invalid inputs, unsigned/same-owner other-family denials, audits and unchanged unrelated arrays.
+- Prefix `QA Welfare Inputs 20261008094210`: pending expense `bb3a84eb-9efc-400d-83f2-63cfc0f3dee1`, submitted request `8512ea9d-c19e-416c-a307-b9b84d014011`, own pledge `2175d736-3dae-475d-83ec-03049f0314d8`. No valid fund/contribution creation or request approval/payment.
+- Exact-prefix cleanup passed **23 checks**: only these three drafts permanently removed, successful normal delete outcome flags and delete audits verified, unrelated Welfare arrays unchanged. Audit history, retained approved request/unpaid expense/pledge/fund/refunded contribution and all other module fixtures preserved. Hard deletion has no product undo. **Do not rerun this completed cleanup.**
+
+### Quality and remaining boundary
+
+- All **50 configured test suites** passed; final nine-case outcome suite rerun after browser transport refinement. Nonincremental TypeScript, lint, tenant-security, translation (2,931 literal pairs), cancellation (75 handlers), whitespace and production build passed.
+- Welfare and full project remain **Partial**. Real separate-user roles, actual browser/backend response loss and audit outage/recovery, positive-balance staging RPC/rollback and two-session concurrency, durable idempotency/reconciliation, finalized evidence races, physical BN/large/mobile exports and hosted acceptance remain open. No claim that a warning alone prevents duplicate records or that normal successful draft tests prove fault recovery.
+- Next safe boundary: read-only verification of staging installed atomic-outflow function/guards, then separately scoped rollback-only synthetic transaction acceptance if SQL access is available. Do not reapply migrations, fund production QA from retained history or initiate external payments. Another local Partial route can proceed while staging access is unavailable.

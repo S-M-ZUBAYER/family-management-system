@@ -128,12 +128,15 @@ SOS state guards/projections and medication-course reminder planning have isolat
 ```powershell
 npm.cmd run test:welfare-validation
 npm.cmd run test:welfare-ledger
+npm.cmd run test:welfare-write-outcome
 node scripts/qa-welfare-validation-local.mjs --allow-local-qa-writes
 # Only for the exact newly created disposable prefix, after reviewing its IDs/states:
 node scripts/qa-welfare-validation-local.mjs --allow-local-qa-writes --cleanup-prefix 'QA Welfare Inputs <14-digit timestamp>'
 ```
 
 Cleanup permanently removes only those three drafts, checks retained arrays and delete audits, and has no product undo. The October 8 acceptance prefix is already cleaned; never rerun historical cleanup. Exact-cent helper tests and conditional REST updates are not proof of real-role isolation or positive-balance/concurrent database settlement. Those acceptance gates and hosted deployment remain open.
+
+Ordinary Welfare record writes and their audits are separate operations. A confirmed record change with an audit outage returns **202 / auditPending**, with a bilingual informational modal: the change was saved, but logging needs reconciliation. A lost/invalid backend write response returns **503 / WELFARE_WRITE_OUTCOME_UNKNOWN**; browser transport failures also warn that the outcome needs verification. Neither means it is safe to resubmit. Reload, compare the record and audit history, and contact support before repeating an uncertain action. The payment RPC is invoked once and owns its transactional audit; no automatic write retry or compensation is added. This is outcome reporting, not durable idempotency, an audit repair queue or proof of rollback. Simulated failure tests do not replace staging database/transport fault acceptance.
 
 ## Manual Welfare document QA
 
