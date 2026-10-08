@@ -112,9 +112,14 @@ npm.cmd run test:health-validation
 npm.cmd run test:health-action-copy
 npm.cmd run test:health-export
 npm.cmd run test:health-directory
+npm.cmd run test:health-sos
+npm.cmd run test:health-reminders
+node scripts/qa-health-sos-rejections.mjs # rejection-only; no valid SOS submitted
 ```
 
 Cleanup targets only that prefix's private records/file and verifies unrelated arrays/profile/SOS are unchanged. Historical completed prefixes must not be cleaned again. Datetime inputs carry an explicit offset; XLSX time cells include a timezone column. Browser reminders only run while the page is open with permission: they are not offline/SMS emergency delivery. See the latest QA log for observed coverage and remaining privacy/download/delivery tests.
+
+SOS state guards/projections and medication-course reminder planning have isolated tests, plus local API rejection/cancel evidence. Positive multi-user SOS, actual notification delivery and transactional consistency are not accepted: response insert, acknowledgment and audit remain separate REST calls. In-app SOS does not call emergency services or dispatch help. Use staging for any positive SOS/concurrency test and preserve genuine emergency history.
 
 ## Database and security rules
 

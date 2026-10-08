@@ -109,3 +109,33 @@ Still **Partial**. Same verified `http://localhost:5173` checkout, production-ba
 - Physical populated/empty BN/EN XLSX, nonempty SOS history/responses, consent filtering, invalid legacy data and large exports: not inferred from unit roundtrips or generation success.
 - Oversize/remaining MIME files, malicious-content scanning, storage failure/recovery, concurrent writes, load Retry/family-switch races; hosted Site deployment/smoke tests.
 - Next: a bounded Health/SOS gap safely, or another Partial route such as Welfare request/document/payout bookkeeping. Full product remains unfinished.
+
+## SOS and reminder safety follow-up — newest slice
+
+Still **Partial**, not deployed. No SQL/migration, valid SOS alert/response/closure, real medical-care action, location permission or notification delivery was initiated. Existing family/health application data was not edited or deleted; language preference was briefly switched and restored to Bengali. Dark mode was retained.
+
+### Corrections and isolated evidence
+
+- Closed SOS now rejects ordinary response/close attempts with localized 409. Reporter or authorized health-manager closure uses a family-scoped compare-and-set on the read status, returning 409 if it changes while saving instead of overwriting terminal history.
+- First acknowledgment PATCH filters `status=eq.active`: a response read before a concurrent close cannot reopen it or replace an earlier acknowledgment. Response/resolve/cancel add family-scoped audit events without medical-note content in audit metadata.
+- SOS public GET/create/close projections omit reporter/acknowledger/resolver authentication IDs, retain `is_reporter`, and allow only intended public family-alert fields. Emergency-directory consent behavior is unchanged.
+- Location validation rejects mismatched/out-of-range coordinates, type coercion, excess database precision, negative/orphan accuracy. Browser geolocation, if the user requests it later, rounds to schema precision before sending. Latitude zero is supported in the map conditional; no actual geolocation or map link was used in this slice.
+- Specific BN/EN create/respond/close confirmations and results state the exact limitation: in-app SOS history does not send SMS/email, call emergency services or dispatch help. Page/form warnings reflect this; recorded `called_emergency` is a member's statement, not an automatic call.
+- Medication reminders and today's care list respect inclusive browser-local start/end dates and paused/completed status. Planner handles a short 60-second just-due grace, valid appointment offsets, a 24-hour timer horizon and duplicate medication times. The mounted page keeps family/event keys to suppress repeat delivery across its polling/clock refreshes. Notification failures are caught; titles are localized. The page explains that reminders need the Health page open and notification permission.
+- `test:health-sos` **9 isolated tests** covered location/projection, terminal guards, reporter/manager authorization, cross-family lookup, compare-and-set races, all four response types and stale acknowledgment. REST calls were simulated, not made to PostgreSQL.
+- `test:health-reminders` **5 pure tests** covered course dates/Dhaka time, duplicate times, scheduling grace, appointment statuses/offsets, invalid/far-future data and today's care list. **No real OS notification was delivered**. Actual mounted-page repeat suppression, permission changes and sleep/wake behavior remain unverified.
+
+### Observed local API/browser evidence
+
+- `node scripts/qa-health-sos-rejections.mjs` passed **24 checks** against localhost:5173/Nojir/mock owner: unsigned read; invalid SOS type/message/location; unsupported response; invalid closing state; nonexistent alert response/close. All were rejection paths. Profile, medications, appointments, measurements, documents, directory, alerts and responses were deep-equal before/after. No valid alert was submitted.
+- Browser BN SOS form: empty message disabled Send, optional location untouched, in-app-only warning visible. Entered `QA cancellation test only — not an emergency`, opened confirmation, dismissed close-X, closed cancellation feedback. Draft remained; nothing sent.
+- EN form/confirmation showed equivalent warnings. Declining `No, go back` showed closeable cancellation, preserving draft. Read-only API afterward confirmed **0 SOS alerts and 0 responses**, as before. Language was restored to Bengali; no location/reminder permission was granted.
+- `health-sos-confirmation-2026-10-08.jpg` in the task workspace is the captured BN confirmation proof, not a repository asset.
+- All **45 configured test suites** passed. Nonincremental TypeScript, lint, tenant-security audit, cancellation audit (75 handlers), translation audit (2,980 literal pairs), whitespace check and production build passed.
+
+### Explicit remaining boundaries
+
+- This is **not database-atomic**: response insert, acknowledgment and audit use separate REST calls. A response racing closure can be retained after close even though it cannot reopen the alert. Audit/backend failure after a saved write may report failure after persistence. An authorized transactional RPC/guard and staging two-session rollback/concurrency testing are still needed before claiming full consistency. No migration was prepared/applied in this slice.
+- Positive valid SOS creation/response/closure, real multiple users/roles, consent filtering, populated history XLSX and mounted reminder/OS delivery remain untested here. Preserve genuine history; do not delete all SOS tables or silently send a test emergency.
+- Background/offline/FCM/SMS/email, provider configuration/budget, complete same-user dedup across reloads/devices, mobile/accessibility and the existing Site deployment remain open. Do not infer them from a successful build or a confirmation screenshot.
+- Safe next route: Welfare's remaining document/retention and bookkeeping branches, using separately labeled QA records, without real payment or changing retained approved fixtures. Health transactional delivery/real-user acceptance remains a separate open gate.
