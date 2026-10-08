@@ -5,6 +5,7 @@ import { getActiveFamilyMembership } from "@/lib/family-access";
 import type { HealthDocument } from "@/lib/health-types";
 import { supabaseRest } from "@/lib/supabase-rest";
 import { healthErrorResponse } from "../route";
+import { healthDate } from "@/lib/health-validation";
 
 type RuntimeEnv = Cloudflare.Env & { BUCKET?: R2Bucket };
 const categories = ["prescription", "lab_report", "imaging", "vaccine", "insurance", "other"];
@@ -32,6 +33,8 @@ export async function POST(request: Request) {
     const categoryValue = formData.get("category");
     const documentDateValue = formData.get("documentDate");
     const notesValue = formData.get("notes");
+    const documentDate = healthDate(documentDateValue);
+    if (documentDate === undefined) return Response.json({ code: "HEALTH_INVALID_DATE", error: "সঠিক নথির তারিখ দিন।" }, { status: 400 });
     if (!(file instanceof File) || !allowedTypes.has(file.type)) {
       return Response.json({ error: "JPG, PNG, WebP, PDF বা Word document দিন।" }, { status: 400 });
     }
@@ -64,7 +67,7 @@ export async function POST(request: Request) {
         file_size: file.size,
         category,
         title,
-        document_date: typeof documentDateValue === "string" && documentDateValue ? documentDateValue.slice(0, 10) : null,
+        document_date: documentDate,
         notes: typeof notesValue === "string" && notesValue.trim() ? notesValue.trim().slice(0, 2000) : null,
       }),
     });

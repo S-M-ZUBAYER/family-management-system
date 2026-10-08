@@ -11,6 +11,7 @@ import type {
 } from "@/lib/health-types";
 import { healthErrorResponse } from "../route";
 import { supabaseRest } from "@/lib/supabase-rest";
+import { healthDate, healthDecimal, healthNumber, healthReminderMinutes, healthReminderTimes, healthTimestamp, healthUuid } from "@/lib/health-validation";
 
 type EditableHealthKind = "medication" | "appointment" | "measurement";
 const editableTables: Record<EditableHealthKind, string> = {
@@ -22,23 +23,9 @@ const editableTables: Record<EditableHealthKind, string> = {
 const textValue = (value: unknown, max: number) =>
   typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 
-const numberValue = (value: unknown) => {
-  if (value === "" || value === null || value === undefined) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-};
-
-const uuidValue = (value: unknown) => {
-  const text = textValue(value, 50);
-  return text && /^[0-9a-f-]{36}$/i.test(text) ? text : null;
-};
-
-function timestampValue(value: unknown) {
-  const text = textValue(value, 50);
-  if (!text) return null;
-  const date = new Date(text);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-}
+const numberValue = healthNumber;
+const uuidValue = healthUuid;
+const timestampValue = healthTimestamp;
 
 export async function POST(request: Request) {
   try {
@@ -57,8 +44,10 @@ export async function POST(request: Request) {
     if (action === "save_profile") {
       const visibility = textValue(data.visibility, 20) ?? "private";
       const bloodGroup = textValue(data.bloodGroup, 8);
-      const height = numberValue(data.heightCm);
-      const weight = numberValue(data.weightKg);
+      const height = healthDecimal(data.heightCm);
+      const weight = healthDecimal(data.weightKg);
+      const dateOfBirth = healthDate(data.dateOfBirth), lastDonationDate = healthDate(data.lastDonationDate);
+      if (dateOfBirth === undefined || lastDonationDate === undefined) return Response.json({ code: "HEALTH_INVALID_DATE", error: "সঠিক তারিখ দিন।" }, { status: 400 });
       if (!["private", "emergency", "family"].includes(visibility)) {
         return Response.json({ error: "Privacy setting সঠিক নয়।" }, { status: 400 });
       }
@@ -76,7 +65,7 @@ export async function POST(request: Request) {
           ...owner,
           member_name: authorName,
           blood_group: bloodGroup,
-          date_of_birth: textValue(data.dateOfBirth, 10),
+          date_of_birth: dateOfBirth,
           height_cm: height,
           weight_kg: weight,
           conditions: textValue(data.conditions, 4000),
@@ -87,89 +76,59 @@ export async function POST(request: Request) {
           emergency_contact_name: textValue(data.emergencyContactName, 180),
           emergency_contact_phone: textValue(data.emergencyContactPhone, 50),
           donor_available: data.donorAvailable === true,
-          last_donation_date: textValue(data.lastDonationDate, 10),
+          last_donation_date: lastDonationDate,
           visibility,
           updated_at: now,
         }),
       });
+      await audit(membership.family_id, user.userId, "health_profile_saved", "health_profiles", profile.id);
       return Response.json({ record: profile });
     }
 
     if (action === "create_medication") {
-      const medicineName = textValue(data.medicineName, 180);
-      const dosage = textValue(data.dosage, 120);
-      const frequency = textValue(data.frequency, 120);
-      const reminderTimes = Array.isArray(data.reminderTimes)
-        ? data.reminderTimes.filter((value): value is string => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value)).slice(0, 12)
-        : [];
-      if (!medicineName || !dosage || !frequency) {
-        return Response.json({ error: "Medicine, dosage ও frequency প্রয়োজন।" }, { status: 400 });
-      }
+      const changes = healthRecordChanges("medication", data);
+      if (changes instanceof Response) return changes;
       const [record] = await supabaseRest<HealthMedication[]>("health_medications", {
         method: "POST",
         headers: { Prefer: "return=representation" },
         body: JSON.stringify({
           ...owner,
-          medicine_name: medicineName,
-          dosage,
-          frequency,
-          reminder_times: reminderTimes,
-          start_date: textValue(data.startDate, 10) ?? new Date().toISOString().slice(0, 10),
-          end_date: textValue(data.endDate, 10),
-          instructions: textValue(data.instructions, 2000),
-          prescribing_doctor: textValue(data.prescribingDoctor, 180),
+          ...changes,
           status: "active",
         }),
       });
+      await audit(membership.family_id, user.userId, "health_medication_created", "health_medications", record.id);
       return Response.json({ record }, { status: 201 });
     }
 
     if (action === "create_appointment") {
-      const title = textValue(data.title, 180);
-      const scheduledAt = timestampValue(data.scheduledAt);
-      const reminderMinutes = numberValue(data.reminderMinutes) ?? 60;
-      if (!title || !scheduledAt || scheduledAt === undefined || reminderMinutes === undefined || reminderMinutes < 0 || reminderMinutes > 10080) {
-        return Response.json({ error: "Appointment title, date ও reminder সঠিকভাবে দিন।" }, { status: 400 });
-      }
+      const changes = healthRecordChanges("appointment", data);
+      if (changes instanceof Response) return changes;
       const [record] = await supabaseRest<HealthAppointment[]>("health_appointments", {
         method: "POST",
         headers: { Prefer: "return=representation" },
         body: JSON.stringify({
           ...owner,
-          title,
-          doctor_name: textValue(data.doctorName, 180),
-          facility: textValue(data.facility, 220),
-          scheduled_at: scheduledAt,
-          reminder_minutes: Math.round(reminderMinutes),
-          notes: textValue(data.notes, 2000),
+          ...changes,
           status: "scheduled",
         }),
       });
+      await audit(membership.family_id, user.userId, "health_appointment_created", "health_appointments", record.id);
       return Response.json({ record }, { status: 201 });
     }
 
     if (action === "create_measurement") {
-      const measurementType = textValue(data.measurementType, 30);
-      const primary = numberValue(data.valuePrimary);
-      const secondary = numberValue(data.valueSecondary);
-      const unit = textValue(data.unit, 30);
-      const measuredAt = timestampValue(data.measuredAt) ?? new Date().toISOString();
-      if (!measurementType || !["blood_pressure", "blood_sugar", "pulse", "temperature", "weight", "oxygen"].includes(measurementType) || primary === null || primary === undefined || secondary === undefined || !unit || measuredAt === undefined) {
-        return Response.json({ error: "Measurement type, value, unit ও time সঠিকভাবে দিন।" }, { status: 400 });
-      }
+      const changes = healthRecordChanges("measurement", data);
+      if (changes instanceof Response) return changes;
       const [record] = await supabaseRest<HealthMeasurement[]>("health_measurements", {
         method: "POST",
         headers: { Prefer: "return=representation" },
         body: JSON.stringify({
           ...owner,
-          measurement_type: measurementType,
-          value_primary: primary,
-          value_secondary: measurementType === "blood_pressure" ? secondary : null,
-          unit,
-          measured_at: measuredAt,
-          notes: textValue(data.notes, 1000),
+          ...changes,
         }),
       });
+      await audit(membership.family_id, user.userId, "health_measurement_created", "health_measurements", record.id);
       return Response.json({ record }, { status: 201 });
     }
 
@@ -194,6 +153,7 @@ export async function POST(request: Request) {
         },
       );
       if (!record) return Response.json({ error: "Record পাওয়া যায়নি।" }, { status: 404 });
+      await audit(membership.family_id, user.userId, `health_${entity}_status_updated`, rules.table, String(record.id));
       return Response.json({ record });
     }
 
@@ -341,7 +301,7 @@ export async function PATCH(request: Request) {
     if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
     const body = await request.json() as { kind?: EditableHealthKind; recordId?: unknown; data?: Record<string, unknown> };
     const kind = body.kind, recordId = uuidValue(body.recordId);
-    if (!kind || !(kind in editableTables) || !recordId) return Response.json({ error: "Valid health record প্রয়োজন।" }, { status: 400 });
+    if (!kind || !Object.hasOwn(editableTables, kind) || !recordId) return Response.json({ error: "Valid health record প্রয়োজন।" }, { status: 400 });
     const table = editableTables[kind];
     const lookup = new URLSearchParams({ select: "id", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}`, limit: "1" });
     if (!(await supabaseRest<Array<{ id: string }>>(`${table}?${lookup}`))[0]) return Response.json({ error: "নিজের health record পাওয়া যায়নি।" }, { status: 404 });
@@ -365,7 +325,7 @@ export async function DELETE(request: Request) {
     if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
     const body = await request.json() as { kind?: EditableHealthKind; recordId?: unknown };
     const kind = body.kind, recordId = uuidValue(body.recordId);
-    if (!kind || !(kind in editableTables) || !recordId) return Response.json({ error: "Valid health record প্রয়োজন।" }, { status: 400 });
+    if (!kind || !Object.hasOwn(editableTables, kind) || !recordId) return Response.json({ error: "Valid health record প্রয়োজন।" }, { status: 400 });
     const table = editableTables[kind];
     const filter = new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}` });
     const existing = (await supabaseRest<Array<{ id: string }>>(`${table}?${new URLSearchParams({ select: "id", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}`, limit: "1" })}`))[0];
@@ -381,18 +341,21 @@ export async function DELETE(request: Request) {
 function healthRecordChanges(kind: EditableHealthKind, data: Record<string, unknown>): Record<string, unknown> | Response {
   if (kind === "medication") {
     const medicineName = textValue(data.medicineName, 180), dosage = textValue(data.dosage, 120), frequency = textValue(data.frequency, 120);
-    const reminderTimes = Array.isArray(data.reminderTimes) ? data.reminderTimes.filter((value): value is string => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value)).slice(0, 12) : [];
-    if (!medicineName || !dosage || !frequency) return Response.json({ error: "Medicine, dosage ও frequency প্রয়োজন।" }, { status: 400 });
-    return { medicine_name: medicineName, dosage, frequency, reminder_times: reminderTimes, start_date: textValue(data.startDate, 10) ?? new Date().toISOString().slice(0, 10), end_date: textValue(data.endDate, 10), instructions: textValue(data.instructions, 2000), prescribing_doctor: textValue(data.prescribingDoctor, 180) };
+    const reminderTimes = healthReminderTimes(data.reminderTimes);
+    const startDate = healthDate(data.startDate), endDate = healthDate(data.endDate);
+    if (!medicineName || !dosage || !frequency || !reminderTimes) return Response.json({ code: "HEALTH_INVALID_MEDICATION", error: "ওষুধের নাম, মাত্রা, ব্যবধান ও রিমাইন্ডার সময় সঠিকভাবে দিন।" }, { status: 400 });
+    const start = startDate ?? new Date().toISOString().slice(0, 10);
+    if (startDate === undefined || endDate === undefined || (endDate && endDate < start)) return Response.json({ code: "HEALTH_INVALID_DATE", error: "সঠিক তারিখ দিন; শেষের তারিখ শুরুর আগে হতে পারবে না।" }, { status: 400 });
+    return { medicine_name: medicineName, dosage, frequency, reminder_times: reminderTimes, start_date: start, end_date: endDate, instructions: textValue(data.instructions, 2000), prescribing_doctor: textValue(data.prescribingDoctor, 180) };
   }
   if (kind === "appointment") {
-    const title = textValue(data.title, 180), scheduledAt = timestampValue(data.scheduledAt), reminderMinutes = numberValue(data.reminderMinutes) ?? 60;
-    if (!title || !scheduledAt || scheduledAt === undefined || reminderMinutes === undefined || reminderMinutes < 0 || reminderMinutes > 10080) return Response.json({ error: "Appointment title, date ও reminder সঠিকভাবে দিন।" }, { status: 400 });
-    return { title, doctor_name: textValue(data.doctorName, 180), facility: textValue(data.facility, 220), scheduled_at: scheduledAt, reminder_minutes: Math.round(reminderMinutes), notes: textValue(data.notes, 2000) };
+    const title = textValue(data.title, 180), scheduledAt = timestampValue(data.scheduledAt), reminderMinutes = healthReminderMinutes(data.reminderMinutes);
+    if (!title || !scheduledAt || reminderMinutes === undefined) return Response.json({ code: "HEALTH_INVALID_APPOINTMENT", error: "অ্যাপয়েন্টমেন্টের শিরোনাম, সময় ও পূর্ণ মিনিটের রিমাইন্ডার সঠিকভাবে দিন।" }, { status: 400 });
+    return { title, doctor_name: textValue(data.doctorName, 180), facility: textValue(data.facility, 220), scheduled_at: scheduledAt, reminder_minutes: reminderMinutes, notes: textValue(data.notes, 2000) };
   }
-  const measurementType = textValue(data.measurementType, 30), primary = numberValue(data.valuePrimary), secondary = numberValue(data.valueSecondary), unit = textValue(data.unit, 30), measuredAt = timestampValue(data.measuredAt) ?? new Date().toISOString();
-  if (!measurementType || !["blood_pressure", "blood_sugar", "pulse", "temperature", "weight", "oxygen"].includes(measurementType) || primary === null || primary === undefined || secondary === undefined || !unit || measuredAt === undefined) return Response.json({ error: "Measurement type, value, unit ও time সঠিকভাবে দিন।" }, { status: 400 });
-  return { measurement_type: measurementType, value_primary: primary, value_secondary: measurementType === "blood_pressure" ? secondary : null, unit, measured_at: measuredAt, notes: textValue(data.notes, 1000) };
+  const measurementType = textValue(data.measurementType, 30), primary = healthDecimal(data.valuePrimary), secondary = healthDecimal(data.valueSecondary), unit = textValue(data.unit, 30), measuredAt = timestampValue(data.measuredAt);
+  if (!measurementType || !["blood_pressure", "blood_sugar", "pulse", "temperature", "weight", "oxygen"].includes(measurementType) || primary === null || primary === undefined || secondary === undefined || (measurementType === "blood_pressure" && secondary === null) || !unit || measuredAt === undefined) return Response.json({ code: "HEALTH_INVALID_MEASUREMENT", error: "পরিমাপের ধরন, সর্বোচ্চ দুই দশমিকের মান, একক ও সময় সঠিকভাবে দিন।" }, { status: 400 });
+  return { measurement_type: measurementType, value_primary: primary, value_secondary: measurementType === "blood_pressure" ? secondary : null, unit, measured_at: measuredAt ?? new Date().toISOString(), notes: textValue(data.notes, 1000) };
 }
 
 async function audit(familyId: string, userId: string, action: string, entityType: string, entityId: string) {

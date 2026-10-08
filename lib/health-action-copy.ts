@@ -1,0 +1,39 @@
+type Locale = "bn" | "en";
+const names = { medication: ["ওষুধ", "medication"], appointment: ["অ্যাপয়েন্টমেন্ট", "appointment"], measurement: ["স্বাস্থ্য পরিমাপ", "health measurement"] } as const;
+export function healthErrorCopy(code: unknown, locale: Locale): string | null {
+  const messages: Record<string, [string, string]> = {
+    HEALTH_INVALID_DATE: ["সঠিক তারিখ দিন। ওষুধের শেষের তারিখ শুরুর আগে হতে পারবে না।", "Enter valid calendar dates. A medication end date cannot precede its start date."],
+    HEALTH_INVALID_MEDICATION: ["ওষুধের নাম, মাত্রা, ব্যবধান ও রিমাইন্ডার সময় সঠিকভাবে দিন।", "Enter a medicine name, dosage, frequency and valid reminder times (HH:mm)."],
+    HEALTH_INVALID_APPOINTMENT: ["অ্যাপয়েন্টমেন্টের শিরোনাম, সময় ও ০–১০,০৮০ পূর্ণ মিনিটের রিমাইন্ডার দিন।", "Enter an appointment title, valid timezone-aware time and reminder of 0–10,080 whole minutes."],
+    HEALTH_INVALID_MEASUREMENT: ["সঠিক পরিমাপের ধরন, সর্বোচ্চ দুই দশমিকের মান, একক ও সময় দিন। রক্তচাপে উভয় মান দিন।", "Enter a measurement type, value with up to two decimals, unit and valid timezone-aware time. Blood pressure requires both values."],
+  };
+  return typeof code === "string" && Object.hasOwn(messages, code) ? messages[code][locale === "bn" ? 0 : 1] : null;
+}
+export function healthActionCopy(body: Record<string, unknown>, method: string, locale: Locale) {
+  const data = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data as Record<string, unknown> : body;
+  const kind = method === "POST" && typeof body.action === "string" && body.action.startsWith("create_") ? body.action.slice(7) : body.kind;
+  if (typeof kind === "string" && Object.hasOwn(names, kind) && ["POST", "PATCH", "DELETE"].includes(method)) {
+    const name = names[kind as keyof typeof names][locale === "bn" ? 0 : 1], remove = method === "DELETE";
+    return locale === "bn" ? {
+      title: remove ? "স্থায়ীভাবে মুছবেন?" : method === "POST" ? "রেকর্ড যোগ করবেন?" : "পরিবর্তন সংরক্ষণ করবেন?",
+      description: remove ? `${name} রেকর্ড স্থায়ীভাবে মুছবেন? এটি ফিরিয়ে আনা যাবে না।` : `${name} রেকর্ড ${method === "POST" ? "যোগ" : "হালনাগাদ"} করবেন? এটি তথ্য সংরক্ষণ করে, চিকিৎসা বা বাইরের বুকিং সম্পন্ন করে না।`,
+      confirmLabel: remove ? "হ্যাঁ, মুছে ফেলুন" : "হ্যাঁ, সংরক্ষণ করুন", destructive: remove,
+      successMessage: `${name} রেকর্ড ${remove ? "স্থায়ীভাবে মুছে ফেলা হয়েছে" : method === "POST" ? "যোগ হয়েছে" : "হালনাগাদ হয়েছে"}।`,
+    } : {
+      title: remove ? "Delete record permanently?" : method === "POST" ? "Add health record?" : "Save health changes?",
+      description: remove ? `Permanently delete this ${name} record? This cannot be undone.` : `${method === "POST" ? "Add" : "Update"} this ${name} record? This stores information; it does not provide treatment or make an external booking.`,
+      confirmLabel: remove ? "Yes, delete" : "Yes, save", destructive: remove,
+      successMessage: `${name.charAt(0).toUpperCase()}${name.slice(1)} record ${remove ? "deleted permanently" : method === "POST" ? "added" : "updated"}.`,
+    };
+  }
+  if (method !== "POST" || body.action !== "update_status" || !["medication", "appointment"].includes(String(data.entity))) return null;
+  const states: Record<string, string> = data.entity === "medication" ? { active: "সক্রিয়", paused: "স্থগিত", completed: "সম্পন্ন" } : { scheduled: "নির্ধারিত", completed: "সম্পন্ন", cancelled: "বাতিল" };
+  if (typeof data.status !== "string" || !Object.hasOwn(states, data.status)) return null;
+  return locale === "bn" ? {
+    title: "রেকর্ডের স্ট্যাটাস বদলাবেন?", description: `রেকর্ডের স্ট্যাটাস “${states[data.status]}” করবেন? এটি শুধু রেকর্ডের পরিবর্তন; চিকিৎসা নির্দেশনা বা বাইরের বুকিং পরিবর্তন নয়।`,
+    confirmLabel: "হ্যাঁ, পরিবর্তন করুন", destructive: false, successMessage: `রেকর্ডের স্ট্যাটাস “${states[data.status]}” করা হয়েছে।`,
+  } : {
+    title: "Change health record status?", description: `Mark this ${data.entity} record “${data.status}”? This changes only the record, not treatment instructions or an external booking.`,
+    confirmLabel: "Yes, change status", destructive: false, successMessage: `Health record marked “${data.status}”.`,
+  };
+}

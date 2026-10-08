@@ -54,6 +54,9 @@
     "test:finance-action-copy": "node scripts/test-finance-action-copy.mjs",
     "test:family-selection": "node scripts/test-family-selection.mjs",
     "test:health-directory": "node scripts/test-health-directory-visibility.mjs",
+    "test:health-validation": "node scripts/test-health-validation.mjs",
+    "test:health-action-copy": "node scripts/test-health-action-copy.mjs",
+    "test:health-export": "node scripts/test-health-export.mjs",
     "i18n:audit": "node scripts/audit-translations.mjs"
   },
   "dependencies": {
