@@ -121,6 +121,20 @@ Cleanup targets only that prefix's private records/file and verifies unrelated a
 
 SOS state guards/projections and medication-course reminder planning have isolated tests, plus local API rejection/cancel evidence. Positive multi-user SOS, actual notification delivery and transactional consistency are not accepted: response insert, acknowledgment and audit remain separate REST calls. In-app SOS does not call emergency services or dispatch help. Use staging for any positive SOS/concurrency test and preserve genuine emergency history.
 
+## Manual Welfare document QA
+
+`scripts/qa-welfare-documents-local.mjs` creates one clearly labeled **submitted** assistance draft and a tiny PNG, with no approval, disbursement or payment. The loopback server can use production Supabase. Check the origin first; preserve approved records and financial history.
+
+```powershell
+node scripts/qa-welfare-documents-local.mjs --allow-local-qa-writes
+# Only after checking the exact prefix and authorizing its permanent cleanup:
+node scripts/qa-welfare-documents-local.mjs --allow-local-qa-writes --cleanup-prefix 'QA Welfare Docs <14-digit timestamp>'
+npm.cmd run test:welfare-document-upload
+npm.cmd run test:welfare-documents
+```
+
+Cleanup removes only that prefix's submitted request/receipt, verifies file 404, upload/delete audit entries and unchanged unrelated Welfare arrays. Never rerun historical completed cleanup. A 202 means the document mutation persisted but audit/storage work remains; do not blindly repeat it. An uncertain metadata response retains the file for support-led reconciliation, not automatic deletion. Storage, metadata and audit are separate operations, not one atomic transaction. Real role/privacy tests, fault recovery and hosted deployment remain acceptance gates.
+
 ## Database and security rules
 
 - Every family-scoped read and mutation must enforce the selected family's active membership **on the server**. A client-side hidden button is not authorization.

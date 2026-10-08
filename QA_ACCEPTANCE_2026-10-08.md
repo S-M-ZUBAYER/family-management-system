@@ -1,4 +1,4 @@
-# Finance and Health local acceptance — 2026-10-08
+# Finance, Health and Welfare local acceptance — 2026-10-08
 
 Status: **Partial**, not production acceptance. This is the newest continuation log.
 
@@ -139,3 +139,29 @@ Still **Partial**, not deployed. No SQL/migration, valid SOS alert/response/clos
 - Positive valid SOS creation/response/closure, real multiple users/roles, consent filtering, populated history XLSX and mounted reminder/OS delivery remain untested here. Preserve genuine history; do not delete all SOS tables or silently send a test emergency.
 - Background/offline/FCM/SMS/email, provider configuration/budget, complete same-user dedup across reloads/devices, mobile/accessibility and the existing Site deployment remain open. Do not infer them from a successful build or a confirmation screenshot.
 - Safe next route: Welfare's remaining document/retention and bookkeeping branches, using separately labeled QA records, without real payment or changing retained approved fixtures. Health transactional delivery/real-user acceptance remains a separate open gate.
+
+## Welfare document continuation — newest slice
+
+Local localhost:5173, Nojir family, mock owner; production-backed API, **not** proof of real separate-user authorization or hosted Site acceptance. No SQL/migration, genuine assistance, approval, outflow or real payment in this slice.
+
+### Corrections and isolated evidence
+
+- Upload validates allowed MIME, nonempty/12 MB size, canonical UUID, own-key entity table and supplied document-type/visibility enums before a linked query/write. Inherited `constructor`/`__proto__` keys no longer pass. Nonmanager visibility remains admins-only. File GET/DELETE reject malformed IDs with 400.
+- Upload/list document metadata uses an explicit public projection, excluding storage key, family ID, uploader auth ID and unexpected fields. Upload now writes a scoped `welfare_document_uploaded` audit.
+- BN/EN document-specific confirmation/result and validation/retention errors integrated into global closeable modals. Reviewed/final evidence still protected by existing DB guard; draft parent delete now returns the consistent `WELFARE_DOCUMENTS_ATTACHED` code.
+- Successful metadata insert followed by audit failure retains file/metadata and returns **202 auditPending**. Delete audit/storage partial outcomes also return informational 202 with separate flags. Route feedback does not falsely queue ordinary success afterward. A lost/invalid metadata response preserves the object for reconciliation and returns an explicit uncertain-outcome warning; only a known 4xx metadata rejection compensates its object. This is **not atomic**, and support reconciliation/automatic audit retry is not implemented.
+- Nine focused pure/simulated tests cover validation, defaults/member restriction, safe projection, scoped audit order, confirmed-rejection compensation, ambiguous response, audit outage, bilingual copy and informational partial outcome. Failure simulation is not real storage/Supabase fault injection.
+
+### API, browser and cleanup evidence
+
+- First seed `QA Welfare Docs 20261008054209` stopped at oversized upload: HTTP transport returned plain-text **413**, not route 400. Its only submitted draft was removed with **12 cleanup checks**; no document was created. Updated harness allows either 413 transport or 400 route rejection and UI handles 413 with an actionable localized message. A valid near-12 MB upload was **not** tested.
+- Successful seed `QA Welfare Docs 20261008054306`: **45 checks** for draft request creation; PNG upload/read; returned public metadata; headers/private cache/inline/nosniff and exact file bytes; empty/oversize/invalid MIME/UUID/entity/enums; nonexistent and other-family link; unsigned read/delete; same mock-owner other-family read/delete 404; attached-parent delete 409 with code. Prior funds/contributions/expenses/requests/pledges/documents were deep-equal apart from these two new QA records.
+- IDs: submitted request `0a6228a3-d6e8-4065-9d82-bdfc631585a2`; receipt `c5fa50d7-8011-4fbe-a14b-759cd91e7d27`. Upload audit found through `/api/admin`.
+- Browser Documents showed receipt, admins visibility and delete control. BN specific permanent-delete/retention warning cancelled using **close X** with cancellation info; EN equivalent declined with **No, go back** and cancellation info. No browser deletion was submitted. BN/EN language preference success close-X checked; dark mode retained and Bengali restored. Screenshot `welfare-document-confirmation-2026-10-08.jpg` in the task workspace captures BN warning in the narrow viewport, not a product asset.
+- Exact-prefix cleanup **16 checks**: only that receipt/private file and submitted draft permanently removed, file GET 404, upload/delete audits present, unrelated arrays deep-equal. Audit history retained; prior approved assistance/unpaid expense, pledge/fund/contribution fixtures unchanged. **Do not rerun either completed cleanup.** These hard-deleted synthetic rows/files have no product undo.
+- All **46 configured test suites** passed; final nine-case document suite rechecked after uncertain-response refinement. Nonincremental TypeScript, lint, tenant-security, cancellation (75 handlers), translation (2,978 literal pairs), whitespace and production build passed.
+
+### Still open / next
+
+- Welfare remains **Partial**. Real owner/admin/member/pending users; direct finalized-document API and races; other contribution/fund/expense parents; PDF/Word/WebP files and valid near-limit uploads; actual audit/storage failure injection/reconciliation; populated Documents XLSX/native dates/large rows; full responsive/accessibility and hosted acceptance remain.
+- Next bounded slice: strict Welfare money/date validation and isolated positive-balance ledger bookkeeping/concurrency in a safe environment. Source still has permissive numeric/date fallbacks; inspect and fix without changing retained financial history or making real payments. Do not infer full product completion from this checkpoint.
