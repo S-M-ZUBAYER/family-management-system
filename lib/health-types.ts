@@ -84,7 +84,6 @@ export type EmergencyHealthProfile = {
 
 export type HealthSosAlert = {
   id: string;
-  reporter_user_id: string;
   reporter_name: string;
   alert_type: "medical" | "accident" | "fire" | "safety" | "other";
   message: string;

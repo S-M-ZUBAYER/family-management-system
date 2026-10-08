@@ -1,6 +1,7 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageHealth, getActiveFamilyMembership } from "@/lib/family-access";
 import { getChatAuthorName } from "@/lib/family-chat";
+import { publicHealthSosRecord } from "@/lib/health-sos-workflow";
 import { visibleEmergencyDirectory, type EmergencyDirectoryRow } from "@/lib/health-directory-visibility";
 import type {
   EmergencyHealthProfile,
@@ -154,10 +155,7 @@ export async function GET() {
       measurements,
       documents,
       emergencyDirectory,
-      sosAlerts: sosRows.map((alert) => ({
-        ...alert,
-        is_reporter: alert.reporter_user_id === user.userId,
-      })),
+      sosAlerts: sosRows.map((alert) => publicHealthSosRecord(alert, user.userId)),
       sosResponses: responseRows.map(({ responder_user_id, ...response }) => ({
         ...response,
         is_mine: responder_user_id === user.userId,

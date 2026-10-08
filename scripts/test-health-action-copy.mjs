@@ -18,3 +18,12 @@ test("status copy distinguishes record keeping from actual treatment/bookings", 
 test("every new validation code has actionable BN/EN error copy", () => {
   for (const code of ["HEALTH_INVALID_DATE", "HEALTH_INVALID_MEDICATION", "HEALTH_INVALID_APPOINTMENT", "HEALTH_INVALID_MEASUREMENT"]) for (const locale of ["bn", "en"]) assert.ok(healthErrorCopy(code, locale));
 });
+test("SOS confirmation/results explicitly disclose in-app only behavior in BN/EN", () => {
+  for(const locale of ["bn","en"]) for(const action of ["create_sos","respond_sos","update_sos"]) {
+    const copy=healthActionCopy({action,data:{status:"resolved"}},"POST",locale); assert.ok(copy); assert.ok(copy.successMessage);
+  }
+  assert.match(healthActionCopy({action:"create_sos"},"POST","en").description,/No automatic SMS/);
+  assert.match(healthActionCopy({action:"respond_sos"},"POST","en").successMessage,/no emergency-services call/);
+  assert.equal(healthActionCopy({action:"update_sos",data:{status:"active"}},"POST","en"),null);
+  for(const code of ["HEALTH_SOS_INVALID","HEALTH_SOS_LOCATION","HEALTH_SOS_RESPONSE","HEALTH_SOS_CLOSED","HEALTH_SOS_NOT_FOUND","HEALTH_SOS_CONFLICT","HEALTH_SOS_FORBIDDEN"]) for(const locale of ["bn","en"]) assert.ok(healthErrorCopy(code,locale));
+});

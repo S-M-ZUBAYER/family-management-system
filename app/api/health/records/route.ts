@@ -7,11 +7,12 @@ import type {
   HealthMedication,
   HealthProfile,
   HealthSosAlert,
-  HealthSosResponse,
 } from "@/lib/health-types";
 import { healthErrorResponse } from "../route";
 import { supabaseRest } from "@/lib/supabase-rest";
-import { healthDate, healthDecimal, healthNumber, healthReminderMinutes, healthReminderTimes, healthTimestamp, healthUuid } from "@/lib/health-validation";
+import { healthDate, healthDecimal, healthReminderMinutes, healthReminderTimes, healthTimestamp, healthUuid } from "@/lib/health-validation";
+
+import { closeHealthSos, respondHealthSos, healthSosLocation, publicHealthSosRecord, HealthSosWorkflowError } from "@/lib/health-sos-workflow";
 
 type EditableHealthKind = "medication" | "appointment" | "measurement";
 const editableTables: Record<EditableHealthKind, string> = {
@@ -23,7 +24,6 @@ const editableTables: Record<EditableHealthKind, string> = {
 const textValue = (value: unknown, max: number) =>
   typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 
-const numberValue = healthNumber;
 const uuidValue = healthUuid;
 const timestampValue = healthTimestamp;
 
@@ -160,15 +160,10 @@ export async function POST(request: Request) {
     if (action === "create_sos") {
       const alertType = textValue(data.alertType, 20) ?? "medical";
       const message = textValue(data.message, 1000);
-      const latitude = numberValue(data.latitude);
-      const longitude = numberValue(data.longitude);
-      const accuracy = numberValue(data.locationAccuracyM);
       if (!["medical", "accident", "fire", "safety", "other"].includes(alertType) || !message || message.length < 3) {
-        return Response.json({ error: "SOS type ও সংক্ষিপ্ত message প্রয়োজন।" }, { status: 400 });
+        return Response.json({ code: "HEALTH_SOS_INVALID", error: "SOS type and a message of at least three characters are required." }, { status: 400 });
       }
-      if (latitude === undefined || longitude === undefined || accuracy === undefined || (latitude !== null && (latitude < -90 || latitude > 90)) || (longitude !== null && (longitude < -180 || longitude > 180)) || ((latitude === null) !== (longitude === null))) {
-        return Response.json({ error: "Location value সঠিক নয়।" }, { status: 400 });
-      }
+      const location = healthSosLocation(data);
       const [record] = await supabaseRest<HealthSosAlert[]>("health_sos_alerts", {
         method: "POST",
         headers: { Prefer: "return=representation" },
@@ -179,9 +174,7 @@ export async function POST(request: Request) {
           alert_type: alertType,
           message,
           preferred_contact: textValue(data.preferredContact, 50),
-          latitude,
-          longitude,
-          location_accuracy_m: accuracy,
+          ...location,
           location_label: textValue(data.locationLabel, 300),
           status: "active",
         }),
@@ -195,100 +188,29 @@ export async function POST(request: Request) {
           action: "health_sos_created",
           entity_type: "health_sos_alert",
           entity_id: record.id,
-          metadata: { alert_type: alertType, has_location: latitude !== null },
+          metadata: { alert_type: alertType, has_location: location.latitude !== null },
         }),
       });
-      return Response.json({ record: { ...record, is_reporter: true } }, { status: 201 });
+      return Response.json({ record: publicHealthSosRecord(record, user.userId) }, { status: 201 });
     }
 
     if (action === "respond_sos") {
-      const alertId = uuidValue(data.alertId);
-      const responseType = textValue(data.responseType, 30);
-      if (!alertId || !responseType || !["acknowledged", "on_the_way", "called_emergency", "update"].includes(responseType)) {
-        return Response.json({ error: "SOS response সঠিক নয়।" }, { status: 400 });
-      }
-      const alertQuery = new URLSearchParams({
-        select: "id,status",
-        id: `eq.${alertId}`,
-        family_id: `eq.${membership.family_id}`,
-        limit: "1",
-      });
-      const alert = (await supabaseRest<Array<{ id: string; status: string }>>(`health_sos_alerts?${alertQuery}`))[0];
-      if (!alert || ["resolved", "cancelled"].includes(alert.status)) return Response.json({ error: "SOS alert active নেই।" }, { status: 404 });
-      const [record] = await supabaseRest<Array<HealthSosResponse & { responder_user_id: string }>>("health_sos_responses", {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify({
-          family_id: membership.family_id,
-          alert_id: alertId,
-          responder_user_id: user.userId,
-          responder_name: authorName,
-          response_type: responseType,
-          note: textValue(data.note, 1000),
-        }),
-      });
-      if (alert.status === "active") {
-        const now = new Date().toISOString();
-        await supabaseRest(`health_sos_alerts?id=eq.${alertId}&family_id=eq.${membership.family_id}`, {
-          method: "PATCH",
-          headers: { Prefer: "return=minimal" },
-          body: JSON.stringify({
-            status: "acknowledged",
-            acknowledged_by_user_id: user.userId,
-            acknowledged_by_name: authorName,
-            acknowledged_at: now,
-            updated_at: now,
-          }),
-        });
-      }
-      const safeRecord = {
-        id: record.id,
-        alert_id: record.alert_id,
-        responder_name: record.responder_name,
-        response_type: record.response_type,
-        note: record.note,
-        created_at: record.created_at,
-      };
-      return Response.json({ record: { ...safeRecord, is_mine: true } }, { status: 201 });
+      const alertId = uuidValue(data.alertId), responseType = textValue(data.responseType, 30);
+      if (!alertId || !responseType) return Response.json({ code: "HEALTH_SOS_RESPONSE", error: "Valid alert and response are required." }, { status: 400 });
+      const record = await respondHealthSos(supabaseRest, membership.family_id, user.userId, authorName, alertId, responseType, textValue(data.note, 1000));
+      return Response.json({ record }, { status: 201 });
     }
 
     if (action === "update_sos") {
-      const alertId = uuidValue(data.alertId);
-      const status = textValue(data.status, 20);
-      if (!alertId || !status || !["resolved", "cancelled"].includes(status)) {
-        return Response.json({ error: "SOS update সঠিক নয়।" }, { status: 400 });
-      }
-      const alertQuery = new URLSearchParams({
-        select: "id,reporter_user_id,status",
-        id: `eq.${alertId}`,
-        family_id: `eq.${membership.family_id}`,
-        limit: "1",
-      });
-      const alert = (await supabaseRest<Array<{ id: string; reporter_user_id: string; status: string }>>(`health_sos_alerts?${alertQuery}`))[0];
-      if (!alert) return Response.json({ error: "SOS alert পাওয়া যায়নি।" }, { status: 404 });
-      if (alert.reporter_user_id !== user.userId && !canManageHealth(membership.role)) {
-        return Response.json({ error: "SOS close করার permission নেই।" }, { status: 403 });
-      }
-      const now = new Date().toISOString();
-      const [record] = await supabaseRest<HealthSosAlert[]>(
-        `health_sos_alerts?id=eq.${alertId}&family_id=eq.${membership.family_id}`,
-        {
-          method: "PATCH",
-          headers: { Prefer: "return=representation" },
-          body: JSON.stringify({
-            status,
-            resolved_by_user_id: user.userId,
-            resolved_at: now,
-            resolution_note: textValue(data.note, 1000),
-            updated_at: now,
-          }),
-        },
-      );
+      const alertId = uuidValue(data.alertId), status = textValue(data.status, 20);
+      if (!alertId || (status !== "resolved" && status !== "cancelled")) return Response.json({ code: "HEALTH_SOS_INVALID", error: "Valid SOS alert and closing status are required." }, { status: 400 });
+      const record = await closeHealthSos(supabaseRest, membership.family_id, user.userId, canManageHealth(membership.role), alertId, status, textValue(data.note, 1000));
       return Response.json({ record });
     }
 
     return Response.json({ error: "Unsupported health action." }, { status: 400 });
   } catch (error) {
+    if (error instanceof HealthSosWorkflowError) return Response.json({ code: error.code, error: error.message }, { status: error.status });
     return healthErrorResponse(error, "Unable to update health workspace");
   }
 }

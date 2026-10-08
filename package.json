@@ -57,6 +57,8 @@
     "test:health-validation": "node scripts/test-health-validation.mjs",
     "test:health-action-copy": "node scripts/test-health-action-copy.mjs",
     "test:health-export": "node scripts/test-health-export.mjs",
+    "test:health-sos": "node scripts/test-health-sos-workflow.mjs",
+    "test:health-reminders": "node scripts/test-health-reminders.mjs",
     "i18n:audit": "node scripts/audit-translations.mjs"
   },
   "dependencies": {
