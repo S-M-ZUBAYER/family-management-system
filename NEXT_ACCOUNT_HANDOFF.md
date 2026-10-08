@@ -1,6 +1,6 @@
 # Continue this project from another account
 
-Snapshot: 2026-10-07 (Asia/Dhaka). This is the current entry point; older dated sections of `PROJECT_HANDOFF.md` are history and may describe work that was later completed or superseded. Recheck facts before acting.
+Snapshot: 2026-10-08 (Asia/Dhaka). This is the current entry point; older dated sections of `PROJECT_HANDOFF.md` are history and may describe work that was later completed or superseded. Recheck facts before acting.
 
 ## Open the existing checkout
 
@@ -8,7 +8,7 @@ Snapshot: 2026-10-07 (Asia/Dhaka). This is the current entry point; older dated 
 - GitHub: `https://github.com/S-M-ZUBAYER/family-management-system.git`
 - Run `git status -sb` and `git log -1 --oneline` for the newest checkpoint; preserve any user edits. Do not assume a dated commit hash here is the latest checkpoint.
 - `.env.local` exists locally. Never print, paste, commit, or send its Supabase secret. It is not in GitHub, so a different PC needs a separately configured local environment.
-- Local development: from this folder run `npm.cmd run dev` and use the port reported in the terminal. On 2026-10-07 the FMS server is on **5174**, while 5173 serves another application; do not stop that unrelated application. Open `/signin-with-chatgpt?return_to=/` on the FMS origin if local sign-in is needed. A new browser may need to sign in again.
+- Local development: run `npm.cmd run dev` and use the reported port. On 2026-10-08 the running FMS checkout is on **5173**, verified by the wrapper and Finance API. October 7's 5174 address is historical; recheck before any action and do not stop unrelated apps. Open `/signin-with-chatgpt?return_to=/` on the FMS origin if local sign-in is needed. A new browser may need to sign in again.
 
 ## Read before changing code
 
@@ -16,18 +16,19 @@ Snapshot: 2026-10-07 (Asia/Dhaka). This is the current entry point; older dated 
 2. `PROJECT_HANDOFF.md` for the long technical history; use the newest dated entry over an older contradictory statement. Its old copy-paste prompt near the bottom is a historical snapshot, not the current starting state.
 3. `QA_ROUTE_MATRIX.md` for observed versus untested route coverage.
 4. `QA_ACCEPTANCE_2026-10-04.md` and `QA_ACCEPTANCE_2026-10-03.md` for actual local browser/database evidence and retained QA fixtures.
-5. `QA_ACCEPTANCE_2026-10-05.md` for Magazine browser/export evidence, then `QA_ACCEPTANCE_2026-10-07.md` for the newest Qurbani evidence.
+5. `QA_ACCEPTANCE_2026-10-05.md` for Magazine, `QA_ACCEPTANCE_2026-10-07.md` for Qurbani, then **`QA_ACCEPTANCE_2026-10-08.md`** for the newest Finance evidence and remaining gaps.
 6. `supabase/README.md` before any SQL action. Read-only audit first; never rerun all migrations or reset tables just because files exist.
 
 ## Exact current boundary
 
-- The newest slice is `/qurbani`: 52 opt-in API assertions exercised all seven record types, payment sync/validation and same-owner two-family boundaries; actual BN/EN current/all-years nonempty XLSX files were opened and checked, including native Excel dates and timezone columns. Linked delete error and unlinked cancel/success were observed in the browser. The disposable CRUD campaign was cleaned with 13 assertions and unrelated arrays unchanged. A separate finalization campaign was cancelled then settled/closed through browser confirmations; 28 API write-denial checks passed in each finalized state. Read-only UI and 46 scoped audit records were verified. See the newest section of `QA_ACCEPTANCE_2026-10-07.md`; real-user permissions, concurrency/over-allocation, nonzero finalization, large/mobile/accessibility/hosted checks remain open.
+- The newest slice is `/finance`: 67 opt-in API assertions covered all six kinds and statuses/validation/cross-family IDs; populated English seven-sheet XLSX was downloaded and checked with exact-cent amounts/native dates. Browser language/theme, archive/reactivate, budget cancel/no-write, localized debt error/success, zero-wallet bill visibility/status passed. 29 private scoped audits checked. All 10 synthetic Finance records were removed in 17+9 cleanup checks; do not rerun that completed cleanup. Physical BN download was not independently inspected; real separate-user privacy, remaining browser flows, fault injection/concurrency, large/mobile/hosted checks remain open. No migrations applied. See October 8 log.
+- Previous `/qurbani`: 52 API checks, actual BN/EN current/all-years XLSX, linked/unlinked delete browser flows and 13 cleanup assertions passed. Separate finalization fixture was settled/closed with 28 write-denial checks per state and 46 audits. See `QA_ACCEPTANCE_2026-10-07.md`; real roles, races/over-allocation, nonzero settlement and hosted checks remain open.
 - Animal-link protection is applied in staging/live: all three FKs verified validated `NO ACTION`, rollback-only equivalent SQL test passed in staging, API independent-link rejection and owner-browser delete flows subsequently passed. **Do not reapply** `20261007_qurbani_animal_link_guard.sql`. Direct race testing remains open.
 - Retain immutable Nojir QA campaign `ad42aa28-2225-4cf8-80e2-042d23974676` (`QA Lifecycle Finalization 20261007095313`, 2029, closed) and completed task `88f60377-67b1-406e-822e-1f4fb57292a8`. The separate planning CRUD campaign `260c5b99-2e18-4421-a7f5-e4a31727c799` was removed after QA; do not rerun cleanup for it.
 - The previous `/events` QA fixture remains `published` with its RSVP and comment. See `QA_ACCEPTANCE_2026-10-04.md` for exact fixture ID and incomplete branches.
 - `/notices` remains **Partial**: its synthetic draft remains unpublished and unpinned; do not delete it without a target-specific decision. See `QA_ACCEPTANCE_2026-10-04.md`.
 - `/members` remains **Partial**, not accepted: real separate-account request → approve/reject/suspend, nonempty XLSX, and family/role isolation remain. Its owner-browser continuation was committed as `264f0e3`. The QA browser is named `family-management-local-qa`; its `family-notices-qa` session was closed after this slice. A single owner browser or local mock identity cannot prove a second user's permissions.
-- Continue next with another **Partial** route (e.g. `/finance` budgets/debt/statuses/XLSX) or outstanding Qurbani security/concurrency branches. For `/magazine`, English/nonempty-comment XLSX, edit/featured/review branches, real roles/tenant isolation, large export and hosted Site remain. Do not call the whole product complete based on one route.
+- Continue another **Partial** route, e.g. `/health` appointments/measurements/files/SOS, or explicitly finish one of the Finance/Qurbani gaps. For `/magazine`, English/nonempty-comment XLSX, edit/featured/review branches, real roles/tenant isolation, large export and hosted Site remain. Do not call the whole product complete based on one route.
 - There are many other partially accepted routes. Continue one section at a time using `QA_ROUTE_MATRIX.md`; do not report the whole product complete merely because a build succeeds.
 - The owner explicitly asked to **keep** the Nojir `QA Member` → `QA Member Two Edited` parent-child relationship and `QA Utility Bill 2026-10-03`. Other QA records/files noted in the acceptance logs also remain. Do not delete or rewrite retained fixtures, production tables, financial history, or files without a fresh, target-specific authorization.
 - Production Supabase project: `olqwsnttottqitookfck`. Separate staging project: `irqomyhxdpxrmfqiyxld`. SQL files were previously run manually in Supabase SQL Editor, so Git-style migration history does not prove installation. Verify installed schema/functions with the read-only audit before any correction. Do not expose database credentials in chat.

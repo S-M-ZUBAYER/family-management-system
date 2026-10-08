@@ -2,7 +2,7 @@
 
 A bilingual (বাংলা/English), multi-family web application for family records and day-to-day coordination. The first family is Sheikh Monsuf Family, but the application is designed so each registered family has its own workspace and approval process.
 
-> **Project status:** This is an active, partially tested project—not a finished or newly deployed release. Code in this checkout, database migrations applied to Supabase, and the version currently hosted on Sites may differ. Start with [NEXT_ACCOUNT_HANDOFF.md](NEXT_ACCOUNT_HANDOFF.md), then [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) and [the latest local QA log](QA_ACCEPTANCE_2026-10-04.md) before continuing or deploying.
+> **Project status:** This is an active, partially tested project—not a finished or newly deployed release. Code in this checkout, database migrations applied to Supabase, and the version currently hosted on Sites may differ. Start with [NEXT_ACCOUNT_HANDOFF.md](NEXT_ACCOUNT_HANDOFF.md), then [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) and [the latest local QA log](QA_ACCEPTANCE_2026-10-08.md) before continuing or deploying.
 
 ## What is in the application
 
@@ -82,6 +82,22 @@ npm.cmd run test:qurbani-workbook
 ```
 
 Seed creates uniquely labeled synthetic records. Cleanup only targets that runner's planning campaign, removes refunds before collections and animals after their links, and checks unrelated records are unchanged. Finalization fixtures must be retained after settlement/closure; do not bypass immutable-history guards to clean them up. See `QA_ACCEPTANCE_2026-10-07.md` for exact observed fixtures and remaining gaps. Native Excel dates store local wall-clock values; exported timestamp sheets include the IANA timezone explicitly.
+
+## Manual Finance integration QA
+
+`scripts/qa-finance-local.mjs` is opt-in loopback QA for the named Nojir test family using local mock authentication. It exercises all six record kinds, validation and same-owner cross-family rejection. The server may use **production Supabase**; inspect the current environment and preserve existing records first. It does not perform real payments or prove separate-user permissions.
+
+```powershell
+$env:FMS_QA_ORIGIN = 'http://localhost:5173' # use the actual FMS origin
+node scripts/qa-finance-local.mjs --allow-local-qa-writes
+# After reviewing this run's exact synthetic prefix and authorizing permanent cleanup:
+node scripts/qa-finance-local.mjs --allow-local-qa-writes --cleanup-prefix 'QA Finance <14-digit timestamp>'
+npm.cmd run test:finance-validation
+npm.cmd run test:finance-export
+npm.cmd run test:finance-action-copy
+```
+
+Never use a broad table reset for QA. Cleanup targets only the exact prefix's owned Finance IDs, removes transactions before their wallet and verifies unrelated Finance arrays are unchanged. See the October 8 QA log for completed cleanup and remaining acceptance. XLSX money is numeric/exact to cents; date-only columns are native Excel dates; empty sections retain localized headers.
 
 ## Database and security rules
 
