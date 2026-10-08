@@ -27,6 +27,7 @@ import { noticeActionCopy } from "@/lib/notice-action-copy";
 import { eventActionCopy } from "@/lib/event-action-copy";
 import { magazineActionCopy } from "@/lib/magazine-action-copy";
 import { qurbaniErrorCopy, qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "@/lib/qurbani-action-copy";
+import { financeErrorCopy, financeRecordActionCopy, financeStatusActionCopy } from "@/lib/finance-action-copy";
 import {
   Dialog,
   DialogClose,
@@ -214,6 +215,14 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
     const statusCopy = qurbaniStatusActionCopy(body.entity, body.status, method, locale);
     if (statusCopy) return statusCopy;
   }
+  if (pathname === "/api/finance/records") {
+    const financeCopy = financeRecordActionCopy(body.kind, method, locale);
+    if (financeCopy) return financeCopy;
+  }
+  if (pathname === "/api/finance/status") {
+    const financeCopy = financeStatusActionCopy(body, method, locale);
+    if (financeCopy) return financeCopy;
+  }
   if (pathname === "/api/household/records") {
     const householdCopy = householdActionCopy(body, method, locale);
     if (householdCopy) return householdCopy;
@@ -277,6 +286,8 @@ async function responseMessage(response: Response, fallback: string, locale: App
     const payload = await response.clone().json() as Record<string, unknown>;
     const qurbaniMessage = qurbaniErrorCopy(payload.code, locale);
     if (!response.ok && qurbaniMessage) return qurbaniMessage;
+    const financeMessage = financeErrorCopy(payload.code, locale);
+    if (!response.ok && financeMessage) return financeMessage;
     for (const key of ["message", "success", "warning", "error"]) {
       if (typeof payload[key] === "string" && payload[key]) return payload[key] as string;
     }
@@ -407,6 +418,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
           const memberResult = memberPayload ? memberActionResult(url.pathname, method, parseBody(init?.body), memberPayload, locale, copy.successMessage, response.status) : null;
           const message = memberResult ? memberResult.message : response.ok && response.status !== 202 && (url.pathname === "/api/notices" || url.pathname.startsWith("/api/notices/") || url.pathname === "/api/events" || url.pathname.startsWith("/api/events/") || url.pathname.startsWith("/api/event-media/") || ["/api/magazine/records", "/api/magazine/upload", "/api/qurbani/records", "/api/household/records", "/api/welfare/records", "/api/archives/records", "/api/archives/upload"].includes(url.pathname))
             ? copy.successMessage
+            : response.ok && ["/api/finance/records", "/api/finance/status"].includes(url.pathname) ? copy.successMessage
             : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."), locale);
           const nextResult = memberResult?.noChange
             ? { kind: "info" as const, title: locale === "bn" ? "পরিবর্তন প্রয়োজন নেই" : "No change needed", message }

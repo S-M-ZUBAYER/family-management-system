@@ -43,7 +43,7 @@ export async function PATCH(request: Request) {
     };
     const entity = body.entity;
     const id = typeof body.id === "string" ? body.id.trim() : "";
-    if (!entity || !(entity in config) || !id) {
+    if (!entity || !Object.hasOwn(config, entity) || !id) {
       return Response.json({ error: "Valid finance entity ও id প্রয়োজন।" }, { status: 400 });
     }
 
@@ -71,7 +71,7 @@ export async function PATCH(request: Request) {
         return Response.json({ error: "Valid progress amount প্রয়োজন।" }, { status: 400 });
       }
       if (entity === "debt") {
-        if (amount > target) return Response.json({ error: "Settled amount principal-এর বেশি হতে পারে না।" }, { status: 400 });
+        if (amount > target) return Response.json({ code: "FINANCE_DEBT_OVERPAYMENT", error: "মোট নিষ্পত্তির পরিমাণ মূল দেনা বা পাওনার বেশি হতে পারে না।" }, { status: 400 });
         update.settled_amount = amount;
         update.status = amount >= target ? "settled" : amount > 0 ? "partial" : "open";
       } else {

@@ -222,6 +222,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Backend configured নয়।" }, { status: 503 });
     }
     if (error instanceof SupabaseRequestError) {
+      if (isDuplicate(error)) return duplicateResponse();
       console.error("Unable to save private finance record", error.status, error.message);
       return Response.json({ error: "Finance record save হয়নি।" }, { status: 502 });
     }
@@ -328,6 +329,16 @@ async function audit(familyId: string, userId: string, action: string, entityTyp
 
 function financeError(error: unknown, log: string, message: string) {
   if (error instanceof BackendNotConfiguredError) return Response.json({ error: "Backend configured নয়।" }, { status: 503 });
+  if (error instanceof SupabaseRequestError && isDuplicate(error)) return duplicateResponse();
   if (error instanceof SupabaseRequestError) { console.error(log, error.status, error.message); return Response.json({ error: message }, { status: 502 }); }
   console.error(log, error); return Response.json({ error: message }, { status: 500 });
+}
+
+function isDuplicate(error: SupabaseRequestError) {
+  try { return error.status === 409 && JSON.parse(error.message).code === "23505"; }
+  catch { return false; }
+}
+
+function duplicateResponse() {
+  return Response.json({ code: "FINANCE_DUPLICATE_BUDGET", error: "এই মাস ও ক্যাটাগরির বাজেট আগে থেকেই আছে। নতুন করে যোগ না করে বিদ্যমান বাজেট সম্পাদনা করুন।" }, { status: 409 });
 }

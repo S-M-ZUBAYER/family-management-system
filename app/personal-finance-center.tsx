@@ -2,8 +2,11 @@
 
 import { useActionFeedback } from "@/components/action-modal-provider";
 import { useLocale, type AppLocale } from "@/components/locale-provider";
+import { financeWorksheet, type FinanceExportSheet } from "@/lib/finance-export";
+import { financeMoneyTotal, financeOutstanding } from "@/lib/finance-money";
+import { financeErrorCopy, financeRecordActionCopy, financeStatusActionCopy } from "@/lib/finance-action-copy";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -139,6 +142,8 @@ export function PersonalFinanceCenter() {
   const [goals, setGoals] = useState<FinanceGoal[]>([]);
   const [month, setMonth] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const loadSequence = useRef(0);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [migrationRequired, setMigrationRequired] = useState(false);
@@ -154,6 +159,7 @@ export function PersonalFinanceCenter() {
   }, []);
 
   const loadFinance = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     const clearLoadedFinance = () => {
       setFamily(undefined);
       setViewer(undefined);
@@ -170,15 +176,17 @@ export function PersonalFinanceCenter() {
     try {
       const response = await fetch("/api/finance", { cache: "no-store" });
       const payload = (await response.json()) as FinancePayload;
+      if (sequence !== loadSequence.current) return false;
       if (payload.code === "FAMILY_SETUP_REQUIRED") {
         clearLoadedFinance();
         setSetupRequired(true);
-        return;
+        setLoadError(false);
+        return false;
       }
       if (payload.code === "FINANCE_ROW_LIMIT") {
         throw new Error(pick("ব্যক্তিগত হিসাবের একটি বিভাগে ২০,০০০-এর বেশি রেকর্ড আছে। অসম্পূর্ণ তথ্য দেখানো হয়নি; পৃষ্ঠা-ভিত্তিক এক্সপোর্টের জন্য সাপোর্টে যোগাযোগ করুন।", "A private finance section has more than 20,000 records. No partial data was shown; contact support for a paged export."));
       }
-      if (!response.ok) throw new Error(payload.error ?? "ব্যক্তিগত হিসাব পাওয়া যায়নি।");
+      if (!response.ok) throw new Error(payload.error ?? pick("ব্যক্তিগত হিসাব পাওয়া যায়নি।", "Personal finance could not be loaded."));
       setFamily(payload.family);
       setViewer(payload.viewer);
       setAccounts(payload.accounts ?? []);
@@ -189,17 +197,23 @@ export function PersonalFinanceCenter() {
       setGoals(payload.goals ?? []);
       setMigrationRequired(Boolean(payload.migrationRequired));
       setSetupRequired(false);
+      setLoadError(false);
+      return true;
     } catch (error) {
+      if (sequence !== loadSequence.current) return false;
       clearLoadedFinance();
       setSetupRequired(false);
-      setFeedback(error instanceof Error ? error.message : pick("ব্যক্তিগত হিসাব লোড হয়নি।", "Personal finance could not be loaded."));
+      setLoadError(true);
+      setFeedback(pick("ব্যক্তিগত হিসাব লোড হয়নি।", "Personal finance could not be loaded.") + (error instanceof Error ? ` ${error.message}` : ""));
+      return false;
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) setLoading(false);
     }
   }, [pick, setFeedback]);
 
   useEffect(() => {
     queueMicrotask(() => void loadFinance());
+    return () => { loadSequence.current += 1; };
   }, [loadFinance]);
 
   const activeAccounts = useMemo(
@@ -217,45 +231,32 @@ export function PersonalFinanceCenter() {
 
   const accountBalance = useCallback(
     (account: FinanceAccount) => {
-      const activity = transactions
+      return financeMoneyTotal([account.opening_balance, ...transactions
         .filter((item) => item.account_id === account.id)
-        .reduce(
-          (sum, item) =>
-            sum + (item.direction === "income" ? valueOf(item.amount) : -valueOf(item.amount)),
-          0,
-        );
-      return valueOf(account.opening_balance) + activity;
+        .map((item) => item.direction === "income" ? item.amount : -valueOf(item.amount))]);
     },
     [transactions],
   );
 
   const totals = useMemo(() => {
-    const income = monthTransactions
-      .filter((item) => item.direction === "income")
-      .reduce((sum, item) => sum + valueOf(item.amount), 0);
-    const expense = monthTransactions
-      .filter((item) => item.direction === "expense")
-      .reduce((sum, item) => sum + valueOf(item.amount), 0);
-    const balance = activeAccounts.reduce((sum, account) => sum + accountBalance(account), 0);
-    const budgetLimit = monthBudgets.reduce((sum, item) => sum + valueOf(item.limit_amount), 0);
-    const lentOutstanding = debts
-      .filter((item) => item.debt_type === "lent" && item.status !== "settled")
-      .reduce((sum, item) => sum + Math.max(0, valueOf(item.principal_amount) - valueOf(item.settled_amount)), 0);
-    const borrowedOutstanding = debts
-      .filter((item) => item.debt_type === "borrowed" && item.status !== "settled")
-      .reduce((sum, item) => sum + Math.max(0, valueOf(item.principal_amount) - valueOf(item.settled_amount)), 0);
+    const income = financeMoneyTotal(monthTransactions.filter((item) => item.direction === "income").map((item) => item.amount));
+    const expense = financeMoneyTotal(monthTransactions.filter((item) => item.direction === "expense").map((item) => item.amount));
+    const balance = financeMoneyTotal(activeAccounts.map(accountBalance));
+    const budgetLimit = financeMoneyTotal(monthBudgets.map((item) => item.limit_amount));
+    const lentOutstanding = financeMoneyTotal(debts.filter((item) => item.debt_type === "lent" && item.status !== "settled").map((item) => financeOutstanding(item.principal_amount, item.settled_amount)));
+    const borrowedOutstanding = financeMoneyTotal(debts.filter((item) => item.debt_type === "borrowed" && item.status !== "settled").map((item) => financeOutstanding(item.principal_amount, item.settled_amount)));
     const pendingBills = bills.filter((item) => item.status === "pending");
     return {
       income,
       expense,
-      net: income - expense,
+      net: financeMoneyTotal([income, -expense]),
       balance,
       budgetLimit,
       budgetUsed: budgetLimit ? (expense / budgetLimit) * 100 : 0,
       lentOutstanding,
       borrowedOutstanding,
       pendingBills: pendingBills.length,
-      pendingBillAmount: pendingBills.reduce((sum, item) => sum + valueOf(item.amount), 0),
+      pendingBillAmount: financeMoneyTotal(pendingBills.map((item) => item.amount)),
     };
   }, [monthTransactions, activeAccounts, accountBalance, monthBudgets, debts, bills]);
 
@@ -263,7 +264,7 @@ export function PersonalFinanceCenter() {
     const grouped = new Map<string, number>();
     monthTransactions
       .filter((item) => item.direction === "expense")
-      .forEach((item) => grouped.set(item.category, (grouped.get(item.category) ?? 0) + valueOf(item.amount)));
+      .forEach((item) => grouped.set(item.category, financeMoneyTotal([grouped.get(item.category), item.amount])));
     return [...grouped.entries()].sort((a, b) => b[1] - a[1]);
   }, [monthTransactions]);
 
@@ -301,13 +302,13 @@ export function PersonalFinanceCenter() {
         body: JSON.stringify({ kind: recordKind, recordId: editingRecord?.id, data: form }),
       });
       if (response.status === 499) return;
-      const payload = (await response.json()) as { record?: unknown; error?: string };
-      if (!response.ok || !payload.record) throw new Error(payload.error ?? pick("রেকর্ড সেভ হয়নি।", "The record could not be saved."));
-      const label = kindLabels[recordKind];
+      const payload = (await response.json()) as { record?: unknown; error?: string; code?: string };
+      if (!response.ok || !payload.record) throw new Error(financeErrorCopy(payload.code, locale) ?? payload.error ?? pick("রেকর্ড সেভ হয়নি।", "The record could not be saved."));
+      const success = financeRecordActionCopy(recordKind, editingRecord ? "PATCH" : "POST", locale)?.successMessage;
       setRecordKind(null);
       setEditingRecord(null);
-      await loadFinance();
-      setFeedback(pick(`${label} ${editingRecord ? "আপডেট" : "সেভ"} হয়েছে।`, `${label} was ${editingRecord ? "updated" : "saved"}.`));
+      if (!(await loadFinance())) return;
+      setFeedback(success ?? pick("রেকর্ড সংরক্ষণ হয়েছে।", "Record saved."));
     } finally {
       setSaving(false);
     }
@@ -321,8 +322,8 @@ export function PersonalFinanceCenter() {
       if (response.status === 499) return;
       const payload = (await response.json()) as { message?: string; error?: string };
       if (!response.ok) throw new Error(payload.error ?? pick("রেকর্ড মোছা যায়নি।", "The record could not be deleted."));
-      await loadFinance();
-      setFeedback(payload.message ?? pick("রেকর্ড মুছে ফেলা হয়েছে।", "Record deleted."));
+      if (!(await loadFinance())) return;
+      setFeedback(financeRecordActionCopy(kind, "DELETE", locale)?.successMessage ?? pick("রেকর্ড মুছে ফেলা হয়েছে।", "Record deleted."));
     } finally { setSaving(false); }
   }
 
@@ -338,8 +339,8 @@ export function PersonalFinanceCenter() {
       if (response.status === 499) return;
       const payload = (await response.json()) as { record?: unknown; error?: string };
       if (!response.ok || !payload.record) throw new Error(payload.error ?? pick("আপডেট হয়নি।", "The record could not be updated."));
-      await loadFinance();
-      setFeedback(pick("রেকর্ড আপডেট হয়েছে।", "Record updated."));
+      if (!(await loadFinance())) return;
+      setFeedback(financeStatusActionCopy({ entity, status }, "PATCH", locale)?.successMessage ?? pick("রেকর্ড আপডেট হয়েছে।", "Record updated."));
     } finally {
       setSaving(false);
     }
@@ -361,10 +362,10 @@ export function PersonalFinanceCenter() {
       });
       if (response.status === 499) return;
       const payload = (await response.json()) as { record?: unknown; error?: string };
-      if (!response.ok || !payload.record) throw new Error(payload.error ?? pick("অগ্রগতি আপডেট হয়নি।", "Progress could not be updated."));
+      if (!response.ok || !payload.record) throw new Error(financeErrorCopy((payload as { code?: string }).code, locale) ?? payload.error ?? pick("অগ্রগতি আপডেট হয়নি।", "Progress could not be updated."));
       setProgressTarget(null);
-      await loadFinance();
-      setFeedback(pick("অগ্রগতির পরিমাণ আপডেট হয়েছে।", "Progress amount updated."));
+      if (!(await loadFinance())) return;
+      setFeedback(financeStatusActionCopy({ entity: progressTarget.entity }, "PATCH", locale)?.successMessage ?? pick("অগ্রগতির পরিমাণ আপডেট হয়েছে।", "Progress amount updated."));
     } finally {
       setSaving(false);
     }
@@ -385,7 +386,7 @@ export function PersonalFinanceCenter() {
   }];
   const accountRows = accounts.map((item) => ({
     [pick("অ্যাকাউন্ট", "Account")]: item.name,
-    [pick("ধরন", "Type")]: item.account_type,
+    [pick("ধরন", "Type")]: financeStatusLabel(item.account_type, locale),
     [pick("প্রারম্ভিক ব্যালান্স", "Opening balance")]: valueOf(item.opening_balance),
     [pick("বর্তমান ব্যালান্স", "Current balance")]: accountBalance(item),
     [pick("মুদ্রা", "Currency")]: item.currency,
@@ -397,21 +398,21 @@ export function PersonalFinanceCenter() {
     [pick("ক্যাটাগরি", "Category")]: item.category,
     [pick("অ্যাকাউন্ট", "Account")]: accounts.find((account) => account.id === item.account_id)?.name ?? "",
     [pick("পরিমাণ", "Amount")]: valueOf(item.amount),
-    [pick("পদ্ধতি", "Method")]: item.payment_method,
+    [pick("পদ্ধতি", "Method")]: financeStatusLabel(item.payment_method, locale),
     [pick("পুনরাবৃত্ত", "Recurring")]: item.is_recurring ? pick("হ্যাঁ", "Yes") : pick("না", "No"),
     [pick("রেফারেন্স", "Reference")]: item.reference ?? "",
     [pick("নোট", "Notes")]: item.notes ?? "",
   }));
   const budgetRows = budgets.map((item) => {
-    const spent = transactions
+    const spent = financeMoneyTotal(transactions
       .filter((transaction) => transaction.direction === "expense" && transaction.category === item.category && transaction.transaction_date.startsWith(item.budget_month.slice(0, 7)))
-      .reduce((sum, transaction) => sum + valueOf(transaction.amount), 0);
+      .map((transaction) => transaction.amount));
     return {
       [pick("মাস", "Month")]: item.budget_month.slice(0, 7),
       [pick("ক্যাটাগরি", "Category")]: item.category,
       [pick("সীমা", "Limit")]: valueOf(item.limit_amount),
       [pick("ব্যয়", "Spent")]: spent,
-      [pick("অবশিষ্ট", "Remaining")]: valueOf(item.limit_amount) - spent,
+      [pick("অবশিষ্ট", "Remaining")]: financeMoneyTotal([item.limit_amount, -spent]),
       [pick("সতর্কতার শতাংশ", "Alert percent")]: item.alert_percent,
       [pick("নোট", "Notes")]: item.notes ?? "",
     };
@@ -421,7 +422,7 @@ export function PersonalFinanceCenter() {
     [pick("ব্যক্তি", "Person")]: item.counterparty,
     [pick("মূল পরিমাণ", "Principal")]: valueOf(item.principal_amount),
     [pick("নিষ্পত্তি", "Settled")]: valueOf(item.settled_amount),
-    [pick("বাকি", "Outstanding")]: Math.max(0, valueOf(item.principal_amount) - valueOf(item.settled_amount)),
+    [pick("বাকি", "Outstanding")]: financeOutstanding(item.principal_amount, item.settled_amount),
     [pick("নির্ধারিত তারিখ", "Due date")]: item.due_date ?? "",
     [pick("স্ট্যাটাস", "Status")]: financeStatusLabel(item.status, locale),
     [pick("নোট", "Notes")]: item.notes ?? "",
@@ -431,7 +432,7 @@ export function PersonalFinanceCenter() {
     [pick("ক্যাটাগরি", "Category")]: item.category,
     [pick("পরিমাণ", "Amount")]: valueOf(item.amount),
     [pick("নির্ধারিত তারিখ", "Due date")]: item.due_date,
-    [pick("পুনরাবৃত্তি", "Recurrence")]: item.recurrence,
+    [pick("পুনরাবৃত্তি", "Recurrence")]: financeStatusLabel(item.recurrence, locale),
     [pick("স্ট্যাটাস", "Status")]: financeStatusLabel(item.status, locale),
     [pick("নোট", "Notes")]: item.notes ?? "",
   }));
@@ -439,13 +440,14 @@ export function PersonalFinanceCenter() {
     [pick("লক্ষ্য", "Goal")]: item.title,
     [pick("লক্ষ্যমাত্রা", "Target")]: valueOf(item.target_amount),
     [pick("সঞ্চিত", "Saved")]: valueOf(item.current_amount),
-    [pick("অবশিষ্ট", "Remaining")]: Math.max(0, valueOf(item.target_amount) - valueOf(item.current_amount)),
+    [pick("অবশিষ্ট", "Remaining")]: financeOutstanding(item.target_amount, item.current_amount),
     [pick("লক্ষ্যের তারিখ", "Target date")]: item.target_date ?? "",
     [pick("স্ট্যাটাস", "Status")]: financeStatusLabel(item.status, locale),
     [pick("নোট", "Notes")]: item.notes ?? "",
   }));
 
   async function exportWorkbook(single?: { name: string; rows: Array<Record<string, unknown>> }) {
+    if (loading || loadError || migrationRequired) return;
     setExporting(true);
     try {
       const XLSX = await import("xlsx");
@@ -461,10 +463,15 @@ export function PersonalFinanceCenter() {
             { name: pick("বিল", "Bills"), rows: billRows },
             { name: pick("লক্ষ্য", "Goals"), rows: goalRows },
           ];
+      const sheetNames = new Map<string, FinanceExportSheet>([
+        [pick("সারসংক্ষেপ", "Summary"), "Summary"], [pick("অ্যাকাউন্ট", "Accounts"), "Accounts"],
+        [pick("লেনদেন", "Transactions"), "Transactions"], [pick("বাজেট", "Budgets"), "Budgets"],
+        [pick("দেনা-পাওনা", "Debts"), "Debts"], [pick("বিল", "Bills"), "Bills"], [pick("লক্ষ্য", "Goals"), "Goals"],
+      ]);
       sheets.forEach((sheet) => {
         XLSX.utils.book_append_sheet(
           workbook,
-          XLSX.utils.json_to_sheet(sheet.rows.length ? sheet.rows : [{ [pick("তথ্য", "Information")]: pick("এখনও কোনো রেকর্ড নেই", "No records yet") }]),
+          financeWorksheet(XLSX, sheet.rows, sheetNames.get(sheet.name)!, locale),
           sheet.name,
         );
       });
@@ -553,10 +560,10 @@ export function PersonalFinanceCenter() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Input aria-label={pick("রিপোর্টের মাস", "Report month")} type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="w-[175px] rounded-xl bg-card" />
-          <Button variant="outline" className="gap-2 rounded-xl" disabled={exporting} onClick={() => void exportWorkbook()}>
+          <Button variant="outline" className="gap-2 rounded-xl" disabled={exporting || loading || loadError || migrationRequired} onClick={() => void exportWorkbook()}>
             {exporting ? <LoaderCircle className="size-4 animate-spin" /> : <FileSpreadsheet className="size-4" />} {pick("সম্পূর্ণ XLSX", "Complete XLSX")}
           </Button>
-          <Button className="gap-2 rounded-xl" disabled={!activeAccounts.length || migrationRequired} onClick={() => openRecord("transaction")}>
+          <Button className="gap-2 rounded-xl" disabled={loading || loadError || !activeAccounts.length || migrationRequired} onClick={() => openRecord("transaction")}>
             <Plus className="size-4" /> {pick("আয়/ব্যয় যোগ করুন", "Add income/expense")}
           </Button>
         </div>
@@ -585,6 +592,8 @@ export function PersonalFinanceCenter() {
 
       {loading ? (
         <Card className="rounded-3xl py-0 shadow-none"><CardContent className="flex min-h-80 items-center justify-center p-8"><LoaderCircle className="size-8 animate-spin text-primary" /></CardContent></Card>
+      ) : loadError ? (
+        <StateCard icon={<ShieldCheck />} title={pick("ব্যক্তিগত হিসাব লোড হয়নি", "Personal finance could not be loaded")} text={pick("সংযোগ পরীক্ষা করে আবার চেষ্টা করুন। অসম্পূর্ণ বা শূন্য হিসাব রপ্তানি করা হয়নি।", "Check your connection and retry. No incomplete or empty report was exported.")} action={<Button className="rounded-xl" onClick={() => void loadFinance()}>{pick("আবার চেষ্টা করুন", "Retry")}</Button>} />
       ) : (
         <>
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
@@ -596,7 +605,7 @@ export function PersonalFinanceCenter() {
             <Metric icon={<Landmark />} label={pick("নিট দেনা-পাওনা", "Net debts")} value={money.format(totals.lentOutstanding - totals.borrowedOutstanding)} note={pick(money.format(totals.borrowedOutstanding) + " ধার নেওয়া", money.format(totals.borrowedOutstanding) + " borrowed")} />
           </section>
 
-          {!accounts.length && !migrationRequired ? (
+          {!accounts.length && !transactions.length && !budgets.length && !debts.length && !bills.length && !goals.length && !migrationRequired ? (
             <StateCard icon={<WalletCards />} title={pick("প্রথম অ্যাকাউন্ট বা ওয়ালেট যোগ করুন", "Add your first account or wallet")} text={pick("নগদ, ব্যাংক, মোবাইল ব্যাংকিং, সঞ্চয় বা ক্রেডিট অ্যাকাউন্ট দিয়ে ব্যক্তিগত হিসাব শুরু করুন।", "Start personal finance with a cash, bank, mobile banking, savings or credit account.")} action={<Button className="gap-2 rounded-xl" onClick={() => openRecord("account")}><Plus className="size-4" /> {pick("অ্যাকাউন্ট যোগ করুন", "Add account")}</Button>} compact />
           ) : (
             <Tabs defaultValue="overview" className="space-y-4">
@@ -652,7 +661,7 @@ export function PersonalFinanceCenter() {
 
                 <DataSection title={pick("অ্যাকাউন্ট ও ওয়ালেট", "Accounts and wallets")} description={pick("প্রারম্ভিক ব্যালান্স ও লেনদেন থেকে বর্তমান ব্যালান্স", "Live balance from opening balance and transactions")} onAdd={() => openRecord("account")} onExport={() => void exportWorkbook({ name: pick("অ্যাকাউন্ট", "Accounts"), rows: accountRows })}>
                   <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">
-                    {accounts.map((account) => <div key={account.id} className="rounded-2xl border bg-card p-4"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><WalletCards className="size-5" /></span><div className="flex items-center"><Badge variant="outline">{financeStatusLabel(account.account_type, locale)}</Badge><RecordActions disabled={saving} onEdit={() => openEditRecord("account", account)} onDelete={() => void deleteRecord("account", account.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("মোছা যায়নি।", "Could not delete.")))} /></div></div><p className="mt-4 font-semibold">{account.name}</p><p className="mt-1 text-2xl font-bold">{money.format(accountBalance(account))}</p><div className="mt-3 flex items-center justify-between"><StatusBadge value={account.status} />{account.status === "active" ? <Button variant="ghost" size="sm" disabled={saving} onClick={() => void updateStatus("account", account.id, "archived").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("আপডেট হয়নি।", "Could not update.")))}>{pick("আর্কাইভ", "Archive")}</Button> : null}</div></div>)}
+                    {accounts.map((account) => <div key={account.id} className="rounded-2xl border bg-card p-4"><div className="flex items-start justify-between gap-3"><span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><WalletCards className="size-5" /></span><div className="flex items-center"><Badge variant="outline">{financeStatusLabel(account.account_type, locale)}</Badge><RecordActions disabled={saving} onEdit={() => openEditRecord("account", account)} onDelete={() => void deleteRecord("account", account.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("মোছা যায়নি।", "Could not delete.")))} /></div></div><p className="mt-4 font-semibold">{account.name}</p><p className="mt-1 text-2xl font-bold">{money.format(accountBalance(account))}</p><div className="mt-3 flex items-center justify-between"><StatusBadge value={account.status} /><Button variant="ghost" size="sm" disabled={saving} onClick={() => void updateStatus("account", account.id, account.status === "active" ? "archived" : "active").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("আপডেট হয়নি।", "Could not update.")))}>{account.status === "active" ? pick("আর্কাইভ", "Archive") : pick("আবার সক্রিয় করুন", "Reactivate")}</Button></div></div>)}
                   </div>
                 </DataSection>
               </TabsContent>
@@ -670,7 +679,7 @@ export function PersonalFinanceCenter() {
                 <DataSection title={pick("মাসিক ক্যাটাগরি বাজেট", "Monthly category budgets")} description={pick(month + " মাসের সীমা, ব্যয় ও সতর্কতার মাত্রা", "Limits, spending and alert threshold for " + month)} onAdd={() => openRecord("budget")} onExport={() => void exportWorkbook({ name: pick("বাজেট", "Budgets"), rows: budgetRows })}>
                   <div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
                     {monthBudgets.map((item) => {
-                      const spent = monthTransactions.filter((transaction) => transaction.direction === "expense" && transaction.category === item.category).reduce((sum, transaction) => sum + valueOf(transaction.amount), 0);
+                      const spent = financeMoneyTotal(monthTransactions.filter((transaction) => transaction.direction === "expense" && transaction.category === item.category).map((transaction) => transaction.amount));
                       const percent = Math.min(100, (spent / valueOf(item.limit_amount)) * 100);
                       return <div key={item.id} className="rounded-2xl border p-4"><div className="flex items-start justify-between"><div><p className="font-semibold">{item.category}</p><p className="text-sm text-muted-foreground">{money.format(spent)} / {money.format(valueOf(item.limit_amount))}</p></div><div className="flex items-center"><StatusBadge value={percent >= item.alert_percent ? "alert" : "healthy"} /><RecordActions disabled={saving} onEdit={() => openEditRecord("budget", item)} onDelete={() => void deleteRecord("budget", item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("মোছা যায়নি।", "Could not delete.")))} /></div></div><Progress value={percent} className="mt-4 h-2.5" /><p className="mt-2 text-xs text-muted-foreground">{pick(`${item.alert_percent}% এ সতর্কতা`, `Alert at ${item.alert_percent}%`)} · {pick(`${money.format(Math.max(0, valueOf(item.limit_amount) - spent))} বাকি`, `${money.format(Math.max(0, valueOf(item.limit_amount) - spent))} remaining`)}</p></div>;
                     })}
@@ -723,8 +732,8 @@ export function PersonalFinanceCenter() {
 
       <Dialog open={Boolean(progressTarget)} onOpenChange={(open) => !open && setProgressTarget(null)}>
         <DialogContent className="rounded-3xl sm:max-w-md">
-          <DialogHeader><DialogTitle>{pick("অগ্রগতি হালনাগাদ", "Update progress")}</DialogTitle><DialogDescription>{progressTarget?.title} · {pick("সর্বোচ্চ", "maximum")} {money.format(progressTarget?.maximum ?? 0)}</DialogDescription></DialogHeader>
-          <FormField label={progressTarget?.entity === "debt" ? pick("মোট নিষ্পত্তির পরিমাণ", "Total settled amount") : pick("মোট সঞ্চিত পরিমাণ", "Total saved amount")} id="progress-amount"><Input id="progress-amount" type="number" min="0" max={progressTarget?.maximum} step="0.01" value={progressTarget?.amount ?? ""} onChange={(event) => setProgressTarget((current) => current ? { ...current, amount: event.target.value } : current)} /></FormField>
+          <DialogHeader><DialogTitle>{pick("অগ্রগতি হালনাগাদ", "Update progress")}</DialogTitle><DialogDescription>{progressTarget?.title} · {progressTarget?.entity === "debt" ? pick("সর্বোচ্চ", "maximum") : pick("লক্ষ্যমাত্রা", "target")} {money.format(progressTarget?.maximum ?? 0)}</DialogDescription></DialogHeader>
+          <FormField label={progressTarget?.entity === "debt" ? pick("মোট নিষ্পত্তির পরিমাণ", "Total settled amount") : pick("মোট সঞ্চিত পরিমাণ", "Total saved amount")} id="progress-amount"><Input id="progress-amount" type="number" min="0" max={progressTarget?.entity === "debt" ? progressTarget.maximum : undefined} step="0.01" value={progressTarget?.amount ?? ""} onChange={(event) => setProgressTarget((current) => current ? { ...current, amount: event.target.value } : current)} /></FormField>
           <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setProgressTarget(null)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving} onClick={() => void saveProgress().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("হালনাগাদ হয়নি।", "Could not update.")))}>{pick("হালনাগাদ করুন", "Update")}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
@@ -799,7 +808,8 @@ function RecordActions({ onEdit, onDelete, disabled }: { onEdit: () => void; onD
 
 const financeStatusBn: Record<string, string> = { active: "সক্রিয়", archived: "আর্কাইভ", paid: "পরিশোধিত", settled: "নিষ্পত্তি", completed: "সম্পন্ন", income: "আয়", healthy: "স্বাভাবিক", lent: "ধার দিয়েছি", pending: "অপেক্ষমাণ", partial: "আংশিক", open: "খোলা", alert: "সতর্কতা", borrowed: "ধার নিয়েছি", overdue: "সময়োত্তীর্ণ", expense: "ব্যয়", skipped: "বাদ দেওয়া", cash: "নগদ", bank: "ব্যাংক", mobile_banking: "মোবাইল ব্যাংকিং", card: "কার্ড", savings: "সঞ্চয়", bank_transfer: "ব্যাংক ট্রান্সফার", mobile_wallet: "মোবাইল ওয়ালেট", cheque: "চেক", monthly: "মাসিক", weekly: "সাপ্তাহিক", quarterly: "ত্রৈমাসিক", yearly: "বার্ষিক", one_time: "এককালীন", none: "পুনরাবৃত্তি নেই" };
 function financeStatusLabel(value: string, locale: AppLocale) {
-  return (locale === "bn" ? financeStatusBn[value] : undefined) ?? value.replaceAll("_", " ");
+  const extraBn: Record<string, string> = { mobile: "মোবাইল ব্যাংকিং", credit: "ক্রেডিট", other: "অন্যান্য" };
+  return (locale === "bn" ? financeStatusBn[value] ?? extraBn[value] : undefined) ?? value.replaceAll("_", " ");
 }
 
 function FormField({ label, id, children }: { label: string; id: string; children: ReactNode }) {
