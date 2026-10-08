@@ -43,7 +43,8 @@ import { welfareDocumentErrorCopy } from "@/lib/welfare-document-action-copy";
 import { welfareErrorCopy } from "@/lib/welfare-error-copy";
 import { welfareLedger } from "@/lib/welfare-ledger";
 import { welfareMoney } from "@/lib/welfare-validation";
-import { welfareExportHeaders, type WelfareExportSheet } from "@/lib/welfare-export-headers";
+import { type WelfareExportSheet } from "@/lib/welfare-export-headers";
+import { welfareExportRows, welfareWorksheet } from "@/lib/welfare-export";
 import type { WelfareContribution, WelfareDocument, WelfareExpense, WelfareFund, WelfarePayload, WelfarePledge, WelfareRequest } from "@/lib/welfare-types";
 
 type CreateKind = "fund" | "contribution" | "expense" | "request" | "pledge";
@@ -245,17 +246,14 @@ export function WelfareCenter() {
     setExporting(true);
     try {
       const XLSX = await import("xlsx"); const workbook = XLSX.utils.book_new();
-      const add = (bn: string, en: WelfareExportSheet, rows: Array<Record<string, unknown>>) => XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows, { header: welfareExportHeaders(en, locale) }), pick(bn, en));
-      add("তহবিল", "Funds", funds.map((item) => ({ [pick("তহবিল", "Fund")]: item.name, [pick("শ্রেণি", "Category")]: welfareValueLabel(item.category, locale), [pick("লক্ষ্যমাত্রা", "Target")]: num(item.target_amount), [pick("প্রারম্ভিক ব্যালান্স", "Opening balance")]: num(item.opening_balance), [pick("স্ট্যাটাস", "Status")]: welfareValueLabel(item.status, locale), [pick("দৃশ্যমানতা", "Visibility")]: welfareValueLabel(item.visibility, locale) })));
-      add("অনুদান", "Contributions", contributions.map((item) => ({ [pick("তারিখ", "Date")]: item.contribution_date, [pick("তহবিল", "Fund")]: fundName(funds, item.fund_id), [pick("অনুদানকারী", "Contributor")]: item.contributor_name, [pick("পরিমাণ", "Amount")]: num(item.amount), [pick("পদ্ধতি", "Method")]: welfareValueLabel(item.payment_method, locale), [pick("রেফারেন্স", "Reference")]: item.reference ?? "", [pick("স্ট্যাটাস", "Status")]: welfareValueLabel(item.status, locale), [pick("অনুমোদনকারী", "Approved by")]: item.approved_by_name ?? "", [pick("নোট", "Notes")]: item.notes ?? "" })));
-      add("ব্যয়", "Expenses", expenses.map((item) => ({ [pick("তারিখ", "Date")]: item.expense_date, [pick("তহবিল", "Fund")]: fundName(funds, item.fund_id), [pick("শিরোনাম", "Title")]: item.title, [pick("উপকারভোগী", "Beneficiary")]: item.beneficiary_name ?? "", [pick("শ্রেণি", "Category")]: welfareValueLabel(item.category, locale), [pick("পরিমাণ", "Amount")]: num(item.amount), [pick("পদ্ধতি", "Method")]: welfareValueLabel(item.payment_method, locale), [pick("রেফারেন্স", "Reference")]: item.reference ?? "", [pick("স্ট্যাটাস", "Status")]: welfareValueLabel(item.status, locale), [pick("অনুমোদনকারী", "Approved by")]: item.approved_by_name ?? "", [pick("নোট", "Notes")]: item.notes ?? "" })));
-      add("সহায়তার আবেদন", "Assistance Requests", requests.map((item) => ({ [pick("তারিখ", "Date")]: item.created_at, [pick("আবেদনকারী", "Requester")]: item.requester_name, [pick("ধরন", "Type")]: welfareValueLabel(item.request_type, locale), [pick("শিরোনাম", "Title")]: item.title, [pick("আবেদনের পরিমাণ", "Requested")]: num(item.requested_amount), [pick("অনুমোদিত পরিমাণ", "Approved")]: num(item.approved_amount), [pick("জরুরিতা", "Urgency")]: welfareValueLabel(item.urgency, locale), [pick("দৃশ্যমানতা", "Visibility")]: welfareValueLabel(item.visibility, locale), [pick("স্ট্যাটাস", "Status")]: welfareValueLabel(item.status, locale), [pick("অ্যাডমিন নোট", "Admin note")]: item.admin_note ?? "" })));
-      add("অঙ্গীকার", "Pledges", pledges.map((item) => ({ [pick("সদস্য", "Member")]: item.member_name, [pick("তহবিল", "Fund")]: fundName(funds, item.fund_id), [pick("পুনরাবৃত্তি", "Frequency")]: welfareValueLabel(item.frequency, locale), [pick("পরিমাণ", "Amount")]: num(item.amount), [pick("শুরু", "Start")]: item.start_date, [pick("পরবর্তী তারিখ", "Next due")]: item.next_due_date ?? "", [pick("স্ট্যাটাস", "Status")]: welfareValueLabel(item.status, locale), [pick("নোট", "Notes")]: item.notes ?? "" })));
-      add("নথি", "Documents", documents.map((item) => ({ [pick("শিরোনাম", "Title")]: item.title, [pick("ধরন", "Type")]: welfareValueLabel(item.document_type, locale), [pick("সংযুক্ত রেকর্ড", "Linked record")]: `${welfareValueLabel(item.entity_type, locale)}:${item.entity_id}`, [pick("ফাইল", "File")]: item.file_name, [pick("দৃশ্যমানতা", "Visibility")]: welfareValueLabel(item.visibility, locale), [pick("আপলোডকারী", "Uploader")]: item.uploaded_by_name, [pick("তারিখ", "Date")]: item.created_at })));
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const rows = welfareExportRows({ funds, contributions, expenses, requests, pledges, documents }, locale, value => welfareValueLabel(value, locale));
+      const sheets: Array<[string, WelfareExportSheet]> = [["তহবিল", "Funds"], ["অনুদান", "Contributions"], ["ব্যয়", "Expenses"], ["সহায়তার আবেদন", "Assistance Requests"], ["অঙ্গীকার", "Pledges"], ["নথি", "Documents"]];
+      for (const [bn, en] of sheets) XLSX.utils.book_append_sheet(workbook, welfareWorksheet(XLSX, rows[en], en, locale, timeZone), pick(bn, en));
       XLSX.writeFile(workbook, `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-welfare-fund.xlsx`);
       setFeedback(pick("কল্যাণ তহবিলের XLSX তৈরি হয়েছে।", "The Welfare Fund XLSX was created."));
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : pick("কল্যাণ তহবিলের XLSX তৈরি হয়নি।", "Could not create the Welfare Fund XLSX."));
+      setFeedback(error instanceof Error ? welfareErrorCopy(error.message, locale) ?? pick("কল্যাণ তহবিলের XLSX তৈরি হয়নি। আবার চেষ্টা করুন।", "Could not create the Welfare Fund XLSX. Try again.") : pick("কল্যাণ তহবিলের XLSX তৈরি হয়নি।", "Could not create the Welfare Fund XLSX."));
     } finally { setExporting(false); }
   }
 

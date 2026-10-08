@@ -13,5 +13,5 @@ test("every Welfare export sheet has stable bilingual headers even when empty", 
     assert.equal(new Set(en).size, en.length);
     assert.equal(new Set(bn).size, bn.length);
   }
-  assert.deepEqual(welfareExportHeaders("Pledges", "en"), ["Member", "Fund", "Frequency", "Amount", "Start", "Next due", "Status", "Notes"]);
+  assert.deepEqual(welfareExportHeaders("Pledges", "en"), ["Member", "Fund", "Frequency", "Amount", "Start", "Next due", "Status", "Notes", "Created at", "Updated at", "Record ID"]);
 });

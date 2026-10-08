@@ -1,5 +1,6 @@
 type Locale = "bn" | "en";
 const errors = {
+  WELFARE_EXPORT_INVALID_DATA: ["এক্সপোর্টে অসঠিক তারিখ বা টাকার পরিমাণ পাওয়া গেছে। অসম্পূর্ণ ফাইল তৈরি হয়নি; তথ্য সংশোধন করে আবার চেষ্টা করুন।", "The export contains an invalid date or amount. No partial file was created; correct the data and try again."],
   WELFARE_INVALID_BODY: ["সঠিক রেকর্ডের তথ্য দিন।", "Provide a valid record object."],
   WELFARE_INVALID_MONEY: ["টাকার পরিমাণ সঠিকভাবে দিন: সর্বোচ্চ দুই দশমিক; প্রয়োজনীয় পরিমাণ শূন্যের বেশি হতে হবে।", "Enter a valid amount with at most two decimal places; required amounts must be greater than zero."],
   WELFARE_INVALID_DATE: ["সঠিক তারিখ দিন; পরবর্তী তারিখ শুরুর তারিখের আগে হতে পারবে না।", "Enter a valid date; the next due date cannot precede the start date."],

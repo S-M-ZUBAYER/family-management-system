@@ -24,6 +24,7 @@
     "test:household-action-copy": "node scripts/test-household-action-copy.mjs",
     "test:welfare-action-copy": "node scripts/test-welfare-action-copy.mjs",
     "test:welfare-export-headers": "node scripts/test-welfare-export-headers.mjs",
+    "test:welfare-export": "node scripts/test-welfare-export.mjs",
     "test:archive-action-copy": "node scripts/test-archive-action-copy.mjs",
     "test:archive-capsule-privacy": "node scripts/test-archive-capsule-privacy.mjs",
     "test:dashboard-request": "node scripts/test-dashboard-request.mjs",
