@@ -3,7 +3,7 @@
 import { useActionFeedback } from "@/components/action-modal-provider";
 import { useLocale, type AppLocale } from "@/components/locale-provider";
 
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -40,6 +40,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { canDeleteWelfareDocument } from "@/lib/welfare-document-policy";
 import { welfareDocumentErrorCopy } from "@/lib/welfare-document-action-copy";
+import { welfareErrorCopy } from "@/lib/welfare-error-copy";
+import { welfareLedger } from "@/lib/welfare-ledger";
+import { welfareMoney } from "@/lib/welfare-validation";
 import { welfareExportHeaders, type WelfareExportSheet } from "@/lib/welfare-export-headers";
 import type { WelfareContribution, WelfareDocument, WelfareExpense, WelfareFund, WelfarePayload, WelfarePledge, WelfareRequest } from "@/lib/welfare-types";
 
@@ -84,6 +87,8 @@ export function WelfareCenter() {
   const [documents, setDocuments] = useState<WelfareDocument[]>([]);
   const [canManage, setCanManage] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const loadVersion = useRef(0);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [migrationRequired, setMigrationRequired] = useState(false);
@@ -97,6 +102,8 @@ export function WelfareCenter() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
 
   const load = useCallback(async () => {
+    const version = ++loadVersion.current;
+    setLoading(true); setLoadError(null);
     const clearLoadedWelfare = () => {
       setFamily(undefined); setFunds([]); setContributions([]); setExpenses([]); setRequests([]); setPledges([]); setDocuments([]);
       setCanManage(false); setMigrationRequired(false);
@@ -104,23 +111,26 @@ export function WelfareCenter() {
     try {
       const response = await fetch("/api/welfare", { cache: "no-store" });
       const payload = await response.json() as WelfarePayload;
+      if (version !== loadVersion.current) return;
       if (payload.code === "FAMILY_SETUP_REQUIRED") { clearLoadedWelfare(); setSetupRequired(true); return; }
       if (payload.code === "WELFARE_ROW_LIMIT") throw new Error(pick("কল্যাণ তহবিলের একটি বিভাগে ২০,০০০-এর বেশি রেকর্ড আছে। অসম্পূর্ণ হিসাব দেখানো হয়নি; পৃষ্ঠা-ভিত্তিক এক্সপোর্টের জন্য সাপোর্টে যোগাযোগ করুন।", "A Welfare Fund section has more than 20,000 records. No partial accounts were shown; contact support for a paged export."));
       if (!response.ok) throw new Error(payload.error ?? pick("কল্যাণ তহবিল লোড হয়নি।", "Welfare Fund could not be loaded."));
+      welfareLedger(payload.funds ?? [], payload.contributions ?? [], payload.expenses ?? [], payload.pledges ?? []);
       setFamily(payload.family); setFunds(payload.funds ?? []); setContributions(payload.contributions ?? []); setExpenses(payload.expenses ?? []); setRequests(payload.requests ?? []); setPledges(payload.pledges ?? []); setDocuments(payload.documents ?? []);
       setCanManage(Boolean(payload.permissions?.canManage)); setMigrationRequired(Boolean(payload.migrationRequired)); setSetupRequired(false);
-    } catch (error) { clearLoadedWelfare(); setSetupRequired(false); setFeedback(error instanceof Error ? error.message : pick("কল্যাণ তহবিল লোড হয়নি।", "Welfare Fund could not be loaded.")); }
-    finally { setLoading(false); }
+    } catch (error) {
+      if (version !== loadVersion.current) return;
+      clearLoadedWelfare(); setSetupRequired(false);
+      const message = error instanceof RangeError ? pick("হিসাবের পরিমাণ বা মোটের সীমা সঠিক নয়। অসম্পূর্ণ ব্যালান্স দেখানো হয়নি; সাপোর্টে যোগাযোগ করুন।", "An amount or ledger total exceeds supported precision. No partial balance was shown; contact support.") : error instanceof Error ? error.message : pick("কল্যাণ তহবিল লোড হয়নি।", "Welfare Fund could not be loaded.");
+      setLoadError(message); setFeedback(message);
+    }
+    finally { if (version === loadVersion.current) setLoading(false); }
   }, [pick, setFeedback]);
 
-  useEffect(() => { queueMicrotask(() => void load()); }, [load]);
+  useEffect(() => { queueMicrotask(() => void load()); return () => { loadVersion.current += 1; }; }, [load]);
 
-  const approvedIncome = useMemo(() => contributions.filter((item) => item.status === "approved").reduce((sum, item) => sum + num(item.amount), 0), [contributions]);
-  const paidExpense = useMemo(() => expenses.filter((item) => item.status === "paid").reduce((sum, item) => sum + num(item.amount), 0), [expenses]);
-  const openingBalance = useMemo(() => funds.reduce((sum, item) => sum + num(item.opening_balance), 0), [funds]);
-  const balance = openingBalance + approvedIncome - paidExpense;
+  const { approvedIncome, paidExpense, balance, myPledge } = useMemo(() => welfareLedger(funds, contributions, expenses, pledges), [funds, contributions, expenses, pledges]);
   const pendingApprovals = contributions.filter((item) => item.status === "pending").length + expenses.filter((item) => item.status === "pending").length + requests.filter((item) => ["submitted", "under_review"].includes(item.status)).length;
-  const myPledge = pledges.filter((item) => item.is_mine && item.status === "active").reduce((sum, item) => sum + num(item.amount), 0);
 
   function documentIsDraft(item: WelfareDocument) {
     const parentStatus = item.entity_type === "fund" ? funds.find((fund) => fund.id === item.entity_id)?.status
@@ -151,8 +161,8 @@ export function WelfareCenter() {
   async function postAction(action: string, data: Record<string, unknown>) {
     const response = await fetch("/api/welfare/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, data }) });
     if (response.status === 499) return false;
-    const payload = await response.json() as { error?: string };
-    if (!response.ok) throw new Error(payload.error ?? pick("রেকর্ড সংরক্ষণ হয়নি।", "Could not save the record."));
+    const payload = await response.json() as { code?: string; error?: string };
+    if (!response.ok) throw new Error(welfareErrorCopy(payload.code, locale) ?? payload.error ?? pick("রেকর্ড সংরক্ষণ হয়নি।", "Could not save the record."));
     return true;
   }
 
@@ -163,7 +173,7 @@ export function WelfareCenter() {
       if (editingRecord) {
         const response = await fetch("/api/welfare/records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, recordId: editingRecord.id, data: form }) });
         if (response.status === 499) return;
-        const payload = await response.json() as { error?: string }; if (!response.ok) throw new Error(payload.error ?? pick("রেকর্ড হালনাগাদ হয়নি।", "Could not update the record."));
+        const payload = await response.json() as { code?: string; error?: string }; if (!response.ok) throw new Error(welfareErrorCopy(payload.code, locale) ?? payload.error ?? pick("রেকর্ড হালনাগাদ হয়নি।", "Could not update the record."));
       } else if (!(await postAction(`create_${kind}`, form))) return;
       setKind(null); setEditingRecord(null); await load(); setFeedback(editingRecord ? pick("রেকর্ড হালনাগাদ হয়েছে।", "Record updated.") : pick("রেকর্ড সংরক্ষিত হয়েছে।", "Record saved."));
     } catch (error) { setFeedback(error instanceof Error ? error.message : pick("রেকর্ড সংরক্ষণ হয়নি।", "Could not save the record.")); }
@@ -178,7 +188,7 @@ export function WelfareCenter() {
       const payload = await response.json() as { code?: string; error?: string };
       if (!response.ok) throw new Error(payload.code === "WELFARE_DOCUMENTS_ATTACHED"
         ? pick("এই খসড়া রেকর্ডের নথি আগে মুছুন।", "Remove this draft record's documents first.")
-        : payload.error ?? pick("রেকর্ড মুছতে ব্যর্থ হয়েছে।", "Could not delete the record."));
+        : welfareErrorCopy(payload.code, locale) ?? payload.error ?? pick("রেকর্ড মুছতে ব্যর্থ হয়েছে।", "Could not delete the record."));
       await load();
       setFeedback(pick("রেকর্ড মুছে দেওয়া হয়েছে।", "Record deleted."));
     }
@@ -258,6 +268,7 @@ export function WelfareCenter() {
   }, [approvedIncome, balance, funds, myPledge, paidExpense]);
 
   if (loading) return <main className="grid min-h-[calc(100vh-4rem)] place-items-center"><LoaderCircle className="size-7 animate-spin text-primary" /></main>;
+  if (loadError) return <main className="mx-auto max-w-3xl p-6 md:p-10"><Empty icon={<ShieldCheck />} title={pick("কল্যাণ তহবিল লোড হয়নি", "Welfare Fund could not be loaded")} text={loadError} action={<Button className="rounded-xl" onClick={() => void load()}>{pick("আবার চেষ্টা করুন", "Retry")}</Button>} /></main>;
   if (setupRequired) return <main className="mx-auto max-w-3xl p-6 md:p-10"><Empty icon={<Users />} title={pick("ফ্যামিলি অ্যাক্সেস সক্রিয় নয়", "Family access is not active")} text={pick("জয়েন কোড দিয়ে আবেদন করুন। অ্যাডমিন অনুমোদনের পর কল্যাণ তহবিল ব্যবহার করা যাবে।", "Apply with a join code. You can use the Welfare Fund after admin approval.")} action={<Button asChild className="rounded-xl"><a href="/setup">{pick("ফ্যামিলিতে যোগ দিন", "Family onboarding")}</a></Button>} /></main>;
 
   return <main className="mx-auto w-full max-w-[1550px] space-y-5 px-4 py-5 md:px-7 md:py-7">
@@ -305,7 +316,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) { re
 function SelectNative({ value, onChange, options, placeholder }: { value?: string; onChange: (value: string) => void; options: string[][]; placeholder?: string }) { return <select value={value ?? ""} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15">{placeholder ? <option value="">{placeholder}</option> : null}{options.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>; }
 function fundName(funds: WelfareFund[], id: string) { return funds.find((item) => item.id === id)?.name ?? "Restricted fund"; }
 function Metric({ icon, label, value, note, tone = "blue" }: { icon: ReactNode; label: string; value: string; note: string; tone?: "blue" | "emerald" | "amber" | "rose" }) { const colors = { blue: "bg-sky-500/10 text-sky-700 dark:text-sky-300", emerald: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300", amber: "bg-amber-500/10 text-amber-700 dark:text-amber-300", rose: "bg-rose-500/10 text-rose-700 dark:text-rose-300" }; return <Card className="rounded-2xl shadow-none"><CardContent className="flex items-start gap-4 p-5"><span className={`grid size-11 shrink-0 place-items-center rounded-2xl ${colors[tone]}`}>{icon}</span><div className="min-w-0"><p className="text-sm text-muted-foreground">{label}</p><p className="mt-1 truncate text-2xl font-black">{value}</p><p className="mt-1 text-xs text-muted-foreground">{note}</p></div></CardContent></Card>; }
-function FundCard({ fund, contributions, expenses, canManage, saving, onStatus, onEdit }: { fund: WelfareFund; contributions: WelfareContribution[]; expenses: WelfareExpense[]; canManage: boolean; saving: boolean; onStatus: (status: string) => void; onEdit: () => void }) { const { locale, pick } = useLocale(); const formatter = new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", minimumFractionDigits: 0, maximumFractionDigits: 2 }); const income = contributions.filter((item) => item.fund_id === fund.id && item.status === "approved").reduce((sum, item) => sum + num(item.amount), 0); const spent = expenses.filter((item) => item.fund_id === fund.id && item.status === "paid").reduce((sum, item) => sum + num(item.amount), 0); const available = num(fund.opening_balance) + income - spent; const progress = num(fund.target_amount) ? Math.min(100, ((num(fund.opening_balance) + income) / num(fund.target_amount)) * 100) : 0; return <article className="rounded-2xl border p-4"><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap gap-2"><Badge variant="secondary">{locale === "bn" ? categoryLabelsBn[fund.category] ?? fund.category : categoryLabels[fund.category] ?? fund.category}</Badge><Status value={fund.status} /></div><h3 className="mt-3 text-lg font-bold">{fund.name}</h3></div>{canManage ? <Actions disabled={saving} items={[...(fund.status === "active" ? [["Pause fund", () => onStatus("paused")], ["Close fund", () => onStatus("closed")]] as Array<[string, () => void]> : fund.status === "paused" ? [["Activate fund", () => onStatus("active")], ["Close fund", () => onStatus("closed")]] as Array<[string, () => void]> : []), ["Edit details", onEdit]]} /> : null}</div><p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{fund.description || pick("পারিবারিক কল্যাণের উদ্দেশ্যে তহবিল", "Family welfare purpose fund")}</p><div className="mt-4 flex justify-between text-sm"><span>{pick("বর্তমান ব্যালান্স", "Available")}</span><strong>{formatter.format(available)}</strong></div>{num(fund.target_amount) ? <><Progress value={progress} className="mt-2" /><div className="mt-1 flex justify-between text-xs text-muted-foreground"><span>{Math.round(progress)}%</span><span>{pick("লক্ষ্যমাত্রা", "Target")} {formatter.format(num(fund.target_amount))}</span></div></> : <p className="mt-2 text-xs text-muted-foreground">{pick("নির্দিষ্ট লক্ষ্যমাত্রা নেই", "No fixed target")}</p>}</article>; }
+function FundCard({ fund, contributions, expenses, canManage, saving, onStatus, onEdit }: { fund: WelfareFund; contributions: WelfareContribution[]; expenses: WelfareExpense[]; canManage: boolean; saving: boolean; onStatus: (status: string) => void; onEdit: () => void }) { const { locale, pick } = useLocale(); const formatter = new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", minimumFractionDigits: 0, maximumFractionDigits: 2 }); const { approvedIncome: income, balance: available } = welfareLedger([fund], contributions.filter((item) => item.fund_id === fund.id), expenses.filter((item) => item.fund_id === fund.id)); const progress = num(fund.target_amount) ? Math.min(100, ((num(fund.opening_balance) + income) / num(fund.target_amount)) * 100) : 0; return <article className="rounded-2xl border p-4"><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap gap-2"><Badge variant="secondary">{locale === "bn" ? categoryLabelsBn[fund.category] ?? fund.category : categoryLabels[fund.category] ?? fund.category}</Badge><Status value={fund.status} /></div><h3 className="mt-3 text-lg font-bold">{fund.name}</h3></div>{canManage ? <Actions disabled={saving} items={[...(fund.status === "active" ? [["Pause fund", () => onStatus("paused")], ["Close fund", () => onStatus("closed")]] as Array<[string, () => void]> : fund.status === "paused" ? [["Activate fund", () => onStatus("active")], ["Close fund", () => onStatus("closed")]] as Array<[string, () => void]> : []), ["Edit details", onEdit]]} /> : null}</div><p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{fund.description || pick("পারিবারিক কল্যাণের উদ্দেশ্যে তহবিল", "Family welfare purpose fund")}</p><div className="mt-4 flex justify-between text-sm"><span>{pick("বর্তমান ব্যালান্স", "Available")}</span><strong>{formatter.format(available)}</strong></div>{num(fund.target_amount) ? <><Progress value={progress} className="mt-2" /><div className="mt-1 flex justify-between text-xs text-muted-foreground"><span>{Math.round(progress)}%</span><span>{pick("লক্ষ্যমাত্রা", "Target")} {formatter.format(num(fund.target_amount))}</span></div></> : <p className="mt-2 text-xs text-muted-foreground">{pick("নির্দিষ্ট লক্ষ্যমাত্রা নেই", "No fixed target")}</p>}</article>; }
 function RequestCard({ request, fund, canManage, saving, onStatus, onEdit, onDelete }: { request: WelfareRequest; fund?: WelfareFund; canManage: boolean; saving: boolean; onStatus: (status: string, extra?: Record<string, unknown>) => void; onEdit: () => void; onDelete: () => void }) {
   const { locale, pick } = useLocale();
   const formatter = new Intl.NumberFormat(locale === "bn" ? "bn-BD" : "en-BD", { style: "currency", currency: "BDT", minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -323,7 +334,7 @@ function RequestCard({ request, fund, canManage, saving, onStatus, onEdit, onDel
     });
     setReview(null);
   };
-  const amountValid = review?.status === "rejected" || (Number(review?.amount) > 0 && Number(review?.amount) <= num(request.requested_amount));
+  const approvedValue = welfareMoney(review?.amount); const amountValid = review?.status === "rejected" || (approvedValue !== undefined && approvedValue > 0 && approvedValue <= num(request.requested_amount));
   const editable = (canManage || request.is_mine) && ["submitted", "under_review"].includes(request.status);
   const workflow: Array<[string, () => void]> = canManage
     ? request.status === "submitted"

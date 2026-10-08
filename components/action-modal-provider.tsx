@@ -20,6 +20,7 @@ import { useLocale, type AppLocale } from "@/components/locale-provider";
 import { feedbackResult, mutationResponseResult, repeatsMutationFeedback, resultTitleForLocale, type ResultState } from "@/lib/action-feedback";
 import { householdActionCopy } from "@/lib/household-action-copy";
 import { welfareActionCopy } from "@/lib/welfare-action-copy";
+import { welfareErrorCopy } from "@/lib/welfare-error-copy";
 import { welfareDocumentActionCopy, welfareDocumentErrorCopy, welfareDocumentResultCopy } from "@/lib/welfare-document-action-copy";
 import { archiveActionCopy, archiveFileDeleteActionCopy, archiveUploadActionCopy } from "@/lib/archive-action-copy";
 import { memberActionCopy, memberActionResult } from "@/lib/member-action-copy";
@@ -300,6 +301,8 @@ async function responseMessage(response: Response, fallback: string, locale: App
     if (!response.ok && healthMessage) return healthMessage;
     const welfareDocumentMessage = welfareDocumentErrorCopy(payload.code, locale);
     if (!response.ok && welfareDocumentMessage) return welfareDocumentMessage;
+    const welfareMessage = welfareErrorCopy(payload.code, locale);
+    if (!response.ok && welfareMessage) return welfareMessage;
     const welfarePath = new URL(response.url, "http://localhost").pathname;
     if (response.ok && (welfarePath === "/api/welfare/upload" || welfarePath.startsWith("/api/welfare-document/"))) {
       const pending = welfareDocumentResultCopy(welfarePath, payload, locale);
