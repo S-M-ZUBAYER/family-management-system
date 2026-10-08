@@ -137,6 +137,16 @@ Cleanup permanently removes only those three drafts, checks retained arrays and 
 
 ## Manual Welfare document QA
 
+The Welfare XLSX keeps six sheets and exports native Excel dates/times with an explicit browser timezone, numeric two-decimal money, visible record links and receipt metadata. Authentication/storage identifiers and documents without `can_view` are excluded. Invalid money/date source data aborts rather than downloading a misleading partial workbook. This is a snapshot of the API-visible records, not a bank statement or a backup of uploaded file contents.
+
+```powershell
+npm.cmd run test:welfare-export
+# Read-only: compare an actual UI download with the current Nojir local-owner API before cleaning its fixtures.
+node scripts/qa-welfare-workbook-readonly.mjs 'C:\path\download.xlsx' en Asia/Dhaka
+```
+
+Use the workbook's actual `bn`/`en` language and timezone in the command. It verifies headers/counts/record IDs, typed amounts/date-times, receipt metadata and absence of cell formulas without changing the workbook or database. October 8's populated English file was independently verified; physical Bengali and large-history downloads remain acceptance gates.
+
 `scripts/qa-welfare-documents-local.mjs` creates one clearly labeled **submitted** assistance draft and a tiny PNG, with no approval, disbursement or payment. The loopback server can use production Supabase. Check the origin first; preserve approved records and financial history.
 
 ```powershell
