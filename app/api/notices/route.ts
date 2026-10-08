@@ -4,6 +4,8 @@ import {
   getActiveFamilyMembership,
 } from "@/lib/family-access";
 import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
+import { NoticeValidationError, noticeRecord, noticeErrorCopy } from "@/lib/notice-validation";
+import { noticeIsActive } from "@/lib/notice-visibility";
 import {
   BackendNotConfiguredError,
   isBackendConfigured,
@@ -28,33 +30,6 @@ export type FamilyNoticeRow = {
   created_at: string;
   updated_at: string;
 };
-
-type CreateNoticeBody = {
-  titleBn?: unknown;
-  titleEn?: unknown;
-  bodyBn?: unknown;
-  bodyEn?: unknown;
-  category?: unknown;
-  priority?: unknown;
-  status?: unknown;
-  isPinned?: unknown;
-  publishAt?: unknown;
-  expiresAt?: unknown;
-};
-
-const categories = ["general", "urgent", "event", "finance", "qurbani", "health"] as const;
-const priorities = ["normal", "high", "urgent"] as const;
-const statuses = ["draft", "published"] as const;
-
-const optionalText = (value: unknown, max: number) =>
-  typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
-
-function optionalTimestamp(value: unknown) {
-  const text = optionalText(value, 40);
-  if (!text) return null;
-  const date = new Date(text);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-}
 
 async function readAllNotices(query: URLSearchParams): Promise<FamilyNoticeRow[]> {
   return collectPaginatedRows(
@@ -110,11 +85,7 @@ export async function GET() {
 
     if (!canManage) {
       const now = Date.now();
-      notices = notices.filter((notice) => {
-        const publishTime = notice.publish_at ? new Date(notice.publish_at).getTime() : 0;
-        const expiryTime = notice.expires_at ? new Date(notice.expires_at).getTime() : null;
-        return notice.status === "published" && publishTime <= now && (!expiryTime || expiryTime > now);
-      });
+      notices = notices.filter((notice) => noticeIsActive(notice, now));
     }
 
     return Response.json({
@@ -145,49 +116,14 @@ export async function POST(request: Request) {
       return Response.json({ error: "Notice তৈরি করার permission নেই।" }, { status: 403 });
     }
 
-    const body = (await request.json()) as CreateNoticeBody;
-    const titleBn = optionalText(body.titleBn, 180);
-    const bodyBn = optionalText(body.bodyBn, 5000);
-    const category = optionalText(body.category, 20) ?? "general";
-    const priority = optionalText(body.priority, 20) ?? "normal";
-    const status = optionalText(body.status, 20) ?? "draft";
-    const publishAt = optionalTimestamp(body.publishAt);
-    const expiresAt = optionalTimestamp(body.expiresAt);
-
-    if (!titleBn || titleBn.length < 3 || !bodyBn || bodyBn.length < 5) {
-      return Response.json({ error: "Notice title ও বিস্তারিত লিখুন।" }, { status: 400 });
-    }
-    if (!categories.includes(category as (typeof categories)[number])) {
-      return Response.json({ error: "Notice category সঠিক নয়।" }, { status: 400 });
-    }
-    if (!priorities.includes(priority as (typeof priorities)[number])) {
-      return Response.json({ error: "Notice priority সঠিক নয়।" }, { status: 400 });
-    }
-    if (!statuses.includes(status as (typeof statuses)[number])) {
-      return Response.json({ error: "Notice status সঠিক নয়।" }, { status: 400 });
-    }
-    if (publishAt === undefined || expiresAt === undefined) {
-      return Response.json({ error: "Notice date/time সঠিক নয়।" }, { status: 400 });
-    }
-    if (publishAt && expiresAt && new Date(expiresAt) <= new Date(publishAt)) {
-      return Response.json({ error: "Expiry সময় publish সময়ের পরে হতে হবে।" }, { status: 400 });
-    }
+    const record = noticeRecord(await request.json().catch(() => { throw new NoticeValidationError("NOTICE_INVALID_BODY"); }));
 
     const [notice] = await supabaseRest<FamilyNoticeRow[]>("family_notices", {
       method: "POST",
       headers: { Prefer: "return=representation" },
       body: JSON.stringify({
         family_id: membership.family_id,
-        title_bn: titleBn,
-        title_en: optionalText(body.titleEn, 180),
-        body_bn: bodyBn,
-        body_en: optionalText(body.bodyEn, 5000),
-        category,
-        priority,
-        status,
-        is_pinned: body.isPinned === true,
-        publish_at: status === "published" ? publishAt ?? new Date().toISOString() : publishAt,
-        expires_at: expiresAt,
+        ...record,
         created_by_user_id: user.userId,
       }),
     });
@@ -211,7 +147,11 @@ export async function POST(request: Request) {
   }
 }
 
-function noticeErrorResponse(error: unknown, logMessage: string) {
+export function noticeErrorResponse(error: unknown, logMessage: string) {
+  if (error instanceof NoticeValidationError) {
+    const code = error.code;
+    return Response.json({ code, error: noticeErrorCopy(code, "en") }, { status: code === "NOTICE_RECORD_CHANGED" || code === "NOTICE_EXPIRED" ? 409 : 400 });
+  }
   if (error instanceof PaginatedRowLimitError) {
     return Response.json({ code: "NOTICES_ROW_LIMIT", maxRows: error.maxRows, error: `Notice history exceeds ${error.maxRows} rows. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });
   }

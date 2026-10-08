@@ -9,6 +9,7 @@ test("draft creation explicitly says it is not published", () => {
     assert.equal(copy.destructive, false);
     assert.match(copy.description, locale === "bn" ? /প্রকাশিত হবে না/ : /not be visible/);
     assert.match(copy.successMessage, locale === "bn" ? /খসড়া/ : /draft/);
+    assert.deepEqual(noticeActionCopy("/api/notices", "POST", {}, locale), copy);
   }
 });
 

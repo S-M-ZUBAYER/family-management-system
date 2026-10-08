@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Megaphone } from "lucide-react";
 import { useLocale } from "@/components/locale-provider";
 import { useCurrentTime } from "@/components/use-current-time";
+import { noticeIsActive } from "@/lib/notice-visibility";
 
 export type NoticeTickerItem = {
   id: string;
@@ -19,11 +20,7 @@ export function NoticeTicker({ notices }: { notices: NoticeTickerItem[] }) {
   const { locale, pick } = useLocale();
   const now = useCurrentTime();
   const activeNotices = useMemo(() => {
-    return notices.filter((notice) => {
-      const publishTime = notice.publish_at ? new Date(notice.publish_at).getTime() : 0;
-      const expiryTime = notice.expires_at ? new Date(notice.expires_at).getTime() : null;
-      return now !== null && notice.status === "published" && publishTime <= now && (!expiryTime || expiryTime > now);
-    });
+    return notices.filter((notice) => noticeIsActive(notice, now));
   }, [notices, now]);
 
   if (!activeNotices.length) return null;

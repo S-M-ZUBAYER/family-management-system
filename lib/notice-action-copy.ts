@@ -14,7 +14,7 @@ export function noticeActionCopy(pathname: string, method: string, body: Record<
   const action = typeof body.action === "string" ? body.action : "";
 
   if (collection && method === "POST") {
-    const draft = body.status === "draft";
+    const draft = body.status !== "published";
     if (locale === "bn") return draft ? {
       title: "খসড়া নোটিশ সংরক্ষণ করবেন?",
       description: "নোটিশটি খসড়া হিসেবে সংরক্ষিত হবে; পরিবারের সদস্যদের কাছে প্রকাশিত হবে না।",
