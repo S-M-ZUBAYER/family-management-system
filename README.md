@@ -80,12 +80,15 @@ The `package.json` scripts also include focused `test:*` suites for privacy, not
 $env:FMS_QA_ORIGIN = 'http://localhost:5173' # verify actual FMS port
 npm.cmd run test:notice-validation
 npm.cmd run test:notice-action-copy
+npm.cmd run test:notice-export
 node scripts/qa-notices-local.mjs --allow-local-qa-writes
 # Only after reviewing the run's printed exact synthetic prefix and notice UUID:
 node scripts/qa-notices-local.mjs --allow-local-qa-writes --cleanup --prefix 'QA Notices Lifecycle <14-digit timestamp>' --notice-id '<notice-UUID>'
 ```
 
-Cleanup permanently deletes only that exact labeled notice and checks both families' unrelated notices and the deletion audit. Do not rerun completed historical cleanups. API times require explicit timezone and real calendar values; expiry must follow effective publication. Archived edits preserve their status. Notice record/audit calls are not atomic; native XLSX dates, real-user roles, fault recovery and current browser/hosted acceptance remain open. See the latest October 8 QA section.
+Cleanup permanently deletes only that exact labeled notice and checks both families' unrelated notices and the deletion audit. Do not rerun completed historical cleanups. API times require explicit timezone and real calendar values; expiry must follow effective publication. Archived edits preserve their status.
+
+Notices XLSX exports only the currently filtered, authorized list. Both language titles/details are retained; publication/expiry/create/update timestamps are numeric Excel dates with explicit browser timezone. Optional dates stay blank, serials numeric and formula-looking text literal. Private family/account/storage identifiers are excluded. Invalid or Excel-unsupported data stops the download with a localized error. Seven workbook regressions include 20,000 synthetic rows; this is not physical large-browser or Excel application acceptance. Notice record/audit calls remain non-atomic; real-user roles, fault recovery and current browser/hosted acceptance remain open. See the latest October 8 QA section.
 
 ## Manual Qurbani integration QA
 
