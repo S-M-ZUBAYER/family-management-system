@@ -1,6 +1,8 @@
 -- Run only after 20261001_welfare_document_retention_guard.sql in staging.
 -- Uses synthetic rows and rolls them all back; do not run on a real family.
 begin;
+set local statement_timeout = '15s';
+set local lock_timeout = '5s';
 
 do $$
 declare
@@ -102,4 +104,5 @@ begin
 end;
 $$;
 
+select 'PASS: attached-parent deletion, link reassignment, cross-family parent, finalized evidence deletion denied; draft removal allowed; finalized receipt retained; rollback follows' as welfare_document_acceptance;
 rollback;

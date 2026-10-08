@@ -3,6 +3,8 @@
 -- project. This test inserts synthetic records inside a transaction and
 -- rolls them all back; it never uses real family or payment records.
 begin;
+set local statement_timeout = '15s';
+set local lock_timeout = '5s';
 
 do $$
 declare
@@ -115,6 +117,7 @@ begin
 end;
 $$;
 
+select 'PASS: synthetic expense/payment, request/disbursement, contribution/refund, unauthorized, insufficient balance, repeated disbursement and three atomic audits; rollback follows' as welfare_atomic_acceptance;
 rollback;
 
 -- Concurrency requires two separate database sessions. In staging, create
