@@ -121,6 +121,20 @@ Cleanup targets only that prefix's private records/file and verifies unrelated a
 
 SOS state guards/projections and medication-course reminder planning have isolated tests, plus local API rejection/cancel evidence. Positive multi-user SOS, actual notification delivery and transactional consistency are not accepted: response insert, acknowledgment and audit remain separate REST calls. In-app SOS does not call emergency services or dispatch help. Use staging for any positive SOS/concurrency test and preserve genuine emergency history.
 
+## Manual Welfare input and ledger QA
+
+`scripts/qa-welfare-validation-local.mjs` is opt-in and loopback-only, but the local server can still use production Supabase. It tests invalid input and creates only three labeled drafts: a pending expense, submitted assistance request and own active pledge. It does not approve, pay, disburse or create valid funding. Preserve existing financial history.
+
+```powershell
+npm.cmd run test:welfare-validation
+npm.cmd run test:welfare-ledger
+node scripts/qa-welfare-validation-local.mjs --allow-local-qa-writes
+# Only for the exact newly created disposable prefix, after reviewing its IDs/states:
+node scripts/qa-welfare-validation-local.mjs --allow-local-qa-writes --cleanup-prefix 'QA Welfare Inputs <14-digit timestamp>'
+```
+
+Cleanup permanently removes only those three drafts, checks retained arrays and delete audits, and has no product undo. The October 8 acceptance prefix is already cleaned; never rerun historical cleanup. Exact-cent helper tests and conditional REST updates are not proof of real-role isolation or positive-balance/concurrent database settlement. Those acceptance gates and hosted deployment remain open.
+
 ## Manual Welfare document QA
 
 `scripts/qa-welfare-documents-local.mjs` creates one clearly labeled **submitted** assistance draft and a tiny PNG, with no approval, disbursement or payment. The loopback server can use production Supabase. Check the origin first; preserve approved records and financial history.

@@ -164,4 +164,36 @@ Local localhost:5173, Nojir family, mock owner; production-backed API, **not** p
 ### Still open / next
 
 - Welfare remains **Partial**. Real owner/admin/member/pending users; direct finalized-document API and races; other contribution/fund/expense parents; PDF/Word/WebP files and valid near-limit uploads; actual audit/storage failure injection/reconciliation; populated Documents XLSX/native dates/large rows; full responsive/accessibility and hosted acceptance remain.
-- Next bounded slice: strict Welfare money/date validation and isolated positive-balance ledger bookkeeping/concurrency in a safe environment. Source still has permissive numeric/date fallbacks; inspect and fix without changing retained financial history or making real payments. Do not infer full product completion from this checkpoint.
+- At this checkpoint strict Welfare money/date validation was next. The subsequent input/ledger section below supersedes that source snapshot; positive-balance settlement/concurrency remains open. Preserve retained history and never make real payments for QA.
+
+## Welfare validation and draft ledger continuation — newest slice
+
+Local localhost:5173, Nojir family, mock owner; production-backed API, **not** real separate-user or hosted acceptance. No SQL/migration, valid fund/contribution creation, approval, disbursement, actual payment/refund or genuine assistance.
+
+### Corrections and pure evidence
+
+- Shared create/edit validation rejects non-object bodies, inherited/unsupported kinds, malformed IDs, supplied invalid status/payment options and coercible booleans/arrays/objects. Decimal money is restricted to the schema's numeric(14,2) domain without silent rounding, scientific/hex coercion or overflow. Fund target/opening and review amount may be zero; ordinary record amounts must be positive.
+- Omitted required dates default to the server UTC day; explicitly blank/null, malformed, trailing-junk or impossible calendar dates do not. Valid leap days persist. Optional pledge due dates may be blank/null, but a supplied date cannot precede start. Request fund is optional; other kinds require a canonical fund ID. Approval cannot exceed requested amount; invalid approval input is rejected before a write.
+- Ordinary edit/delete/status writes compare the server-read status and updated_at along with family/id; zero matched rows returns localized 409 instead of false success. Async status errors reach the route catch. These REST checks do not prove stale-client behavior or database-atomic record/audit/outflow consistency.
+- Visible ledger opening/approved income/paid expense/balance and own active pledges use exact-cent totals. Refunded/pending/rejected rows are excluded; a paid linked expense is not double-counted. Invalid legacy/aggregate overflow fails explicitly instead of displaying an inaccurate total. A restricted user's visible ledger is not guaranteed a complete bank balance.
+- Failed Welfare reads clear stale records/roles, disable misleading totals/export and offer Retry. Version checks ignore old load responses. Deterministic backend failure/Retry and family-switch race testing remain open.
+- Actionable BN/EN money/date/status/permission/balance errors use the shared close-X modal. Invalid review amounts cannot submit. Nine pure tests passed: six validation and three exact-cent ledger tests (many invalid/default/date/status and cents cases).
+
+### Observed API/browser evidence
+
+- `node scripts/qa-welfare-validation-local.mjs --allow-local-qa-writes` passed **187 checks**. Prefix `QA Welfare Inputs 20261008061043` created only pending expense `e0b56e84-d05c-4c53-aa0a-cfc1545678fa`, submitted request `4f8572fc-a6da-49df-bdd7-c61e29230236` and own active pledge `2365c7bf-a5a3-4d5b-8a50-fac62c443b8d`.
+- Invalid money/date/options tested across all five create kinds; malformed body/kind/status rejected. The three drafts were created/read/edited; cross-family IDs rejected; own pledge paused/resumed. Existing funds/contributions/expenses/requests/pledges/documents were deep-equal except these drafts; create/update audits found. No positive outflow or actual funding occurred.
+- BN browser new expense with amount 1.001: specific confirmation accepted, one actionable fractional-cent error with close X appeared, unsaved form remained; closed error then cancelled form. No record titled `QA validation only — must not be saved` was created.
+- EN browser edited only the new pending expense: 2.501 rejected with specific confirmation and closeable error, draft retained. Corrected 2.75 saved with `Expense record updated.` success. Five readback assertions verified 200, 2.75, pending status, unchanged 2024-02-29 expense date and absent invalid-create title. Never approved/paid.
+- Language switched BN → EN → BN with confirmation/success close-X. Dark mode retained; no palette/light roundtrip in this slice. Final reload showed preserved fund/refunded contribution and zero review count in Bengali/dark. Screenshot `welfare-money-error-2026-10-08.jpg` in the task workspace captures the BN validation error; it is not a product asset.
+
+### Cleanup and quality
+
+- Exact-prefix cleanup passed **17 checks**, permanently removing only the above three drafts, finding all three delete audits and verifying unrelated arrays unchanged. Historic approved request/unpaid expense, pledge/fund/contribution fixtures and audit history retained. No product undo for removed rows. **Do not rerun completed cleanup.**
+- All **48 configured test suites** passed. Nonincremental TypeScript, lint, tenant-security, cancellation (75 handlers), translation (2,981 literal BN/EN pairs), whitespace and production build passed. Final build rechecked after status-await and cleanup-audit refinements. No migration/deployment.
+
+### Remaining / next boundary
+
+- Welfare remains **Partial**, as does the full product. Real separate-user roles/privacy, positive-balance approval/payment/refund and staging two-session transactional/concurrency behavior remain unverified; exact-cent pure tests do not substitute for database acceptance.
+- Conditional write races, saved-write/audit outages, load Retry/family-switch faults, finalized document retention/races, other file/parent types, valid near-limit uploads, storage reconciliation, keyboard/mobile/four palettes and hosted deployment remain open.
+- Next bounded slice: inspect Welfare's native-date and populated Documents XLSX/export coverage; alternatively prepare a separately scoped staging positive-balance plan. Never alter retained financial history merely to fund a test or silently initiate an external payment.
