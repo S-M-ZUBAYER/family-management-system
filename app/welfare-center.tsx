@@ -164,19 +164,23 @@ export function WelfareCenter() {
     if (response.status === 499) return false;
     const payload = await response.json() as { code?: string; error?: string };
     if (!response.ok) throw new Error(welfareErrorCopy(payload.code, locale) ?? payload.error ?? pick("রেকর্ড সংরক্ষণ হয়নি।", "Could not save the record."));
-    return true;
+    return response;
   }
 
   async function createRecord() {
     if (!kind) return;
     setSaving(true);
     try {
+      let responseStatus = 200;
       if (editingRecord) {
         const response = await fetch("/api/welfare/records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, recordId: editingRecord.id, data: form }) });
         if (response.status === 499) return;
         const payload = await response.json() as { code?: string; error?: string }; if (!response.ok) throw new Error(welfareErrorCopy(payload.code, locale) ?? payload.error ?? pick("রেকর্ড হালনাগাদ হয়নি।", "Could not update the record."));
-      } else if (!(await postAction(`create_${kind}`, form))) return;
-      setKind(null); setEditingRecord(null); await load(); setFeedback(editingRecord ? pick("রেকর্ড হালনাগাদ হয়েছে।", "Record updated.") : pick("রেকর্ড সংরক্ষিত হয়েছে।", "Record saved."));
+        responseStatus = response.status;
+      } else {
+        const response = await postAction(`create_${kind}`, form); if (!response) return; responseStatus = response.status;
+      }
+      setKind(null); setEditingRecord(null); await load(); if (responseStatus !== 202) setFeedback(editingRecord ? pick("রেকর্ড হালনাগাদ হয়েছে।", "Record updated.") : pick("রেকর্ড সংরক্ষিত হয়েছে।", "Record saved."));
     } catch (error) { setFeedback(error instanceof Error ? error.message : pick("রেকর্ড সংরক্ষণ হয়নি।", "Could not save the record.")); }
     finally { setSaving(false); }
   }
@@ -191,7 +195,7 @@ export function WelfareCenter() {
         ? pick("এই খসড়া রেকর্ডের নথি আগে মুছুন।", "Remove this draft record's documents first.")
         : welfareErrorCopy(payload.code, locale) ?? payload.error ?? pick("রেকর্ড মুছতে ব্যর্থ হয়েছে।", "Could not delete the record."));
       await load();
-      setFeedback(pick("রেকর্ড মুছে দেওয়া হয়েছে।", "Record deleted."));
+      if (response.status !== 202) setFeedback(pick("রেকর্ড মুছে দেওয়া হয়েছে।", "Record deleted."));
     }
     catch (error) { setFeedback(error instanceof Error ? error.message : pick("রেকর্ড মুছতে ব্যর্থ হয়েছে।", "Could not delete the record.")); }
     finally { setSaving(false); }
@@ -199,7 +203,7 @@ export function WelfareCenter() {
 
   async function changeStatus(entity: string, id: string, status: string, extra: Record<string, unknown> = {}) {
     setSaving(true);
-    try { if (!(await postAction("update_status", { entity, id, status, ...extra }))) return; await load(); setFeedback(pick(`স্ট্যাটাস ${welfareValueLabel(status, "bn")} করা হয়েছে।`, `Status changed to ${welfareValueLabel(status, "en")}.`)); }
+    try { const response = await postAction("update_status", { entity, id, status, ...extra }); if (!response) return; await load(); if (response.status !== 202) setFeedback(pick(`স্ট্যাটাস ${welfareValueLabel(status, "bn")} করা হয়েছে।`, `Status changed to ${welfareValueLabel(status, "en")}.`)); }
     catch (error) { setFeedback(error instanceof Error ? error.message : pick("স্ট্যাটাস হালনাগাদ হয়নি।", "Could not update the status.")); }
     finally { setSaving(false); }
   }

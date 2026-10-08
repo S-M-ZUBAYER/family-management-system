@@ -1,5 +1,6 @@
 type Locale = "bn" | "en";
 const errors = {
+  WELFARE_WRITE_OUTCOME_UNKNOWN: ["কাজের ফল নিশ্চিত নয়। একই কাজ আবার পাঠাবেন না; খতিয়ান রিলোড করে রেকর্ড ও অডিট লগ যাচাই করুন এবং সাপোর্টে যোগাযোগ করুন।", "The action outcome is uncertain. Do not submit it again; reload the ledger, verify the record and audit history, and contact support."],
   WELFARE_EXPORT_INVALID_DATA: ["এক্সপোর্টে অসঠিক তারিখ বা টাকার পরিমাণ পাওয়া গেছে। অসম্পূর্ণ ফাইল তৈরি হয়নি; তথ্য সংশোধন করে আবার চেষ্টা করুন।", "The export contains an invalid date or amount. No partial file was created; correct the data and try again."],
   WELFARE_INVALID_BODY: ["সঠিক রেকর্ডের তথ্য দিন।", "Provide a valid record object."],
   WELFARE_INVALID_MONEY: ["টাকার পরিমাণ সঠিকভাবে দিন: সর্বোচ্চ দুই দশমিক; প্রয়োজনীয় পরিমাণ শূন্যের বেশি হতে হবে।", "Enter a valid amount with at most two decimal places; required amounts must be greater than zero."],

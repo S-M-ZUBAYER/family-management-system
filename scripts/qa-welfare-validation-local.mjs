@@ -9,7 +9,12 @@ let checks = 0;
 async function call(path, method = "GET", body, expected = 200, active = family, signed = true) {
   const response = await fetch(new URL(path, origin), { method, headers: { ...(signed ? { Cookie: `__sites_local_auth=1; fms_active_family=${active}` } : {}), ...(body !== undefined ? { "Content-Type": "application/json" } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
   const payload = (response.headers.get("content-type") ?? "").includes("json") ? await response.json() : await response.text();
-  assert.equal(response.status, expected, `${method} ${path}: ${JSON.stringify(payload)}`); checks++; return payload;
+  assert.equal(response.status, expected, `${method} ${path}: ${JSON.stringify(payload)}`); checks++;
+  if (path === "/api/welfare/records" && [200, 201].includes(expected)) {
+    assert.equal(payload.auditPending, false, "Confirmed ordinary write must have a successful audit");
+    assert.equal(payload.outcomeUnknown, undefined, "Confirmed write must not claim an uncertain outcome"); checks += 2;
+  }
+  return payload;
 }
 const sections = ["funds", "contributions", "expenses", "requests", "pledges", "documents"];
 const before = await call("/api/welfare"); assert.equal(before.family.id, family); assert.equal(before.migrationRequired, false); checks += 2;

@@ -4,6 +4,7 @@ import { SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 import { isWelfareKind, validateWelfareRecord, validateWelfareStatus, welfareMoney as amount, welfareObject, type WelfareKind } from "@/lib/welfare-validation";
 import { welfareDocumentUuid } from "@/lib/welfare-document-upload";
 import { welfareErrorCopy } from "@/lib/welfare-error-copy";
+import { welfareWrite } from "@/lib/welfare-write-outcome";
 import { welfareErrorResponse } from "../route";
 
 const actions = ["create_fund", "create_contribution", "create_expense", "create_request", "create_pledge", "update_status"] as const;
@@ -12,6 +13,8 @@ const welfareTables: Record<WelfareKind, string> = { fund: "welfare_funds", cont
 const text = (value: unknown, max: number) => typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 const date = (value: unknown) => value as string; // Already normalized by validateWelfareRecord.
 const invalid = (code: string) => Response.json({ code, error: welfareErrorCopy(code, "en") }, { status: 400 });
+const confirmedRejected = (error: unknown) => error instanceof SupabaseRequestError && error.status >= 400 && error.status < 500 && error.status !== 408;
+const validRows = (rows: Array<Record<string, unknown>>, id?: string) => Array.isArray(rows) && rows.length <= 1 && rows.every(row => welfareObject(row) && welfareDocumentUuid(row.id) && (!id || row.id === id));
 function choice<T extends string>(value: unknown, values: readonly T[], fallback: T) {
   const candidate = text(value, 40);
   return candidate && values.includes(candidate as T) ? candidate as T : fallback;
@@ -148,9 +151,12 @@ export async function POST(request: Request) {
       return await updateStatus(data, membership.family_id, user.userId, user.displayName, canManage);
     }
 
-    const [result] = await supabaseRest<Array<Record<string, unknown>>>(table, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(record) });
-    await audit(membership.family_id, user.userId, `${body.action}`, table, String(result.id));
-    return Response.json({ record: result }, { status: 201 });
+    const outcome = await welfareWrite({
+      write: () => supabaseRest<Array<Record<string, unknown>>>(table, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(record) }),
+      valid: rows => validRows(rows) && rows.length === 1,
+      audit: rows => audit(membership.family_id, user.userId, String(body.action), table, String(rows[0].id)), confirmedRejected,
+    });
+    return Response.json({ record: outcome.value[0], auditPending: outcome.auditPending }, { status: outcome.auditPending ? 202 : 201 });
   } catch (error) {
     return welfareErrorResponse(error, "Unable to save Welfare Fund record");
   }
@@ -184,9 +190,13 @@ export async function PATCH(request: Request) {
     }
     changes.updated_at = new Date().toISOString();
     const filter = new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, status: `eq.${String(existing.status)}`, updated_at: `eq.${String(existing.updated_at)}` });
-    const [updated] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${filter}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
+    const outcome = await welfareWrite({
+      write: () => supabaseRest<Array<Record<string, unknown>>>(`${table}?${filter}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) }),
+      valid: rows => validRows(rows, recordId), audit: async rows => { if (rows.length) await audit(membership.family_id, user.userId, `welfare_${kind}_updated`, table, recordId); }, confirmedRejected,
+    });
+    const [updated] = outcome.value;
     if (!updated) return Response.json({ code: "WELFARE_RECORD_CHANGED", error: welfareErrorCopy("WELFARE_RECORD_CHANGED", "en") }, { status: 409 });
-    await audit(membership.family_id, user.userId, `welfare_${kind}_updated`, table, recordId); return Response.json({ record: updated });
+    return Response.json({ record: updated, auditPending: outcome.auditPending }, { status: outcome.auditPending ? 202 : 200 });
   } catch (error) { return welfareErrorResponse(error, "Unable to update Welfare Fund record"); }
 }
 
@@ -209,9 +219,13 @@ export async function DELETE(request: Request) {
       const linkedDocuments = await supabaseRest<Array<{ id: string }>>(`welfare_documents?${new URLSearchParams({ select: "id", family_id: `eq.${membership.family_id}`, entity_type: `eq.${kind}`, entity_id: `eq.${recordId}`, limit: "1" })}`);
       if (linkedDocuments.length) return Response.json({ code: "WELFARE_DOCUMENTS_ATTACHED", error: "Remove this draft record's documents before deleting the record." }, { status: 409 });
     }
-    const deleted = await supabaseRest<Array<{ id: string }>>(`${table}?${new URLSearchParams({ select: "id", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, status: `eq.${String(existing.status)}`, updated_at: `eq.${String(existing.updated_at)}` })}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+    const outcome = await welfareWrite({
+      write: () => supabaseRest<Array<{ id: string }>>(`${table}?${new URLSearchParams({ select: "id", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, status: `eq.${String(existing.status)}`, updated_at: `eq.${String(existing.updated_at)}` })}`, { method: "DELETE", headers: { Prefer: "return=representation" } }),
+      valid: rows => validRows(rows, recordId), audit: async rows => { if (rows.length) await audit(membership.family_id, user.userId, `welfare_${kind}_deleted`, table, recordId); }, confirmedRejected,
+    });
+    const deleted = outcome.value;
     if (!deleted.length) return Response.json({ code: "WELFARE_RECORD_CHANGED", error: welfareErrorCopy("WELFARE_RECORD_CHANGED", "en") }, { status: 409 });
-    await audit(membership.family_id, user.userId, `welfare_${kind}_deleted`, table, recordId); return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।` });
+    return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।`, auditPending: outcome.auditPending }, { status: outcome.auditPending ? 202 : 200 });
   } catch (error) { return welfareErrorResponse(error, "Unable to delete Welfare Fund record"); }
 }
 
@@ -282,7 +296,7 @@ async function updateStatus(data: Record<string, unknown>, familyId: string, use
       return invalid("WELFARE_INVALID_AMOUNT");
     }
     try {
-      const updated = await supabaseRest<Record<string, unknown>>("rpc/settle_welfare_outflow", {
+      const outcome = await welfareWrite({ write: () => supabaseRest<Record<string, unknown>>("rpc/settle_welfare_outflow", {
         method: "POST",
         body: JSON.stringify({
           p_family_id: familyId,
@@ -295,8 +309,8 @@ async function updateStatus(data: Record<string, unknown>, familyId: string, use
           p_payment_method: choice(data.paymentMethod, ["cash", "bank", "mobile", "card", "other"] as const, "cash"),
           p_reference: text(data.reference, 180),
         }),
-      });
-      return Response.json({ record: updated });
+      }), valid: record => welfareObject(record) && record.id === id && record.status === status, confirmedRejected });
+      return Response.json({ record: outcome.value });
     } catch (error) {
       const response = welfareOutflowErrorResponse(error);
       if (response) return response;
@@ -313,10 +327,13 @@ async function updateStatus(data: Record<string, unknown>, familyId: string, use
     Object.assign(changes, { approved_amount: approvedAmount ?? 0, admin_note: text(data.adminNote, 3000), reviewed_by_user_id: userId, reviewed_by_name: userName, reviewed_at: now });
   }
   const filter = new URLSearchParams({ id: `eq.${id}`, family_id: `eq.${familyId}`, status: `eq.${String(existing.status)}`, updated_at: `eq.${String(existing.updated_at)}` });
-  const [updated] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${filter}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
+  const outcome = await welfareWrite({
+    write: () => supabaseRest<Array<Record<string, unknown>>>(`${table}?${filter}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) }),
+    valid: rows => validRows(rows, id), audit: async rows => { if (rows.length) await audit(familyId, userId, `welfare_${entity}_${status}`, table, id); }, confirmedRejected,
+  });
+  const [updated] = outcome.value;
   if (!updated) return Response.json({ code: "WELFARE_RECORD_CHANGED", error: welfareErrorCopy("WELFARE_RECORD_CHANGED", "en") }, { status: 409 });
-  await audit(familyId, userId, `welfare_${entity}_${status}`, table, id);
-  return Response.json({ record: updated });
+  return Response.json({ record: updated, auditPending: outcome.auditPending }, { status: outcome.auditPending ? 202 : 200 });
 }
 
 function welfareOutflowErrorResponse(error: unknown): Response | null {

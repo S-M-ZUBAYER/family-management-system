@@ -53,6 +53,7 @@
     "test:welfare-document-upload": "node scripts/test-welfare-document-upload.mjs",
     "test:welfare-validation": "node scripts/test-welfare-validation.mjs",
     "test:welfare-ledger": "node scripts/test-welfare-ledger.mjs",
+    "test:welfare-write-outcome": "node scripts/test-welfare-write-outcome.mjs",
     "test:finance-validation": "node scripts/test-personal-finance-validation.mjs",
     "test:finance-export": "node scripts/test-finance-export.mjs",
     "test:finance-action-copy": "node scripts/test-finance-action-copy.mjs",

@@ -5,6 +5,8 @@ import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-ro
 import { BackendNotConfiguredError, isBackendConfigured, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 import { canMemberSeeWelfareContribution, canMemberSeeWelfareDocument, canMemberSeeWelfareExpense, canMemberSeeWelfareRequest } from "@/lib/welfare-visibility";
 import { publicWelfareDocument } from "@/lib/welfare-document-upload";
+import { WelfareWriteOutcomeUnknownError } from "@/lib/welfare-write-outcome";
+import { welfareErrorCopy } from "@/lib/welfare-error-copy";
 
 type ContributionRow = Omit<WelfareContribution, "is_mine">;
 type RequestRow = Omit<WelfareRequest, "is_mine">;
@@ -24,6 +26,7 @@ async function readAllWelfareRows<T>(table: string, query: URLSearchParams): Pro
 }
 
 export function welfareErrorResponse(error: unknown, label: string) {
+  if (error instanceof WelfareWriteOutcomeUnknownError) return Response.json({ code: "WELFARE_WRITE_OUTCOME_UNKNOWN", outcomeUnknown: true, error: welfareErrorCopy("WELFARE_WRITE_OUTCOME_UNKNOWN", "en") }, { status: 503 });
   if (error instanceof PaginatedRowLimitError) return Response.json({ code: "WELFARE_ROW_LIMIT", maxRows: error.maxRows, error: `Welfare history exceeds ${error.maxRows} rows in one section. No partial data was shown; contact support for a paged export.` }, { status: 413 });
   if (error instanceof BackendNotConfiguredError) return Response.json({ error: "PostgreSQL connection configured নয়।" }, { status: 503 });
   if (error instanceof SupabaseRequestError) {
