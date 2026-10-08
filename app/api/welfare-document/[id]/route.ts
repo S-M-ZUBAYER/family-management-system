@@ -4,6 +4,8 @@ import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageWelfare, getActiveFamilyMembership } from "@/lib/family-access";
 import { BackendNotConfiguredError, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 import { canDeleteWelfareDocument, type WelfareDocumentEntityType } from "@/lib/welfare-document-policy";
+import { welfareDocumentUuid } from "@/lib/welfare-document-upload";
+import { welfareDocumentResultCopy } from "@/lib/welfare-document-action-copy";
 import { canMemberSeeWelfareContribution, canMemberSeeWelfareDocument, canMemberSeeWelfareExpense, canMemberSeeWelfareRequest } from "@/lib/welfare-visibility";
 
 type RuntimeEnv = Cloudflare.Env & { BUCKET?: R2Bucket };
@@ -63,6 +65,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const bucket = (env as RuntimeEnv).BUCKET;
     if (!bucket) return new Response("Private storage unavailable.", { status: 503 });
     const { id } = await context.params;
+    if (!welfareDocumentUuid(id)) return new Response("Invalid document ID.", { status: 400 });
     const query = new URLSearchParams({ select: "storage_key,mime_type,file_name,visibility,uploaded_by_user_id,entity_type,entity_id", id: `eq.${id}`, family_id: `eq.${membership.family_id}`, limit: "1" });
     const document = (await supabaseRest<Array<{ storage_key: string; mime_type: string; file_name: string; visibility: string; uploaded_by_user_id: string; entity_type: WelfareDocumentEntityType; entity_id: string }>>(`welfare_documents?${query}`))[0];
     if (!document) return new Response("Document not found.", { status: 404 });
@@ -88,18 +91,22 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
     const membership = await getActiveFamilyMembership(user.userId); if (!membership) return Response.json({ error: "Family membership required." }, { status: 403 });
     const bucket = (env as RuntimeEnv).BUCKET; if (!bucket) return Response.json({ error: "Private storage unavailable." }, { status: 503 });
     const { id } = await context.params;
+    if (!welfareDocumentUuid(id)) return Response.json({ code: "WELFARE_DOCUMENT_LINK_INVALID", error: "Invalid document ID." }, { status: 400 });
     const document = (await supabaseRest<Array<{ storage_key: string; uploaded_by_user_id: string; entity_type: WelfareDocumentEntityType; entity_id: string }>>(`welfare_documents?${new URLSearchParams({ select: "storage_key,uploaded_by_user_id,entity_type,entity_id", id: `eq.${id}`, family_id: `eq.${membership.family_id}`, limit: "1" })}`))[0];
-    if (!document) return Response.json({ error: "Document পাওয়া যায়নি।" }, { status: 404 });
-    if (!canManageWelfare(membership.role) && document.uploaded_by_user_id !== user.userId) return Response.json({ error: "Document delete করার permission নেই।" }, { status: 403 });
+    if (!document) return Response.json({ code: "WELFARE_DOCUMENT_NOT_FOUND", error: "Document not found." }, { status: 404 });
+    if (!canManageWelfare(membership.role) && document.uploaded_by_user_id !== user.userId) return Response.json({ code: "WELFARE_DOCUMENT_FORBIDDEN", error: "No permission to delete this document." }, { status: 403 });
     const parentStatus = await documentParentStatus(membership.family_id, document.entity_type, document.entity_id);
     if (!canDeleteWelfareDocument(document.entity_type, parentStatus)) return Response.json({ code: "WELFARE_DOCUMENT_FINALIZED", error: "Reviewed, closed, or paid Welfare evidence cannot be permanently deleted." }, { status: 409 });
     const deleted = await supabaseRest<Array<{ id: string }>>(`welfare_documents?${new URLSearchParams({ select: "id", id: `eq.${id}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
-    if (!deleted.length) return Response.json({ error: "Document পাওয়া যায়নি।" }, { status: 404 });
+    if (!deleted.length) return Response.json({ code: "WELFARE_DOCUMENT_NOT_FOUND", error: "Document not found." }, { status: 404 });
     let cleanupPending = false;
     try { await bucket.delete(document.storage_key); }
     catch (error) { cleanupPending = true; console.error("Welfare document storage cleanup pending", id, error); }
-    await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: "welfare_document_deleted", entity_type: "welfare_documents", entity_id: id, metadata: { module: "welfare", cleanup_pending: cleanupPending, ...(cleanupPending ? { storage_key: document.storage_key } : {}) } }) });
-    return Response.json({ message: cleanupPending ? "Document record deleted; private storage cleanup is pending." : "Welfare document স্থায়ীভাবে delete হয়েছে।", cleanupPending }, { status: cleanupPending ? 202 : 200 });
+    let auditPending = false;
+    try {
+      await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: membership.family_id, actor_user_id: user.userId, action: "welfare_document_deleted", entity_type: "welfare_documents", entity_id: id, metadata: { module: "welfare", cleanup_pending: cleanupPending, ...(cleanupPending ? { storage_key: document.storage_key } : {}) } }) });
+    } catch (error) { auditPending = true; console.error("Welfare document removed; delete audit pending", id, error); }
+    return Response.json({ message: welfareDocumentResultCopy(`/api/welfare-document/${id}`, { cleanupPending, auditPending }, "en") ?? "Document deleted.", cleanupPending, auditPending }, { status: cleanupPending || auditPending ? 202 : 200 });
   } catch (error) {
     if (error instanceof BackendNotConfiguredError) return Response.json({ error: "Backend unavailable." }, { status: 503 });
     if (error instanceof SupabaseRequestError && /WELFARE_DOCUMENT_FINALIZED/.test(error.message)) return Response.json({ code: "WELFARE_DOCUMENT_FINALIZED", error: "Reviewed, closed, or paid Welfare evidence cannot be permanently deleted." }, { status: 409 });

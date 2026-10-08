@@ -198,7 +198,7 @@ export async function DELETE(request: Request) {
     if (!deletableStatuses[kind].includes(String(existing.status))) return Response.json({ error: "This reviewed or finalized record cannot be deleted; its audit history is retained." }, { status: 409 });
     if (kind === "contribution" || kind === "expense" || kind === "request") {
       const linkedDocuments = await supabaseRest<Array<{ id: string }>>(`welfare_documents?${new URLSearchParams({ select: "id", family_id: `eq.${membership.family_id}`, entity_type: `eq.${kind}`, entity_id: `eq.${recordId}`, limit: "1" })}`);
-      if (linkedDocuments.length) return Response.json({ error: "Remove this draft record's documents before deleting the record." }, { status: 409 });
+      if (linkedDocuments.length) return Response.json({ code: "WELFARE_DOCUMENTS_ATTACHED", error: "Remove this draft record's documents before deleting the record." }, { status: 409 });
     }
     await supabaseRest(`${table}?${new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}` })}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
     await audit(membership.family_id, user.userId, `welfare_${kind}_deleted`, table, recordId); return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।` });

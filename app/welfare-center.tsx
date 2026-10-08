@@ -39,6 +39,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { canDeleteWelfareDocument } from "@/lib/welfare-document-policy";
+import { welfareDocumentErrorCopy } from "@/lib/welfare-document-action-copy";
 import { welfareExportHeaders, type WelfareExportSheet } from "@/lib/welfare-export-headers";
 import type { WelfareContribution, WelfareDocument, WelfareExpense, WelfareFund, WelfarePayload, WelfarePledge, WelfareRequest } from "@/lib/welfare-types";
 
@@ -207,9 +208,11 @@ export function WelfareCenter() {
     try {
       const response = await fetch("/api/welfare/upload", { method: "POST", body });
       if (response.status === 499) return;
-      const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? pick("নথি আপলোড হয়নি।", "Could not upload the document."));
-      setUploadOpen(false); setUploadFile(null); setUploadForm({ documentType: "receipt", visibility: "admins" }); await load(); setFeedback(pick("নথি নিরাপদ ভল্টে সংরক্ষিত হয়েছে।", "Document saved in the private vault."));
+      if (response.status === 413) throw new Error(pick("নথি সার্ভারের আপলোড সীমা ছাড়িয়েছে; ছোট ফাইল দিন।", "The document exceeds the server upload limit; choose a smaller file."));
+      const payload = await response.json() as { code?: string; error?: string };
+      if (!response.ok) throw new Error(welfareDocumentErrorCopy(payload.code, locale) ?? payload.error ?? pick("নথি আপলোড হয়নি।", "Could not upload the document."));
+      setUploadOpen(false); setUploadFile(null); setUploadForm({ documentType: "receipt", visibility: "admins" }); await load();
+      if (response.status !== 202) setFeedback(pick("নথি নিরাপদ ভল্টে সংরক্ষিত হয়েছে।", "Document saved in the private vault."));
     } catch (error) { setFeedback(error instanceof Error ? error.message : pick("নথি আপলোড হয়নি।", "Could not upload the document.")); }
     finally { setSaving(false); }
   }
@@ -220,15 +223,9 @@ export function WelfareCenter() {
       const response = await fetch(`/api/welfare-document/${id}`, { method: "DELETE" });
       if (response.status === 499) return;
       const payload = await response.json() as { code?: string; error?: string; cleanupPending?: boolean };
-      if (!response.ok) throw new Error(payload.code === "WELFARE_DOCUMENT_FINALIZED"
-        ? pick("পর্যালোচিত, বন্ধ বা পরিশোধিত রেকর্ডের প্রমাণ স্থায়ীভাবে মুছা যাবে না।", "Evidence for a reviewed, closed, or paid record cannot be permanently deleted.")
-        : payload.code === "WELFARE_DOCUMENT_PARENT_MISSING"
-          ? pick("সংযুক্ত কল্যাণ রেকর্ডটি আর নেই।", "The linked Welfare record no longer exists.")
-          : payload.error ?? pick("নথি মোছা যায়নি।", "Could not delete the document."));
+      if (!response.ok) throw new Error(welfareDocumentErrorCopy(payload.code, locale) ?? payload.error ?? pick("নথি মোছা যায়নি।", "Could not delete the document."));
       await load();
-      setFeedback(payload.cleanupPending
-        ? pick("নথির রেকর্ড মুছে গেছে; ব্যক্তিগত ফাইলের স্টোরেজ পরিষ্কার করা বাকি আছে।", "The document record was removed; private file storage cleanup is pending.")
-        : pick("নথি মুছে দেওয়া হয়েছে।", "Document deleted."));
+      if (response.status !== 202) setFeedback(pick("নথি মুছে দেওয়া হয়েছে।", "Document deleted."));
     }
     catch (error) { setFeedback(error instanceof Error ? error.message : pick("নথি মোছা যায়নি।", "Could not delete the document.")); }
     finally { setSaving(false); }

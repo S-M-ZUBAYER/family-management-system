@@ -20,6 +20,7 @@ import { useLocale, type AppLocale } from "@/components/locale-provider";
 import { feedbackResult, mutationResponseResult, repeatsMutationFeedback, resultTitleForLocale, type ResultState } from "@/lib/action-feedback";
 import { householdActionCopy } from "@/lib/household-action-copy";
 import { welfareActionCopy } from "@/lib/welfare-action-copy";
+import { welfareDocumentActionCopy, welfareDocumentErrorCopy, welfareDocumentResultCopy } from "@/lib/welfare-document-action-copy";
 import { archiveActionCopy, archiveFileDeleteActionCopy, archiveUploadActionCopy } from "@/lib/archive-action-copy";
 import { memberActionCopy, memberActionResult } from "@/lib/member-action-copy";
 import { memberRequestActionCopy } from "@/lib/member-request-action-copy";
@@ -236,6 +237,8 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
     const welfareCopy = welfareActionCopy(body, method, locale);
     if (welfareCopy) return welfareCopy;
   }
+  const welfareDocumentCopy = welfareDocumentActionCopy(pathname, method, locale);
+  if (welfareDocumentCopy) return welfareDocumentCopy;
   if (pathname === "/api/archives/records") {
     const archiveCopy = archiveActionCopy(body, method, locale);
     if (archiveCopy) return archiveCopy;
@@ -295,6 +298,13 @@ async function responseMessage(response: Response, fallback: string, locale: App
     if (!response.ok && financeMessage) return financeMessage;
     const healthMessage = healthErrorCopy(payload.code, locale);
     if (!response.ok && healthMessage) return healthMessage;
+    const welfareDocumentMessage = welfareDocumentErrorCopy(payload.code, locale);
+    if (!response.ok && welfareDocumentMessage) return welfareDocumentMessage;
+    const welfarePath = new URL(response.url, "http://localhost").pathname;
+    if (response.ok && (welfarePath === "/api/welfare/upload" || welfarePath.startsWith("/api/welfare-document/"))) {
+      const pending = welfareDocumentResultCopy(welfarePath, payload, locale);
+      return pending ?? fallback;
+    }
     for (const key of ["message", "success", "warning", "error"]) {
       if (typeof payload[key] === "string" && payload[key]) return payload[key] as string;
     }

@@ -4,6 +4,7 @@ import type { WelfareContribution, WelfareDocument, WelfareExpense, WelfareFund,
 import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
 import { BackendNotConfiguredError, isBackendConfigured, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 import { canMemberSeeWelfareContribution, canMemberSeeWelfareDocument, canMemberSeeWelfareExpense, canMemberSeeWelfareRequest } from "@/lib/welfare-visibility";
+import { publicWelfareDocument } from "@/lib/welfare-document-upload";
 
 type ContributionRow = Omit<WelfareContribution, "is_mine">;
 type RequestRow = Omit<WelfareRequest, "is_mine">;
@@ -94,7 +95,7 @@ export async function GET() {
       expenses,
       requests: requests.map((item) => ({ ...item, is_mine: item.requester_user_id === user.userId })),
       pledges: pledges.map((item) => ({ ...item, is_mine: item.auth_user_id === user.userId })),
-      documents: documents.map(({ uploaded_by_user_id, ...item }) => ({ ...item, can_view: canManage || item.visibility === "family" || uploaded_by_user_id === user.userId, is_mine: uploaded_by_user_id === user.userId })),
+      documents: documents.map((item) => publicWelfareDocument(item, user.userId, canManage)),
       permissions: { canManage },
       migrationRequired,
     });
