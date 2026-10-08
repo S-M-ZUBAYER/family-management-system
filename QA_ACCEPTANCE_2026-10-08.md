@@ -1,4 +1,4 @@
-# Finance, Health and Welfare local acceptance — 2026-10-08
+# Finance, Health, Welfare and Notices local acceptance — 2026-10-08
 
 Status: **Partial**, not production acceptance. This is the newest continuation log.
 
@@ -277,3 +277,26 @@ Supabase SQL Editor via the signed-in in-app browser, **staging** `irqomyhxdpxrm
 - Basic staging positive-balance RPC and metadata retention are now observed, superseding older unexecuted-test/access-blocked statements. Welfare/full project still **Partial**.
 - Two-session fund/linked-expense races and deadlocks, direct RPC precision/null/overflow inputs, actual audit-failure rollback and transport/idempotency reconciliation, real-user/role API and positive-outflow UI, finalized-document direct API/storage/races, physical BN/large/mobile XLSX and hosted deployment remain open. PostgreSQL editor actor strings do not prove a second real user's permissions.
 - Next bounded route can be fresh-label Notices/Magazine lifecycle, preserving all prior fixtures, while a separate two-session database concurrency/fault plan is prepared. Do not change production ledger history or rerun already-installed migrations to manufacture test conditions.
+
+## Notices lifecycle and input acceptance — latest continuation
+
+Source checkpoint: `7051b40` (`Fix notice lifecycle and validate scheduling inputs`). Documentation is committed separately; inspect Git for the latest checkpoint. GitHub delivery is not hosted Site deployment.
+
+### Scope and corrected issues
+
+- Local app on `http://localhost:5173`, production-backed Supabase project `olqwsnttottqitookfck`, loopback mock owner `local_seedy`; Nojir test family and same owner's Sheikh family used. This is not separate-user/role acceptance. No SQL/migration/reset, provider delivery or hosted deployment performed.
+- Initial synthetic draft create returned 201. Archive returned **502**: API sent `archive` as status, while the database accepts `archived`. Corrected the action/status mapping; subsequent API archive and readback succeeded. No database correction was necessary.
+- Shared validation rejects nonobject/malformed JSON, invalid UUID/action/text/enums/boolean, impossible calendar/time and offsetless API timestamps without silent coercion or text truncation. Publication defaults govern expiry even when publish time is omitted; expired publish returns 409 and actionable localized copy.
+- Archived edit remains archived; pin/unpin does not alter publication status. Server GET visibility, client active counts and ticker share start-inclusive/expiry-exclusive logic, including epoch-zero and malformed dates. English search includes details. Modal response errors use BN/EN notice codes; omitted create status correctly describes a draft confirmation.
+- PATCH/DELETE compare server-read status and updated_at, scoped to family/id; no matched representation returns 409. This guards an intervening mutation between read/write, not stale-client edits or proven transaction/race behavior. Ordinary record and audit writes remain separate REST calls and can still fail ambiguously; no idempotency/fault-recovery acceptance claimed.
+
+### Actual API checks and cleanup
+
+- `scripts/qa-notices-local.mjs` is loopback-only, explicit opt-in, exact synthetic prefix/ID cleanup and unrelated-record preservation. **132 checks passed**: unsigned reads/writes, invalid creates/actions/edits/IDs/times, same-owner other-family ID rejection, pin/unpin, publish → draft → publish → archive and readback, archived leap-day/Dhaka edit, expired publish denial, future publication edit, reset to draft and seven scoped lifecycle audit actions.
+- Prefix `QA Notices Lifecycle 20261008101432`, notice `a4b7a72d-9477-4986-b919-75d83fc521db`. Exact-ID cleanup passed **16 checks**: permanently deleted only that notice, repeated delete and pin returned 404, deletion audit retained, both families' unrelated notice arrays unchanged. There is no product undo. Historical Sheikh `QA Test Notice 2026-10-04` remains a draft. **Do not rerun this completed cleanup.**
+
+### Quality and remaining boundary
+
+- Seven focused notice validation/visibility/source-wiring tests passed; action-copy test additionally covers omitted draft status. All **51 configured suites**, nonincremental TypeScript, lint, tenant security, i18n (2,932 literal BN/EN pairs), cancellation (75 handlers), whitespace and production build passed.
+- No fresh browser interaction or physical workbook download in this slice. Source-wiring tests do not prove actual modal close-X, cancel/no-write, saved-language hydration, dark/light/palettes or scheduled ticker UI. Earlier October 4 browser evidence is historical and limited to its documented actions.
+- Notices and full product remain **Partial**. Real separate-user member denial, scheduled member API/ticker visibility, native-date/large/mobile XLSX, load Retry/stale responses, actual audit/transport recovery, two-session races and hosted deployment remain open. Next bounded slice: Notices allowed-field/native-date workbook improvement and fresh browser checks when localhost is available, then Magazine lifecycle gaps. Preserve previous QA fixtures.

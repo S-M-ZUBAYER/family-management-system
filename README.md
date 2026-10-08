@@ -72,6 +72,21 @@ npm.cmd run build
 
 The `package.json` scripts also include focused `test:*` suites for privacy, notifications, Qurbani, finance validation, pagination, chat access, welfare, archives and other policy helpers. Run the relevant suites when changing those areas. `QA_ACCEPTANCE_2026-10-03.md` distinguishes actual browser actions from static/unit checks and lists the remaining end-to-end tests.
 
+## Manual Notices integration QA
+
+`scripts/qa-notices-local.mjs` tests one clearly labeled synthetic notice with local mock-owner authentication. It validates inputs and family scope, edits, publication/draft/archive, pin/unpin, expiry rejection and audit records. The loopback server may use **production Supabase**; verify the environment first and preserve existing notices. This does not prove real-user permissions or browser acceptance.
+
+```powershell
+$env:FMS_QA_ORIGIN = 'http://localhost:5173' # verify actual FMS port
+npm.cmd run test:notice-validation
+npm.cmd run test:notice-action-copy
+node scripts/qa-notices-local.mjs --allow-local-qa-writes
+# Only after reviewing the run's printed exact synthetic prefix and notice UUID:
+node scripts/qa-notices-local.mjs --allow-local-qa-writes --cleanup --prefix 'QA Notices Lifecycle <14-digit timestamp>' --notice-id '<notice-UUID>'
+```
+
+Cleanup permanently deletes only that exact labeled notice and checks both families' unrelated notices and the deletion audit. Do not rerun completed historical cleanups. API times require explicit timezone and real calendar values; expiry must follow effective publication. Archived edits preserve their status. Notice record/audit calls are not atomic; native XLSX dates, real-user roles, fault recovery and current browser/hosted acceptance remain open. See the latest October 8 QA section.
+
 ## Manual Qurbani integration QA
 
 `scripts/qa-qurbani-lifecycle.mjs` provides opt-in `seed`, `cleanup`, `verify`, `finalize-seed` and `finalize-verify` workflows. Use the actual loopback dev-server origin, exact QA family ID and (except seed modes) exact campaign ID. Mutating modes require `--allow-local-qa-writes`. These tests use the server's configured database, **which may be production**; they are not an isolated in-memory test. Do not run them against real family/financial records.
