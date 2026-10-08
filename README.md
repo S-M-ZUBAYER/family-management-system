@@ -99,6 +99,23 @@ npm.cmd run test:finance-action-copy
 
 Never use a broad table reset for QA. Cleanup targets only the exact prefix's owned Finance IDs, removes transactions before their wallet and verifies unrelated Finance arrays are unchanged. See the October 8 QA log for completed cleanup and remaining acceptance. XLSX money is numeric/exact to cents; date-only columns are native Excel dates; empty sections retain localized headers.
 
+## Manual Health integration QA
+
+`scripts/qa-health-local.mjs` exercises the Nojir family's private medications, appointments, measurements and a tiny synthetic PNG, with local mock authentication. It does not create SOS alerts, make external appointments or provide treatment. The loopback server may use **production Supabase**: verify its origin/environment first, preserve existing profiles and never broadly reset tables.
+
+```powershell
+$env:FMS_QA_ORIGIN = 'http://localhost:5173' # verify current FMS port
+node scripts/qa-health-local.mjs --allow-local-qa-writes
+# After reviewing the exact synthetic prefix and authorizing permanent cleanup:
+node scripts/qa-health-local.mjs --allow-local-qa-writes --cleanup-prefix 'QA Health <14-digit timestamp>'
+npm.cmd run test:health-validation
+npm.cmd run test:health-action-copy
+npm.cmd run test:health-export
+npm.cmd run test:health-directory
+```
+
+Cleanup targets only that prefix's private records/file and verifies unrelated arrays/profile/SOS are unchanged. Historical completed prefixes must not be cleaned again. Datetime inputs carry an explicit offset; XLSX time cells include a timezone column. Browser reminders only run while the page is open with permission: they are not offline/SMS emergency delivery. See the latest QA log for observed coverage and remaining privacy/download/delivery tests.
+
 ## Database and security rules
 
 - Every family-scoped read and mutation must enforce the selected family's active membership **on the server**. A client-side hidden button is not authorization.

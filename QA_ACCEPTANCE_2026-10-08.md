@@ -1,4 +1,4 @@
-# Finance local acceptance — 2026-10-08
+# Finance and Health local acceptance — 2026-10-08
 
 Status: **Partial**, not production acceptance. This is the newest continuation log.
 
@@ -68,3 +68,44 @@ Opened and asserted `C:\Users\S M Zubayer\Downloads\nojir-poramanik-family-priva
 - The observed transient load failure → Retry path passed. Root cause, deterministic fault injection, mutation-refresh failure, overlapping requests/family changes and concurrent writes remain open.
 - Complete mobile/keyboard/screen-reader/four-palette matrix and existing hosted Site deployment/smoke tests remain. Local/GitHub updates are not evidence of deployment.
 - Next: another Partial route in `QA_ROUTE_MATRIX.md`, e.g. Health appointments/measurements/files/SOS. Do not claim the full product is complete.
+
+## Health continuation — newest slice
+
+Still **Partial**. Same verified `http://localhost:5173` checkout, production-backed Nojir family and mock `local_seedy` owner as above. Health GET reported no missing migration; no SQL/schema changes were applied. Mock-owner cross-family checks do not prove real authentication, separate-user privacy or hosted acceptance.
+
+### Corrections
+
+- Browser datetime-local appointment/measurement values convert to timezone-aware ISO before create/edit. Dhaka 09:15 persists as 03:15 UTC and returns to the edit form as 09:15, instead of drifting six hours. Date defaults use the browser's local day.
+- Create/edit share validation. Invalid reminders no longer become 60 or get rounded; invalid measurement timestamps no longer become now. Invalid medication times are rejected rather than discarded. Impossible dates/end-before-start, coercible booleans/arrays and excess numeric precision are rejected before writes. Canonical UUID and own-property entity guards replace loose/prototype matches.
+- Validated dates protect profile save and document upload. Existing profile was preserved: the successful new profile-save audit branch was not exercised.
+- Private create/status changes now add private audit entries, like edit/delete. Action-specific BN/EN confirmation/results distinguish record keeping from treatment or external bookings. Four new validation codes have localized copy.
+- Failed loads offer Retry without misleading empty data/export; stale responses are ignored. Health deterministic failure/Retry acceptance remains open.
+- Eight explicit BN/EN workbook sections include SOS Responses, empty headers, native date/time cells and timezone columns. Additional profile birth date/height/weight/last donation, appointment reminder minutes and SOS linkage/response fields are included. Numeric measurements remain numeric; unknown user/storage fields are excluded. Latitude zero is not lost in exported coordinates.
+- Measurement choices, dosage hint and new medication default frequency follow the selected language. Status-menu buttons have accessible labels.
+
+### Observed API and browser evidence
+
+- `scripts/qa-health-local.mjs --allow-local-qa-writes` passed **62 checks**. Only synthetic prefix `QA Health 20261008040119` was written: medication, appointment, blood-pressure measurement and a one-pixel PNG. No real care/booking, SOS alert, location permission or notification delivery was initiated.
+- Three record kinds create/edit/read; all medication/appointment statuses; unsigned rejection; same-owner other-family PATCH/DELETE/status rejection; invalid dates, times, reminders, decimals, missing secondary blood-pressure value and prototype kinds returned 400.
+- Invalid document date/MIME/empty file rejected. Synthetic PNG upload 201, authorized GET 200 with exact bytes and nosniff, unsigned GET 401, cross-family GET/DELETE 404.
+- Appointment browser edit showed October 9 **09:15**; API persisted `2026-10-09T03:15:00+00:00`. Changed title, opened save confirmation, dismissed its close-X; cancellation feedback closed and API proved original title/time unchanged.
+- Measurement form showed October 8 **08:15**, 121.25/80.5. Entering 121.251 produced actionable English error with close-X, retaining the draft. Corrected synthetic 121.50 saved with specific success; table/API showed 121.5/80.5 and unchanged instant `2026-10-08T02:15:00+00:00`.
+- BN → EN → BN preference/results and dark → light → dark round trip passed. Final preference is Bengali/dark. EN/BN XLSX actions showed generation success. **No physical Health download was located/independently inspected**: downloaded workbook acceptance remains open, despite shared-helper BN/EN roundtrip tests.
+- Admin API verified **13 private owner-scoped record audits** for the three exact IDs before cleanup. Existing profile, emergency directory and SOS alerts/responses were unchanged.
+- Task-workspace screenshot `health-qa-2026-10-08.jpg` captures measurement success. It is proof, not a product asset or committed file.
+- Final post-cleanup reload loaded the preserved profile and genuinely empty care/log metrics in Bengali/dark. Browser error log was empty; no hydration error observed on this reload. This is not all-route hydration acceptance.
+
+### Cleanup and quality
+
+- Exact-prefix cleanup passed **15 checks**, permanently removing only medication `061abe0a-ed72-4068-aea1-7e567f1169f5`, appointment `a43a90b0-4d18-4b06-a5f0-35ac92e0cb3f`, measurement `203e1958-68b4-4e71-882b-6a597a210afc` and PNG metadata/file `3d1d39cc-bfe3-4bd0-9b88-3687388b438b`. Document DELETE 200 (not pending cleanup), subsequent GET 404. Unrelated arrays/profile/directory/SOS unchanged; audit history retained. **Do not rerun completed cleanup.**
+- Health validation 5, action-copy 3, export 4, directory visibility 3 tests passed; all **43 configured `test:*` suites passed** after shared-modal changes.
+- Nonincremental TypeScript, full lint, tenant-security, translation (2,973 pairs), cancellation (75 handlers), whitespace check and production build passed. No migrations needed/applied.
+
+### Health still open
+
+- Real separate-user owner/admin/member/pending privacy, same-family private access and emergency opt-out/opt-in browser/API/export acceptance.
+- SOS create/respond/acknowledge/resolve/cancel, every role, zero-coordinate map, races and external delivery. Do not send accidental real alerts. Current browser reminders require permission and the page open; background/offline/SMS delivery is not implemented or verified.
+- More measurement kinds/units and scheduling/end-date behavior; remaining profile/status/create/delete browser branches; keyboard/mobile/four palettes.
+- Physical populated/empty BN/EN XLSX, nonempty SOS history/responses, consent filtering, invalid legacy data and large exports: not inferred from unit roundtrips or generation success.
+- Oversize/remaining MIME files, malicious-content scanning, storage failure/recovery, concurrent writes, load Retry/family-switch races; hosted Site deployment/smoke tests.
+- Next: a bounded Health/SOS gap safely, or another Partial route such as Welfare request/document/payout bookkeeping. Full product remains unfinished.
