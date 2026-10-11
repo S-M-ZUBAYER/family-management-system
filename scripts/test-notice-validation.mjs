@@ -49,7 +49,8 @@ test("UUID/error-copy guards and route/client integration", () => {
   assert.equal(noticeErrorCopy("constructor","en"),null);
   const item=readFileSync(new URL("../app/api/notices/[id]/route.ts",import.meta.url),"utf8");
   assert.equal((item.match(/scopedQuery\(id, membership.family_id, existing\)/g)||[]).length,2);
-  assert.ok(item.includes('Prefer: "return=representation"')); assert.ok(item.includes('"NOTICE_RECORD_CHANGED"'));
+  assert.ok(item.includes('Prefer: "return=representation"')); assert.ok(item.includes('noticeWrite({ expectedId: id'));
+  assert.ok(readFileSync(new URL('../lib/notice-write-outcome.ts',import.meta.url),'utf8').includes('"NOTICE_RECORD_CHANGED"'));
   const center=readFileSync(new URL("../app/notice-center.tsx",import.meta.url),"utf8");
   assert.ok(center.includes("status: notice.status,")); assert.ok(center.includes("notice.body_en, categoryLabels"));
   const modal=readFileSync(new URL("../components/action-modal-provider.tsx",import.meta.url),"utf8");

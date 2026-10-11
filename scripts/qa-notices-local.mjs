@@ -1,5 +1,6 @@
 // Opt-in draft/lifecycle QA. Local server may use production Supabase.
 import assert from "node:assert/strict";
+import { noticeMutationAcknowledged, noticeReadSnapshot } from "../lib/notice-write-outcome.ts";
 const args=process.argv.slice(2), option=k=>args[args.indexOf(k)+1];
 if(!args.includes("--allow-local-qa-writes")) throw Error("Explicit --allow-local-qa-writes required.");
 const origin=new URL(process.env.FMS_QA_ORIGIN??"http://localhost:5173");
@@ -8,7 +9,10 @@ const family="20000000-0000-4000-8000-000000000002", other="10000000-0000-4000-8
 let checks=0;
 async function call(path,method="GET",body,expected=200,active=family,signed=true,raw=false){
  const r=await fetch(new URL(path,origin),{method,signal:AbortSignal.timeout(20000),headers:{...(signed?{Cookie:`__sites_local_auth=1; fms_active_family=${active}`} :{}),...(body!==undefined?{"Content-Type":"application/json"}:{})},...(body!==undefined?{body:raw?body:JSON.stringify(body)}:{})});
- const p=await r.json();assert.equal(r.status,expected,`${method} ${path}: ${p.code??p.error??r.status}`);checks++;return p;
+ const p=await r.json();assert.equal(r.status,expected,`${method} ${path}: ${p.code??p.error??r.status}`);checks++;
+ if(expected>=200&&expected<300&&method!=="GET") {assert.equal(noticeMutationAcknowledged(method,path.split('/')[3],body??{},r.status,p),true);checks++;}
+ if(expected===200&&method==="GET"&&path==="/api/notices"){assert.ok(noticeReadSnapshot(p));checks++;}
+ return p;
 }
 const before=await call("/api/notices"), otherBefore=await call("/api/notices","GET",undefined,200,other);
 assert.equal(before.family.id,family);assert.equal(before.migrationRequired,false);assert.equal(before.permissions.canManage,true);checks+=3;
@@ -20,6 +24,7 @@ if(id){assert.match(id,/^[0-9a-f-]{36}$/i);const row=before.notices.find(r=>r.id
 const initialRows=before.notices.filter(r=>r.id!==id);
 if(args.includes("--cleanup")){
  if(!id)throw Error("Cleanup needs the exact --notice-id and --prefix.");
+ const row=before.notices.find(r=>r.id===id);assert.equal(row.status,"draft");assert.equal(row.is_pinned,false);checks+=2;
  await call(`/api/notices/${id}`,"DELETE");
  const after=await call("/api/notices");assert.deepEqual(after.notices,initialRows);checks++;
  await call(`/api/notices/${id}`,"DELETE",undefined,404);

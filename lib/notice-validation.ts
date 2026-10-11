@@ -61,6 +61,10 @@ export function noticeStatusPatch(action: unknown, expiresAt: string | null, now
 }
 export function noticeErrorCopy(code: unknown, locale: "bn" | "en"): string | null {
   const messages: Record<string, [string, string]> = {
+    NOTICE_WRITE_OUTCOME_UNKNOWN: ["নোটিশের পরিবর্তন সংরক্ষিত হয়েছে কি না নিশ্চিত নয়। একই কাজ আবার পাঠাবেন না; তালিকা রিলোড করে ফল যাচাই করুন।", "The notice change may already be saved. Do not submit it again; reload the list and verify the outcome."],
+    NOTICE_AUDIT_PENDING: ["নোটিশের পরিবর্তন সংরক্ষিত হয়েছে, কিন্তু audit log লেখা হয়নি। একই পরিবর্তন আবার পাঠাবেন না; support-এর মাধ্যমে audit যাচাই করুন।", "The notice change is saved, but its audit log is pending. Do not repeat the change; ask support to verify the audit."],
+    NOTICE_WRITE_REJECTED: ["Database নোটিশের পরিবর্তন গ্রহণ করেনি। তথ্য ও permission যাচাই করুন।", "The database rejected the notice change. Review the data and permissions."],
+    NOTICE_INVALID_SNAPSHOT: ["সম্পূর্ণ ও সঠিক নোটিশ তালিকা পাওয়া যায়নি। রিলোড করুন; যাচাই ছাড়া পরিবর্তন বা export সক্রিয় হবে না।", "A complete, valid notice list could not be loaded. Reload it; changes and exports stay unavailable until verification."],
     NOTICE_INVALID_BODY: ["সঠিক নোটিশ তথ্য দিন।", "Provide a valid notice object."],
     NOTICE_INVALID_ID: ["সঠিক নোটিশ আইডি দিন।", "Provide a valid notice ID."],
     NOTICE_INVALID_ACTION: ["সমর্থিত নোটিশ action নির্বাচন করুন।", "Choose a supported notice action."],

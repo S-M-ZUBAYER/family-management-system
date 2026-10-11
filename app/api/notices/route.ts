@@ -6,6 +6,7 @@ import {
 import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
 import { NoticeValidationError, noticeRecord, noticeErrorCopy } from "@/lib/notice-validation";
 import { noticeIsActive } from "@/lib/notice-visibility";
+import { noticeReadSnapshot, noticeWrite, noticeWriteResponse, NoticeWriteOutcomeUnknownError, NoticeWriteRejectedError } from "@/lib/notice-write-outcome";
 import {
   BackendNotConfiguredError,
   isBackendConfigured,
@@ -88,12 +89,14 @@ export async function GET() {
       notices = notices.filter((notice) => noticeIsActive(notice, now));
     }
 
-    return Response.json({
+    const snapshot = noticeReadSnapshot({
       family,
       notices,
       migrationRequired,
       permissions: { canManage },
     });
+    if (!snapshot) throw new NoticeValidationError("NOTICE_INVALID_SNAPSHOT");
+    return Response.json(snapshot);
   } catch (error) {
     return noticeErrorResponse(error, "Unable to load notices");
   }
@@ -118,7 +121,8 @@ export async function POST(request: Request) {
 
     const record = noticeRecord(await request.json().catch(() => { throw new NoticeValidationError("NOTICE_INVALID_BODY"); }));
 
-    const [notice] = await supabaseRest<FamilyNoticeRow[]>("family_notices", {
+    const result = await noticeWrite({ confirmedRejected: noticeWriteConfirmedRejected,
+      write: () => supabaseRest<FamilyNoticeRow[]>("family_notices", {
       method: "POST",
       headers: { Prefer: "return=representation" },
       body: JSON.stringify({
@@ -126,9 +130,9 @@ export async function POST(request: Request) {
         ...record,
         created_by_user_id: user.userId,
       }),
-    });
+    }),
 
-    await supabaseRest("audit_logs", {
+    audit: (id) => supabaseRest("audit_logs", {
       method: "POST",
       headers: { Prefer: "return=minimal" },
       body: JSON.stringify({
@@ -136,21 +140,26 @@ export async function POST(request: Request) {
         actor_user_id: user.userId,
         action: "family_notice_created",
         entity_type: "family_notice",
-        entity_id: notice.id,
-        metadata: { status: notice.status, priority: notice.priority },
+        entity_id: id,
+        metadata: { status: record.status, priority: record.priority },
       }),
-    });
+    }) });
 
-    return Response.json({ notice }, { status: 201 });
+    return noticeWriteResponse(result, 201);
   } catch (error) {
     return noticeErrorResponse(error, "Unable to create notice");
   }
 }
 
+export function noticeWriteConfirmedRejected(error: unknown) {
+  return error instanceof SupabaseRequestError && error.status >= 400 && error.status < 500 && error.status !== 408;
+}
 export function noticeErrorResponse(error: unknown, logMessage: string) {
+  if (error instanceof NoticeWriteOutcomeUnknownError) return Response.json({ code: "NOTICE_WRITE_OUTCOME_UNKNOWN", outcomeUnknown: true, error: noticeErrorCopy("NOTICE_WRITE_OUTCOME_UNKNOWN", "en") }, { status: 503 });
+  if (error instanceof NoticeWriteRejectedError) return Response.json({ code: "NOTICE_WRITE_REJECTED", error: noticeErrorCopy("NOTICE_WRITE_REJECTED", "en") }, { status: 400 });
   if (error instanceof NoticeValidationError) {
     const code = error.code;
-    return Response.json({ code, error: noticeErrorCopy(code, "en") }, { status: code === "NOTICE_RECORD_CHANGED" || code === "NOTICE_EXPIRED" ? 409 : 400 });
+    return Response.json({ code, error: noticeErrorCopy(code, "en") }, { status: code === "NOTICE_INVALID_SNAPSHOT" ? 503 : code === "NOTICE_RECORD_CHANGED" || code === "NOTICE_EXPIRED" ? 409 : 400 });
   }
   if (error instanceof PaginatedRowLimitError) {
     return Response.json({ code: "NOTICES_ROW_LIMIT", maxRows: error.maxRows, error: `Notice history exceeds ${error.maxRows} rows. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });

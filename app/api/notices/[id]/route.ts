@@ -2,7 +2,8 @@ import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageNotices, getActiveFamilyMembership } from "@/lib/family-access";
 import { supabaseRest } from "@/lib/supabase-rest";
 import { NoticeValidationError, noticeObject, noticeUuid, noticeRecord, noticeStatusPatch } from "@/lib/notice-validation";
-import { noticeErrorResponse, type FamilyNoticeRow } from "../route";
+import { noticeErrorResponse, noticeWriteConfirmedRejected, type FamilyNoticeRow } from "../route";
+import { noticeWrite, noticeWriteResponse } from "@/lib/notice-write-outcome";
 
 type Context = { params: Promise<{ id: string }> };
 const actions = ["publish", "draft", "archive", "pin", "unpin", "edit"];
@@ -30,12 +31,13 @@ export async function PATCH(request: Request, context: Context) {
     if (!existing) return Response.json({ error: "Notice পাওয়া যায়নি।" }, { status: 404 });
     const now = new Date().toISOString();
     const patch = body.action === "edit" ? noticeRecord(body.data, true, now) : noticeStatusPatch(body.action, existing.expires_at, now);
-    const [notice] = await supabaseRest<FamilyNoticeRow[]>(`family_notices?${scopedQuery(id, membership.family_id, existing)}`, {
+    const result = await noticeWrite({ expectedId: id, confirmedRejected: noticeWriteConfirmedRejected,
+      write: () => supabaseRest<FamilyNoticeRow[]>(`family_notices?${scopedQuery(id, membership.family_id, existing)}`, {
       method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ ...patch, updated_at: now }),
+    }),
+      audit: (savedId) => audit(membership.family_id, user.userId, savedId, body.action === "edit" ? "family_notice_updated" : `family_notice_${body.action}`),
     });
-    if (!notice) throw new NoticeValidationError("NOTICE_RECORD_CHANGED");
-    await audit(membership.family_id, user.userId, id, body.action === "edit" ? "family_notice_updated" : `family_notice_${body.action}`);
-    return Response.json({ notice, message: body.action === "edit" ? "Notice details update হয়েছে।" : "Notice status update হয়েছে।" });
+    return noticeWriteResponse(result);
   } catch (error) { return noticeErrorResponse(error, "Unable to update notice"); }
 }
 export async function DELETE(_request: Request, context: Context) {
@@ -48,9 +50,10 @@ export async function DELETE(_request: Request, context: Context) {
     if (!noticeUuid(id)) throw new NoticeValidationError("NOTICE_INVALID_ID");
     const [existing] = await supabaseRest<FamilyNoticeRow[]>(`family_notices?${scopedQuery(id, membership.family_id)}&limit=1`);
     if (!existing) return Response.json({ error: "Notice পাওয়া যায়নি।" }, { status: 404 });
-    const removed = await supabaseRest<Array<{ id: string }>>(`family_notices?${scopedQuery(id, membership.family_id, existing)}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
-    if (removed.length !== 1 || removed[0].id !== id) throw new NoticeValidationError("NOTICE_RECORD_CHANGED");
-    await audit(membership.family_id, user.userId, id, "family_notice_deleted", { title: existing.title_bn });
-    return Response.json({ message: "Notice স্থায়ীভাবে delete হয়েছে।" });
+    const result = await noticeWrite({ expectedId: id, deletion: true, confirmedRejected: noticeWriteConfirmedRejected,
+      write: () => supabaseRest<Array<{ id: string }>>(`family_notices?${scopedQuery(id, membership.family_id, existing)}`, { method: "DELETE", headers: { Prefer: "return=representation" } }),
+      audit: (savedId) => audit(membership.family_id, user.userId, savedId, "family_notice_deleted", { title: existing.title_bn }),
+    });
+    return noticeWriteResponse(result);
   } catch (error) { return noticeErrorResponse(error, "Unable to delete notice"); }
 }
