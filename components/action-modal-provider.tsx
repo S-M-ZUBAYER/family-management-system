@@ -30,6 +30,7 @@ import { noticeActionCopy } from "@/lib/notice-action-copy";
 import { noticeErrorCopy } from "@/lib/notice-validation";
 import { eventActionCopy } from "@/lib/event-action-copy";
 import { magazineActionCopy } from "@/lib/magazine-action-copy";
+import { magazineErrorCopy } from "@/lib/magazine-validation";
 import { qurbaniErrorCopy, qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "@/lib/qurbani-action-copy";
 import { financeErrorCopy, financeRecordActionCopy, financeStatusActionCopy } from "@/lib/finance-action-copy";
 import { healthActionCopy, healthErrorCopy } from "@/lib/health-action-copy";
@@ -295,6 +296,8 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
 async function responseMessage(response: Response, fallback: string, locale: AppLocale) {
   try {
     const payload = await response.clone().json() as Record<string, unknown>;
+    const magazineMessage = magazineErrorCopy(payload.code, locale);
+    if (!response.ok && magazineMessage) return magazineMessage;
     const noticeMessage = noticeErrorCopy(payload.code, locale);
     if (!response.ok && noticeMessage) return noticeMessage;
     const qurbaniMessage = qurbaniErrorCopy(payload.code, locale);

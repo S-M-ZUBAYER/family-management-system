@@ -3,6 +3,7 @@ import { canManageMagazine, getActiveFamilyMembership } from "@/lib/family-acces
 import type { MagazineArticle, MagazineComment, MagazineMedia, MagazinePayload } from "@/lib/magazine-types";
 import { PaginatedRowLimitError } from "@/lib/paginated-rows";
 import { readAllSupabaseRows } from "@/lib/supabase-pagination";
+import { MagazineValidationError, magazineErrorCopy } from "@/lib/magazine-validation";
 import { BackendNotConfiguredError, isBackendConfigured, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 
 type ArticleRow = Omit<MagazineArticle, "reaction_count" | "comment_count" | "reacted_by_me" | "is_mine">;
@@ -11,6 +12,7 @@ type MediaRow = MagazineMedia & { storage_key: string; uploaded_by_user_id: stri
 type ReactionRow = { id: string; article_id: string; user_id: string };
 
 export function magazineErrorResponse(error: unknown, label: string) {
+  if (error instanceof MagazineValidationError) return Response.json({ code: error.code, error: magazineErrorCopy(error.code, "en") }, { status: error.code === "MAGAZINE_ADMIN_ONLY" ? 403 : error.code === "MAGAZINE_RECORD_CHANGED" ? 409 : 400 });
   if (error instanceof PaginatedRowLimitError) return Response.json({ code: "MAGAZINE_ROW_LIMIT", maxRows: error.maxRows, error: `Magazine history exceeds ${error.maxRows} rows in one section. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });
   if (error instanceof BackendNotConfiguredError) return Response.json({ error: "PostgreSQL connection configured নয়।" }, { status: 503 });
   if (error instanceof SupabaseRequestError) { console.error(label, error.status, error.message); return Response.json({ error: "Magazine data সাময়িকভাবে পাওয়া যাচ্ছে না।" }, { status: 502 }); }
