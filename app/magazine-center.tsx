@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { magazineErrorCopy } from "@/lib/magazine-validation";
+import { magazineWorkbook } from "@/lib/magazine-export";
 import type { MagazineArticle, MagazineCategory, MagazineComment, MagazineMedia, MagazinePayload } from "@/lib/magazine-types";
 
 type Form = Record<string, string>;
@@ -29,7 +30,6 @@ const categoryColors: Record<MagazineCategory, string> = { story: "from-indigo-6
 
 export function MagazineCenter() {
   const { locale, pick } = useLocale();
-  const categoryLabels = categoryLabelsFor(locale);
   const [family, setFamily] = useState<MagazinePayload["family"]>();
   const [articles, setArticles] = useState<MagazineArticle[]>([]);
   const [comments, setComments] = useState<MagazineComment[]>([]);
@@ -89,45 +89,14 @@ export function MagazineCenter() {
     setExporting(true);
     try {
       const XLSX = await import("xlsx");
-      const book = XLSX.utils.book_new();
-      const articleTitle = new Map(articles.map((article) => [article.id, article.title]));
-      const add = (name: string, headers: string[], rows: Array<Array<string | number>>) =>
-        XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([headers, ...rows]), name);
-
-      add(pick("লেখা", "Articles"), [
-        pick("লেখার ID", "Article ID"), pick("শিরোনাম", "Title"), pick("বিভাগ", "Category"),
-        pick("সারাংশ", "Summary"), pick("ট্যাগ", "Tags"), pick("অবস্থা", "Status"),
-        pick("বিশেষভাবে প্রদর্শিত", "Featured"), pick("দৃশ্যমানতা", "Visibility"),
-        pick("লেখক", "Author"), pick("পছন্দ", "Likes"), pick("মন্তব্য", "Comments"),
-        pick("প্রকাশের সময় (ISO)", "Published (ISO)"), pick("তৈরির সময় (ISO)", "Created (ISO)"),
-        pick("বিষয়বস্তু", "Content"),
-      ], articles.map((item) => [
-        item.id, item.title, categoryLabels[item.category], item.summary ?? "", item.tags.join(", "),
-        statusLabel(item.status, locale), item.featured ? pick("হ্যাঁ", "Yes") : pick("না", "No"),
-        item.visibility, item.author_name, item.reaction_count, item.comment_count,
-        item.published_at ?? "", item.created_at, item.content,
-      ]));
-      add(pick("মন্তব্য", "Comments"), [
-        pick("মন্তব্যের ID", "Comment ID"), pick("লেখার ID", "Article ID"),
-        pick("লেখা", "Article"), pick("লেখক", "Author"), pick("মন্তব্য", "Comment"),
-        pick("অবস্থা", "Status"), pick("তৈরির সময় (ISO)", "Created (ISO)"),
-      ], comments.map((item) => [
-        item.id, item.article_id, articleTitle.get(item.article_id) ?? "",
-        item.author_name, item.body, item.status, item.created_at,
-      ]));
-      add(pick("মিডিয়া তালিকা", "Media Index"), [
-        pick("মিডিয়ার ID", "Media ID"), pick("লেখার ID", "Article ID"),
-        pick("লেখা", "Article"), pick("মিডিয়ার ধরন", "Media type"),
-        pick("ফাইল", "File"), pick("ফাইলের ধরন", "MIME type"),
-        pick("আকার (বাইট)", "Size (bytes)"), pick("তৈরির সময় (ISO)", "Created (ISO)"),
-      ], media.map((item) => [
-        item.id, item.article_id, articleTitle.get(item.article_id) ?? "",
-        item.media_type, item.file_name, item.mime_type, item.file_size, item.created_at,
-      ]));
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const book = magazineWorkbook(XLSX, articles, comments, media, locale, timeZone);
       XLSX.writeFile(book, (family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family") + "-magazine.xlsx");
       setFeedback(pick("ম্যাগাজিনের XLSX export হয়েছে।", "Magazine XLSX export completed."));
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : pick("XLSX export হয়নি।", "XLSX export could not be completed."));
+      setFeedback(error instanceof Error && error.message === "MAGAZINE_EXPORT_INVALID_DATA"
+        ? pick("ম্যাগাজিনের তথ্য অসংগত। তালিকা রিলোড করে আবার চেষ্টা করুন; অসম্পূর্ণ XLSX তৈরি হয়নি।", "Magazine data is inconsistent. Reload the list and try again; no incomplete XLSX was created.")
+        : error instanceof Error ? error.message : pick("XLSX export হয়নি।", "XLSX export could not be completed."));
     } finally {
       setExporting(false);
     }
