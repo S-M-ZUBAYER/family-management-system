@@ -2,7 +2,7 @@
 
 A bilingual (বাংলা/English), multi-family web application for family records and day-to-day coordination. The first family is Sheikh Monsuf Family, but the application is designed so each registered family has its own workspace and approval process.
 
-> **Project status:** This is an active, partially tested project—not a finished or newly deployed release. Code in this checkout, database migrations applied to Supabase, and the version currently hosted on Sites may differ. Start with [NEXT_ACCOUNT_HANDOFF.md](NEXT_ACCOUNT_HANDOFF.md), then [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) and [the latest local QA log](QA_ACCEPTANCE_2026-10-08.md) before continuing or deploying.
+> **Project status:** This is an active, partially tested project—not a finished or newly deployed release. Code in this checkout, database migrations applied to Supabase, and the version currently hosted on Sites may differ. Start with [NEXT_ACCOUNT_HANDOFF.md](NEXT_ACCOUNT_HANDOFF.md), then [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) and [the latest local QA log](QA_ACCEPTANCE_2026-10-11.md) before continuing or deploying.
 
 ## What is in the application
 
@@ -89,6 +89,21 @@ node scripts/qa-notices-local.mjs --allow-local-qa-writes --cleanup --prefix 'QA
 Cleanup permanently deletes only that exact labeled notice and checks both families' unrelated notices and the deletion audit. Do not rerun completed historical cleanups. API times require explicit timezone and real calendar values; expiry must follow effective publication. Archived edits preserve their status.
 
 Notices XLSX exports only the currently filtered, authorized list. Both language titles/details are retained; publication/expiry/create/update timestamps are numeric Excel dates with explicit browser timezone. Optional dates stay blank, serials numeric and formula-looking text literal. Private family/account/storage identifiers are excluded. Invalid or Excel-unsupported data stops the download with a localized error. Seven workbook regressions include 20,000 synthetic rows; this is not physical large-browser or Excel application acceptance. Notice record/audit calls remain non-atomic; real-user roles, fault recovery and current browser/hosted acceptance remain open. See the latest October 8 QA section.
+
+## Manual Magazine integration QA
+
+`scripts/qa-magazine-local.mjs` creates one explicitly labeled no-media article in the Nojir QA family with local mock-owner authentication. It tests validation, edit/review/publish/featured, like/unlike, comment moderation/deletion and same-owner other-family ID rejection. The local server may use **production Supabase**; verify the environment first. No real provider message, file upload or existing article changes are needed.
+
+```powershell
+$env:FMS_QA_ORIGIN = 'http://localhost:5173' # verify actual running FMS port
+npm.cmd run test:magazine-validation
+npm.cmd run test:magazine-action-copy
+node scripts/qa-magazine-local.mjs --allow-local-qa-writes
+# Only use the exact prefix/article ID printed by that run:
+node scripts/qa-magazine-local.mjs --allow-local-qa-writes --cleanup --prefix 'QA Magazine Lifecycle <14-digit timestamp>' --article-id '<article-UUID>'
+```
+
+Cleanup requires the exact labeled article to be unpublished and have no media; it permanently removes only that fixture and verifies unrelated records and deletion audit. Never rerun completed historical cleanup. Inputs reject invalid supplied options or overlong content instead of silently changing/truncating them; exact legacy `true`/`false` form strings remain supported. Missing comment moderation returns 404; unpublished status clears featured. Real separate-user roles, browser dialogs/downloads, native-date Magazine XLSX, file/fault recovery and transaction/race acceptance remain open. See the October 11 QA log.
 
 ## Manual Qurbani integration QA
 
