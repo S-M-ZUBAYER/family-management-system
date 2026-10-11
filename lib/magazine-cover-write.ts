@@ -1,4 +1,5 @@
 import { magazineErrorCopy } from "./magazine-validation.ts";
+import { magazineRecordAcknowledged, magazineRecordFeedback } from "./magazine-record-write.ts";
 export class MagazineCoverOutcomeUnknownError extends Error {
   constructor() { super("MAGAZINE_COVER_OUTCOME_UNKNOWN"); this.name = "MagazineCoverOutcomeUnknownError"; }
 }
@@ -41,17 +42,16 @@ export function magazineCoverFeedback(status: number, payload: Record<string, un
   return null;
 }
 
-export function magazineWriteFeedback(path: string, status: number, payload: Record<string, unknown>, locale: "bn" | "en") {
+export function magazineWriteFeedback(path: string, status: number, payload: Record<string, unknown>, locale: "bn" | "en", method?: string, body?: Record<string, unknown>) {
   if (path === "/api/magazine/upload") {
     if (status === 413) return { kind: "error" as const, title: locale === "bn" ? "কভারটি বড়" : "Cover is too large", message: magazineErrorCopy("MAGAZINE_INVALID_COVER", locale)! };
     const known = magazineCoverFeedback(status, payload, locale);
     if (known) return known;
     if (status >= 500 && payload.code !== "MAGAZINE_STORAGE_UNAVAILABLE") return magazineCoverFeedback(503, { code: "MAGAZINE_COVER_OUTCOME_UNKNOWN", outcomeUnknown: true }, locale);
   }
-  if (path === "/api/magazine/records" && status >= 500) return {
-    kind: "info" as const, title: locale === "bn" ? "লেখার ফল যাচাই প্রয়োজন" : "Magazine outcome needs verification",
-    message: locale === "bn" ? "ম্যাগাজিনের পরিবর্তন সংরক্ষণ হয়েছে কি না নিশ্চিত হওয়া যায়নি। কাজটি আবার পাঠাবেন না; তালিকা রিলোড করে ফল যাচাই করুন।"
-      : "The magazine change could not be confirmed. Do not submit again; reload the library and verify the outcome.",
-  };
+  if (path === "/api/magazine/records") {
+    if (status === 408 || (status >= 200 && status < 300 && method && body && !magazineRecordAcknowledged(method, body, status, payload))) return magazineRecordFeedback(503, { outcomeUnknown: true }, locale);
+    return magazineRecordFeedback(status, payload, locale);
+  }
   return null;
 }

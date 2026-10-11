@@ -6,7 +6,7 @@ import { magazineErrorCopy } from "../lib/magazine-validation.ts";
 import { saveMagazineWithCover } from "../lib/magazine-save-workflow.ts";
 const articleId="10000000-0000-4000-8000-000000000010",mediaId="10000000-0000-4000-8000-000000000011";
 const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jlpAAAAAASUVORK5CYII=","base64");
-const json=(payload,status=200)=>Response.json(payload,{status});
+const json=(payload,status=200)=>Response.json({...(status<300?{success:true,id:articleId,...(status===201?{status:"draft"}:{})}:{}),...payload},{status});
 const opts=overrides=>({articleId:null,hasCover:true,validateCover:async()=>{},persist:async()=>json({id:articleId},201),upload:async()=>json({id:mediaId},201),onPersisted:()=>{},...overrides});
 test("cover metadata bounds, extension/type/name checks and canonical suffix",()=>{
  assert.equal(magazineCoverMetadata({name:"ছবি.JPEG",type:"image/jpeg",size:1}).extension,"jpg");
@@ -41,11 +41,11 @@ test("confirmed article ID is checkpointed before upload failure/cancel; next at
  }
 });
 test("record/upload lost responses and malformed acknowledgements require verification, not retries",async()=>{
- for(const persist of [async()=>{throw Error("lost");},async()=>json({error:"audit failed"},502),async()=>json({},201),async()=>new Response("not json",{status:201}),async()=>json({id:articleId},200)]) {
+ for(const persist of [async()=>{throw Error("lost");},async()=>json({error:"audit failed"},502),async()=>Response.json({}, {status:201}),async()=>new Response("not json",{status:201}),async()=>json({id:articleId},200)]) {
   let uploads=0,checkpoint=0;const r=await saveMagazineWithCover(opts({persist,upload:async()=>{uploads++;},onPersisted:()=>checkpoint++}));assert.equal(r.kind,"article-unknown");assert.equal(uploads,0);assert.equal(checkpoint,0);
  }
- const malformedEdit=await saveMagazineWithCover(opts({articleId,persist:async()=>json({})}));assert.equal(malformedEdit.kind,"article-unknown");
- for(const upload of [async()=>{throw Error("lost");},async()=>json({code:"MAGAZINE_COVER_OUTCOME_UNKNOWN",outcomeUnknown:true},503),async()=>json({},201),async()=>json({id:mediaId},202),async()=>json({id:mediaId},200)]) {
+ const malformedEdit=await saveMagazineWithCover(opts({articleId,persist:async()=>Response.json({})}));assert.equal(malformedEdit.kind,"article-unknown");
+ for(const upload of [async()=>{throw Error("lost");},async()=>json({code:"MAGAZINE_COVER_OUTCOME_UNKNOWN",outcomeUnknown:true},503),async()=>Response.json({}, {status:201}),async()=>json({id:mediaId},202),async()=>json({id:mediaId},200)]) {
   let checkpoint=null;const r=await saveMagazineWithCover(opts({upload,onPersisted:id=>{checkpoint=id;}}));assert.equal(r.kind,"cover-unknown");assert.equal(checkpoint,articleId);
  }
 });

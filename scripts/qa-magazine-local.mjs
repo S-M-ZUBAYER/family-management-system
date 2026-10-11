@@ -1,6 +1,7 @@
 // Explicit opt-in local mock-owner QA. Server may use production Supabase.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { magazineRecordAcknowledged } from "../lib/magazine-record-write.ts";
 const args=process.argv.slice(2),option=k=>args[args.indexOf(k)+1];
 if(!args.includes("--allow-local-qa-writes"))throw Error("Explicit --allow-local-qa-writes required.");
 const origin=new URL(process.env.FMS_QA_ORIGIN??"http://localhost:5173");
@@ -9,7 +10,9 @@ const family="20000000-0000-4000-8000-000000000002",other="10000000-0000-4000-80
 let checks=0;
 async function call(path,method="GET",body,status=200,active=family,signed=true,raw=false){
  const r=await fetch(new URL(path,origin),{method,signal:AbortSignal.timeout(25000),headers:{...(signed?{Cookie:`__sites_local_auth=1; fms_active_family=${active}`} :{}),...(body!==undefined?{"Content-Type":"application/json"}:{})},...(body!==undefined?{body:raw?body:JSON.stringify(body)}:{})});
- const p=await r.json();assert.equal(r.status,status,`${method} ${path}: ${p.code??p.error??r.status}`);checks++;return p;
+ const p=await r.json();assert.equal(r.status,status,`${method} ${path}: ${p.code??p.error??r.status}`);checks++;
+ if(r.ok&&path===endpoint){assert.equal(magazineRecordAcknowledged(method,body,r.status,p),true,"Confirmed mutation acknowledgement must match this request.");checks++;}
+ return p;
 }
 const read=()=>call("/api/magazine"),before=await read(),otherBefore=await call("/api/magazine","GET",undefined,200,other);
 for(const [snapshot,id]of [[before,family],[otherBefore,other]]) {assert.equal(snapshot.family.id,id);assert.equal(snapshot.permissions.canManage,true);assert.equal(snapshot.migrationRequired,false);checks+=3;}

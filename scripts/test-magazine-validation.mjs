@@ -43,8 +43,8 @@ test("bilingual error lookup guards prototype keys and source wiring scopes cond
  const route=readFileSync(new URL("../app/api/magazine/records/route.ts",import.meta.url),"utf8");
  assert.equal((route.match(/await requestObject\(request\)/g)||[]).length,3);
  assert.ok(route.includes('status: `eq.${existing.status}`'));assert.ok(route.includes('updated_at: `eq.${existing.updated_at}`'));assert.ok(route.includes('family_id: `eq.${familyId}`'));
- assert.ok(route.includes('rows.length !== 1 || rows[0].id !== id'));assert.ok(route.includes('if (!comment) return Response.json'));
+ const writer=readFileSync(new URL("../lib/magazine-record-write.ts",import.meta.url),"utf8");assert.ok(writer.includes('rows.length !== 1'));assert.ok(writer.includes('rows[0].id !== options.expectedId'));assert.ok(route.includes('if (!comment) return Response.json'));
  assert.ok(route.includes('return await createArticle(data, context)'));assert.ok(route.includes('return await moderateComment(data, context)'));
- const center=readFileSync(new URL("../app/magazine-center.tsx",import.meta.url),"utf8");assert.ok(center.includes("magazineErrorCopy(payload.code, locale)"));
+ const center=readFileSync(new URL("../app/magazine-center.tsx",import.meta.url),"utf8");assert.ok(center.includes("magazineErrorCopy(result.payload.code, locale)"));
  const modal=readFileSync(new URL("../components/action-modal-provider.tsx",import.meta.url),"utf8");assert.ok(modal.includes("magazineErrorCopy(payload.code, locale)"));
 });

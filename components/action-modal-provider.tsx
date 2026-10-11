@@ -453,8 +453,9 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
           const memberResult = memberPayload ? memberActionResult(url.pathname, method, parseBody(init?.body), memberPayload, locale, copy.successMessage, response.status) : null;
           const welfarePayload = url.pathname === "/api/welfare/records" ? await response.clone().json().catch(() => ({})) as Record<string, unknown> : null;
           const welfareResult = welfarePayload ? welfareRecordFeedback(response.status, welfarePayload, locale) : null;
-          const magazinePayload = ["/api/magazine/records", "/api/magazine/upload"].includes(url.pathname) ? await response.clone().json().catch(() => ({})) as Record<string, unknown> : null;
-          const magazineResult = magazinePayload ? magazineWriteFeedback(url.pathname, response.status, magazinePayload, locale) : null;
+          const magazinePayload = ["/api/magazine/records", "/api/magazine/upload"].includes(url.pathname)
+            ? await response.clone().json().then((value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}).catch(() => ({})) : null;
+          const magazineResult = magazinePayload ? magazineWriteFeedback(url.pathname, response.status, magazinePayload, locale, method, parseBody(init?.body)) : null;
           const message = memberResult ? memberResult.message : response.ok && response.status !== 202 && (url.pathname === "/api/notices" || url.pathname.startsWith("/api/notices/") || url.pathname === "/api/events" || url.pathname.startsWith("/api/events/") || url.pathname.startsWith("/api/event-media/") || ["/api/magazine/records", "/api/magazine/upload", "/api/qurbani/records", "/api/household/records", "/api/welfare/records", "/api/archives/records", "/api/archives/upload"].includes(url.pathname))
             ? copy.successMessage
             : response.ok && ["/api/finance/records", "/api/finance/status", "/api/health/records"].includes(url.pathname) ? copy.successMessage

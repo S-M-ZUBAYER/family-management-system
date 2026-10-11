@@ -57,6 +57,8 @@ export function magazineStatusChanges(data: Record<string, unknown>, now: string
 }
 export function magazineErrorCopy(code: unknown, locale: "bn" | "en"): string | null {
   const messages: Record<string, [string, string]> = {
+    MAGAZINE_WRITE_OUTCOME_UNKNOWN: ["ম্যাগাজিনের পরিবর্তন হয়েছে কি না নিশ্চিত নয়। কাজটি আবার পাঠাবেন না; তালিকা রিলোড করে ফল যাচাই করুন। নতুন কাজ করার আগে প্রয়োজনে সাপোর্টে জানান।", "The magazine change could not be confirmed. Do not submit it again; reload the library and verify the outcome. Contact support if needed before making another change."],
+    MAGAZINE_WRITE_PENDING: ["রেকর্ডের পরিবর্তন সংরক্ষিত হয়েছে। অডিট লগ বা ফাইল পরিষ্কারের কাজ বাকি; একই কাজ আবার পাঠাবেন না। সাপোর্টে যোগাযোগ করুন।", "The record change was saved. Audit logging or file cleanup is pending; do not submit the same action again. Contact support."],
     MAGAZINE_INVALID_SNAPSHOT: ["ম্যাগাজিনের তথ্য অসম্পূর্ণ বা অসংগত। কোনো পুরোনো তথ্য দেখানো হয়নি; Retry করুন বা সাপোর্টে জানান।", "Magazine data is incomplete or inconsistent. Previous data is hidden; retry loading or contact support."],
     MAGAZINE_FAMILY_CHANGED: ["সক্রিয় পরিবার বদলে গেছে। পেজ রিলোড করে সঠিক পরিবার যাচাই করুন; আগের পরিবারের তথ্য দেখানো হয়নি।", "The active family changed. Reload the page and verify the correct family; previous-family data is hidden."],
     MAGAZINE_SIGN_IN_REQUIRED: ["ম্যাগাজিন দেখতে আগে sign in করুন।", "Sign in before viewing the magazine."],

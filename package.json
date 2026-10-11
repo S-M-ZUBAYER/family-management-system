@@ -42,6 +42,7 @@
     "test:magazine-cover-write": "node scripts/test-magazine-cover-write.mjs",
     "test:magazine-projection": "node scripts/test-magazine-projection.mjs",
     "test:magazine-read": "node scripts/test-magazine-read.mjs",
+    "test:magazine-record-write": "node scripts/test-magazine-record-write.mjs",
     "test:archive-export-headers": "node scripts/test-archive-export-headers.mjs",
     "test:household-export-headers": "node scripts/test-household-export-headers.mjs",
     "test:qurbani-validation": "node scripts/test-qurbani-validation.mjs",

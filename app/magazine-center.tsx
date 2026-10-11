@@ -23,6 +23,7 @@ import { magazineWriteFeedback } from "@/lib/magazine-cover-write";
 import type { ResultState } from "@/lib/action-feedback";
 import { magazineWorkbook } from "@/lib/magazine-export";
 import { MagazineReadGate, readMagazine } from "@/lib/magazine-read";
+import { readMagazineMutation, magazineRecordFeedback } from "@/lib/magazine-record-write";
 import type { MagazineArticle, MagazineCategory, MagazineComment, MagazineMedia, MagazinePayload } from "@/lib/magazine-types";
 
 type Form = Record<string, string>;
@@ -55,6 +56,7 @@ export function MagazineCenter() {
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [saveIssue, setSaveIssue] = useState<ResultState | null>(null);
   const [saveBlocked, setSaveBlocked] = useState<"article" | "cover" | null>(null);
+  const [mutationBlocked, setMutationBlocked] = useState(false);
   const showResult = useActionResult();
   const [commentDraft, setCommentDraft] = useState("");
   const readGate = useRef(new MagazineReadGate());
@@ -90,11 +92,22 @@ export function MagazineCenter() {
     return articles.filter((item) => (filter === "all" || item.status === filter || (filter === "mine" && item.is_mine)) && (!needle || `${item.title} ${item.summary ?? ""} ${item.author_name} ${item.tags.join(" ")}`.toLowerCase().includes(needle)));
   }, [articles, filter, query]);
 
-  function openCreate() { if (loading || !family || migrationRequired || saving) return; editorArticle.current = null; setSaveIssue(null); setSaveBlocked(null); setEditingId(null); setForm(initial); setCoverFile(null); setComposeOpen(true); }
-  function openEdit(article: MagazineArticle) { if (loading || !family || migrationRequired || saving || (!canManage && (!article.is_mine || article.status === "published"))) return; editorArticle.current = article.id; setSaveIssue(null); setSaveBlocked(null); setEditingId(article.id); setForm({ title: article.title, summary: article.summary ?? "", content: article.content, category: article.category, tags: article.tags.join(", "), visibility: article.visibility, saveDraft: String(article.status === "draft"), publishNow: "false" }); setCoverFile(null); setComposeOpen(true); }
-  async function post(action: string, data: Record<string, unknown>) { const response = await fetch("/api/magazine/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, data }) }); if (response.status === 499) return null; const payload = await response.json() as { id?: string; code?: string; error?: string }; if (!response.ok) throw new Error(magazineErrorCopy(payload.code, locale) ?? payload.error ?? pick("অনুরোধ সম্পন্ন হয়নি।", "The request could not be completed.")); return payload; }
+  function openCreate() { if (loading || !family || migrationRequired || saving || mutationBlocked) return; editorArticle.current = null; setSaveIssue(null); setSaveBlocked(null); setEditingId(null); setForm(initial); setCoverFile(null); setComposeOpen(true); }
+  function openEdit(article: MagazineArticle) { if (loading || !family || migrationRequired || saving || mutationBlocked || (!canManage && (!article.is_mine || article.status === "published"))) return; editorArticle.current = article.id; setSaveIssue(null); setSaveBlocked(null); setEditingId(article.id); setForm({ title: article.title, summary: article.summary ?? "", content: article.content, category: article.category, tags: article.tags.join(", "), visibility: article.visibility, saveDraft: String(article.status === "draft"), publishNow: "false" }); setCoverFile(null); setComposeOpen(true); }
+  async function mutateRecord(method: string, body: Record<string, unknown>) {
+    const result = await readMagazineMutation(async () => {
+      const response = await fetch("/api/magazine/records", { method: method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (response.status === 499) return response; // Shared reader handles cancellation before JSON.
+      return response;
+    }, method, body);
+    if (result.kind === "cancelled") return null;
+    if (result.kind === "unknown") { setMutationBlocked(true); setSelectedId(null); showResult(magazineRecordFeedback(503, { outcomeUnknown: true }, locale)!); return null; }
+    if (result.kind === "rejected") throw new Error(magazineErrorCopy(result.payload.code, locale) ?? (typeof result.payload.error === "string" ? result.payload.error : pick("অনুরোধ সম্পন্ন হয়নি।", "The request could not be completed.")));
+    return result.payload;
+  }
+  async function post(action: string, data: Record<string, unknown>) { return mutateRecord("POST", { action, data }); }
   async function save() {
-    if (saving || saveBlocked || loading || !family || migrationRequired) return;
+    if (saving || saveBlocked || mutationBlocked || loading || !family || migrationRequired) return;
     setSaving(true); setSaveIssue(null);
     try {
       const result = await saveMagazineWithCover({
@@ -115,8 +128,8 @@ export function MagazineCenter() {
         },
       });
       if (result.kind === "cancelled") return;
-      if (result.kind === "saved" || result.kind === "cover-pending") {
-        setComposeOpen(false); setEditingId(null); setCoverFile(null); await load();
+      if (result.kind === "saved" || result.kind === "record-pending" || result.kind === "cover-pending") {
+        editorArticle.current = null; setComposeOpen(false); setEditingId(null); setCoverFile(null); await load();
         if (result.kind === "cover-pending") {
           const notice = magazineWriteFeedback("/api/magazine/upload", 202, result.payload ?? {}, locale);
           if (notice) showResult(notice);
@@ -125,6 +138,8 @@ export function MagazineCenter() {
       }
       let issue: ResultState;
       if (result.kind === "article-unknown" || result.kind === "cover-unknown") {
+        setMutationBlocked(true);
+        setComposeOpen(false);
         setSaveBlocked(result.kind === "article-unknown" ? "article" : "cover");
         issue = magazineWriteFeedback(result.kind === "article-unknown" ? "/api/magazine/records" : "/api/magazine/upload", 503,
           { code: "MAGAZINE_COVER_OUTCOME_UNKNOWN", outcomeUnknown: true }, locale)!;
@@ -151,17 +166,20 @@ export function MagazineCenter() {
     setSaving(true);
     try {
       if (!(await load())) return;
+      setMutationBlocked(false);
+      setSelectedId(null);
       if (saveBlocked === "article") { setComposeOpen(false); return; }
       setCoverFile(null); setSaveBlocked(null);
       setSaveIssue({ kind: "info", title: pick("সংরক্ষিত কভার যাচাই করুন", "Check the saved cover"),
         message: pick("নিচে সংরক্ষিত কভার দেখুন। নতুন ছবি নির্বাচন করার আগে সেটি যাচাই করুন।", "Review the saved cover below before selecting another image.") });
     } finally { setSaving(false); }
   }
-  async function status(article: MagazineArticle, next: string, featured?: boolean) { setSaving(true); try { if (!(await post("set_status", { articleId: article.id, status: next, ...(featured === undefined ? {} : { featured }) }))) return; await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("অবস্থা update হয়নি।", "Status could not be updated.")); } finally { setSaving(false); } }
-  async function removeArticle(article: MagazineArticle) { setSaving(true); try { const response = await fetch("/api/magazine/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "article", recordId: article.id }) }); if (response.status === 499) return; const payload = await response.json() as { code?: string; error?: string; message?: string }; if (!response.ok) throw new Error(magazineErrorCopy(payload.code, locale) ?? payload.error ?? pick("মুছে ফেলা যায়নি।", "Could not delete the article.")); if (selectedId === article.id) setSelectedId(null); await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("মুছে ফেলা যায়নি।", "Could not delete the article.")); } finally { setSaving(false); } }
-  async function toggleLike(articleId: string) { setSaving(true); try { if (!(await post("toggle_like", { articleId }))) return; await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("পছন্দের অবস্থা update হয়নি।", "Like status could not be updated.")); } finally { setSaving(false); } }
-  async function addComment() { if (!selected || !commentDraft.trim()) return; setSaving(true); try { if (!(await post("add_comment", { articleId: selected.id, body: commentDraft }))) return; setCommentDraft(""); await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("মন্তব্য যোগ হয়নি।", "Comment could not be added.")); } finally { setSaving(false); } }
-  async function removeComment(id: string) { setSaving(true); try { const response = await fetch("/api/magazine/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "comment", recordId: id }) }); if (response.status === 499) return; const payload = await response.json() as { code?: string; error?: string }; if (!response.ok) throw new Error(magazineErrorCopy(payload.code, locale) ?? payload.error ?? pick("মন্তব্য মুছে ফেলা যায়নি।", "Comment could not be deleted.")); await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("মন্তব্য মুছে ফেলা যায়নি।", "Comment could not be deleted.")); } finally { setSaving(false); } }
+  function cannotMutate() { return saving || mutationBlocked || loading || !family || migrationRequired; }
+  async function status(article: MagazineArticle, next: string, featured?: boolean) { if (cannotMutate()) return; setSaving(true); try { if (!(await post("set_status", { articleId: article.id, status: next, ...(featured === undefined ? {} : { featured }) }))) return; await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("অবস্থা update হয়নি।", "Status could not be updated.")); } finally { setSaving(false); } }
+  async function removeArticle(article: MagazineArticle) { if (cannotMutate()) return; setSaving(true); try { if (!(await mutateRecord("DELETE", { kind: "article", recordId: article.id }))) return; if (selectedId === article.id) setSelectedId(null); await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("মুছে ফেলা যায়নি।", "Could not delete the article.")); } finally { setSaving(false); } }
+  async function toggleLike(articleId: string) { if (cannotMutate()) return; setSaving(true); try { if (!(await post("toggle_like", { articleId }))) return; await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("পছন্দের অবস্থা update হয়নি।", "Like status could not be updated.")); } finally { setSaving(false); } }
+  async function addComment() { if (cannotMutate() || !selected || !commentDraft.trim()) return; setSaving(true); try { if (!(await post("add_comment", { articleId: selected.id, body: commentDraft }))) return; setCommentDraft(""); await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("মন্তব্য যোগ হয়নি।", "Comment could not be added.")); } finally { setSaving(false); } }
+  async function removeComment(id: string) { if (cannotMutate()) return; setSaving(true); try { if (!(await mutateRecord("DELETE", { kind: "comment", recordId: id }))) return; await load(); } catch (error) { setFeedback(error instanceof Error ? error.message : pick("মন্তব্য মুছে ফেলা যায়নি।", "Comment could not be deleted.")); } finally { setSaving(false); } }
   async function exportXlsx() {
     if (loading || !family || migrationRequired || exporting) return;
     setExporting(true);
@@ -185,6 +203,8 @@ export function MagazineCenter() {
   if (!family) return <main className="mx-auto max-w-3xl p-6 md:p-10"><Empty icon={<Newspaper />} title={pick("ম্যাগাজিনের তথ্য লোড হয়নি", "Magazine data did not load")} text={pick("পুরোনো তথ্য দেখানো হচ্ছে না। আবার চেষ্টা করুন।", "Previous data has been cleared. Please try again.")} action={<Button onClick={() => void load()}>{pick("আবার চেষ্টা করুন", "Retry")}</Button>} /></main>;
 
   return <main className="mx-auto w-full max-w-[1500px] space-y-5 px-4 py-5 md:px-7 md:py-7">
+    {mutationBlocked ? <div role="status" className="space-y-3 rounded-2xl border border-amber-400 bg-amber-50 p-4 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"><p>{magazineErrorCopy("MAGAZINE_WRITE_OUTCOME_UNKNOWN", locale)}</p><Button disabled={saving} onClick={() => void checkSavedArticle()}>{pick("তালিকা রিলোড করে ফল যাচাই করুন", "Reload library to verify the outcome")}</Button></div> : null}
+    <fieldset disabled={mutationBlocked} className="contents" aria-label={pick("ম্যাগাজিনের কাজ", "Magazine actions")}>
     <section className="overflow-hidden rounded-3xl bg-[linear-gradient(125deg,#312e81_0%,#7c2d12_52%,#0f766e_100%)] p-5 text-white shadow-xl md:p-7"><div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center"><div className="max-w-2xl"><div className="flex items-center gap-2 text-sm text-indigo-100"><Newspaper className="size-4" /> {pick("পারিবারিক গল্প, ঐতিহ্য ও অর্জন", "Family stories, heritage & achievements")}</div><h1 className="mt-2 text-2xl font-bold tracking-tight md:text-4xl">{pick("ডিজিটাল ফ্যামিলি ম্যাগাজিন", "Digital Family Magazine")}</h1><p className="mt-2 text-sm leading-6 text-white/75">{pick("গল্প, রেসিপি, ইতিহাস, অর্জন ও স্মৃতিচারণ লিখুন; যাচাই, প্রকাশ, পছন্দ এবং মন্তব্য—সব এক জায়গায়।", "Write stories, recipes, history, achievements, and memories; review, publish, like, and comment in one place.")}</p></div><div className="flex flex-wrap gap-2"><Button variant="secondary" className="rounded-xl" onClick={() => void exportXlsx()} disabled={exporting || migrationRequired}>{exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} {pick("সব XLSX", "Export all XLSX")}</Button><Button className="rounded-xl bg-amber-400 text-slate-950 hover:bg-amber-300" onClick={openCreate} disabled={migrationRequired || saving}><FilePenLine className="size-4" /> {pick("নতুন লেখা", "New article")}</Button></div></div></section>
     {migrationRequired ? <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-100">{pick("Supabase SQL Editor-এ", "Run")} <b>supabase/migrations/20260928_family_magazine.sql</b> {pick("চালালে Magazine data সক্রিয় হবে।", "in the Supabase SQL Editor to activate Magazine data.")}</div> : null}
     {feedback ? <div className="flex items-start justify-between gap-3 rounded-2xl border bg-card px-4 py-3 text-sm"><span>{feedback}</span><Button size="icon-xs" variant="ghost" onClick={() => setFeedback(null)}><X /></Button></div> : null}
@@ -192,6 +212,7 @@ export function MagazineCenter() {
     <Card className="rounded-3xl shadow-none"><CardHeader className="flex-col gap-4 border-b md:flex-row md:items-center md:justify-between"><div><CardTitle>{pick("ম্যাগাজিন লাইব্রেরি", "Magazine library")}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{pick("প্রকাশিত লেখা, যাচাইয়ের তালিকা এবং নিজের খসড়া খুঁজুন", "Find published issues, the review queue, and your drafts")}</p></div><div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto"><div className="relative min-w-64 flex-1"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={pick("লেখা, author বা tag খুঁজুন", "Search by article, author, or tag")} className="rounded-xl pl-10" /></div><Select value={filter} onValueChange={setFilter}><SelectTrigger className="rounded-xl sm:w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="published">{pick("প্রকাশিত", "Published")}</SelectItem><SelectItem value="pending">{pick("যাচাই অপেক্ষমাণ", "Pending review")}</SelectItem><SelectItem value="draft">{pick("খসড়া", "Draft")}</SelectItem><SelectItem value="archived">{pick("আর্কাইভ", "Archived")}</SelectItem><SelectItem value="mine">{pick("আমার লেখা", "My writing")}</SelectItem><SelectItem value="all">{pick("সব দৃশ্যমান", "All visible")}</SelectItem></SelectContent></Select></div></CardHeader><CardContent className="grid gap-5 p-4 md:grid-cols-2 md:p-5 xl:grid-cols-3">{filtered.map((article) => <ArticleCard key={article.id} article={article} cover={coverFor(article.id)} canManage={canManage} saving={saving} onOpen={() => setSelectedId(article.id)} onEdit={() => openEdit(article)} onStatus={(next, featured) => void status(article, next, featured)} onDelete={() => void removeArticle(article)} onLike={() => void toggleLike(article.id)} />)}{!filtered.length ? <div className="md:col-span-2 xl:col-span-3"><Empty icon={<Newspaper />} title={pick("এই তালিকায় কোনো লেখা নেই", "No articles in this list")} text={pick("Filter পরিবর্তন করুন অথবা নতুন family story লিখুন।", "Change the filter or write a new family story.")} action={!migrationRequired ? <Button className="rounded-xl" disabled={saving} onClick={openCreate}><Plus /> {pick("প্রথম লেখা", "First article")}</Button> : undefined} /></div> : null}</CardContent></Card>
     <Dialog open={composeOpen} onOpenChange={(open) => { if (saving) return; setComposeOpen(open); if (!open) { editorArticle.current = null; setEditingId(null); setCoverFile(null); setSaveIssue(null); setSaveBlocked(null); } }}><DialogContent className="max-h-[94vh] overflow-y-auto rounded-3xl [&>*]:min-w-0 [&_a]:break-all sm:max-w-4xl"><DialogHeader><DialogTitle>{editingId ? pick("লেখা সম্পাদনা করুন", "Edit article") : pick("Family Magazine-এ লিখুন", "Write for Family Magazine")}</DialogTitle><DialogDescription>{pick("পরিষ্কার title, ছোট summary, সহজপাঠ্য body এবং প্রাসঙ্গিক tag দিন। Markdown toolbar দিয়ে heading, bold, list ও quote যোগ করা যায়।", "Add a clear title, short summary, readable body, and relevant tags. Use the Markdown toolbar for headings, bold text, lists, and quotes.")}</DialogDescription></DialogHeader>{saveIssue ? <div role="status" className="space-y-2 rounded-xl border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"><p className="font-semibold">{saveIssue.title}</p><p>{saveIssue.message}</p>{editingId ? <p>{pick("সংরক্ষিত লেখার ID", "Saved article ID")}: {editingId}</p> : null}{saveBlocked ? <Button variant="outline" disabled={saving} onClick={() => void checkSavedArticle()}>{pick("তালিকা রিলোড করে যাচাই করুন", "Reload library to verify")}</Button> : null}</div> : null}{editingId ? <p className="text-sm text-muted-foreground">{pick("বর্তমান কভার", "Current cover")}: {coverFor(editingId) ? <a className="underline" href={`/api/magazine-media/${coverFor(editingId)!.id}`} target="_blank" rel="noreferrer">{coverFor(editingId)!.file_name}</a> : pick("কোনো কভার নেই", "No cover")}</p> : null}<fieldset disabled={saving} className="min-w-0"><ArticleForm form={form} setForm={setForm} canManage={canManage} coverFile={coverFile} setCoverFile={setCoverFile} /></fieldset><DialogFooter><Button variant="outline" className="rounded-xl" disabled={saving} onClick={() => setComposeOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" onClick={() => void save()} disabled={saving || Boolean(saveBlocked) || !form.title.trim() || form.content.trim().length < 20}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingId ? <Pencil className="size-4" /> : <CheckCircle2 className="size-4" />} {editingId ? pick("Update", "Update") : form.publishNow === "true" ? pick("প্রকাশ করুন", "Publish") : form.saveDraft === "true" ? pick("খসড়া সংরক্ষণ", "Save draft") : pick("যাচাইয়ের জন্য জমা দিন", "Submit for review")}</Button></DialogFooter></DialogContent></Dialog>
     <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelectedId(null)}><DialogContent className="max-h-[94vh] overflow-y-auto rounded-3xl p-0 sm:max-w-4xl">{selected ? <ArticleDetail article={selected} cover={coverFor(selected.id)} comments={comments.filter((item) => item.article_id === selected.id)} canManage={canManage} saving={saving} draft={commentDraft} setDraft={setCommentDraft} onLike={() => void toggleLike(selected.id)} onComment={() => void addComment()} onDeleteComment={(id) => void removeComment(id)} /> : null}</DialogContent></Dialog>
+    </fieldset>
   </main>;
 }
 
