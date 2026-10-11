@@ -112,8 +112,11 @@ Magazine XLSX exports the entire currently loaded, authorized snapshot, not only
 
 Magazine GET returns explicit authorized article/comment/media fields, not raw author/uploader account IDs or storage keys. Ownership/reaction flags preserve controls without exposing those IDs; author display names and authorized family/workspace identity remain intentionally visible. Member/admin visibility is enforced server-side before projection. Load failures use coded BN/EN errors and an explicit closeable Error result. This does not solve external credential/clock failures or prove real-user access through pure tests.
 
+Magazine reloads hide old data and permissions until a complete validated snapshot arrives. Obsolete reads are aborted and generation-guarded, including errors and completion callbacks; fetch and JSON parsing have a 25-second deadline. The unavailable page offers explicit Retry, never automatic resubmission. Malformed/partial data or a changed previously confirmed family fails closed. Local editor state survives transient loading failure, but a valid reload closes missing/uneditable edits. This is not durable draft storage, real-role acceptance or atomic save/audit recovery; see the latest October 11 QA entry for those remaining gates.
+
 ```powershell
 npm.cmd run test:magazine-projection
+npm.cmd run test:magazine-read
 # Read-only mock-owner probe; set the actual printed FMS origin, not an old port.
 $env:FMS_QA_ORIGIN = 'http://localhost:5174'
 node scripts/qa-magazine-projection-readonly.mjs
