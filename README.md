@@ -98,12 +98,15 @@ Notices XLSX exports only the currently filtered, authorized list. Both language
 $env:FMS_QA_ORIGIN = 'http://localhost:5173' # verify actual running FMS port
 npm.cmd run test:magazine-validation
 npm.cmd run test:magazine-action-copy
+npm.cmd run test:magazine-export
 node scripts/qa-magazine-local.mjs --allow-local-qa-writes
 # Only use the exact prefix/article ID printed by that run:
 node scripts/qa-magazine-local.mjs --allow-local-qa-writes --cleanup --prefix 'QA Magazine Lifecycle <14-digit timestamp>' --article-id '<article-UUID>'
 ```
 
-Cleanup requires the exact labeled article to be unpublished and have no media; it permanently removes only that fixture and verifies unrelated records and deletion audit. Never rerun completed historical cleanup. Inputs reject invalid supplied options or overlong content instead of silently changing/truncating them; exact legacy `true`/`false` form strings remain supported. Missing comment moderation returns 404; unpublished status clears featured. Real separate-user roles, browser dialogs/downloads, native-date Magazine XLSX, file/fault recovery and transaction/race acceptance remain open. See the October 11 QA log.
+Cleanup requires the exact labeled article to be unpublished and have no media; it permanently removes only that fixture and verifies unrelated records and deletion audit. Never rerun completed historical cleanup. Inputs reject invalid supplied options or overlong content instead of silently changing/truncating them; exact legacy `true`/`false` form strings remain supported. Missing comment moderation returns 404; unpublished status clears featured. Real separate-user roles, browser dialogs/downloads, file/fault recovery and transaction/race acceptance remain open. See the October 11 QA log.
+
+Magazine XLSX exports the entire currently loaded, authorized snapshot, not only the search/status filter. The existing three sheets retain article links/content/tags/counts; timestamps are native numeric Excel dates with explicit browser timezone, and Articles also includes Updated at. Enum labels follow BN/EN, counts/bytes stay numeric, optional publication time stays blank and formula-looking text stays literal. Only allowed fields export; account/family/storage identifiers are excluded. Inconsistent/orphan/duplicate/malformed data prevents an incomplete download and uses the closeable localized error modal. Seven workbook regressions cover 20,000 synthetic rows; buffer/import/render checks are not proof of a physical browser download or real-role access. Database privacy, file recovery and browser acceptance remain separately tracked.
 
 ## Manual Qurbani integration QA
 
