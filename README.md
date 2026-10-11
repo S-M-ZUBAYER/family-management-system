@@ -117,12 +117,15 @@ Magazine reloads hide old data and permissions until a complete validated snapsh
 ```powershell
 npm.cmd run test:magazine-projection
 npm.cmd run test:magazine-read
+npm.cmd run test:magazine-record-write
 # Read-only mock-owner probe; set the actual printed FMS origin, not an old port.
 $env:FMS_QA_ORIGIN = 'http://localhost:5174'
 node scripts/qa-magazine-projection-readonly.mjs
 ```
 
 The origin is only an example: verify the running server belongs to this checkout. Wrong-origin/auth/schema guards stop the probe. Empty actual snapshots are not populated role acceptance; see the six pure regression cases and newest October 11 evidence.
+
+Ordinary Magazine writes now confirm a returned record before audit. Confirmed writes with pending audit/file cleanup return 202 and informational feedback; uncertain acknowledgements return 503/outcomeUnknown and require verification, never automatic retry. The client checks response identity/status/flags and disables native page actions until an explicit valid reload; malformed/null responses cannot show false success. The article ID is checkpointed even when its audit is pending, before any separate cover step. Record/audit/storage calls remain separate: no durable idempotency, transactional rollback, automatic reconciliation or real fault-injection acceptance. The verification lock is component memory, not protection across refreshes or other clients. Read the latest October 11 QA log before running any labeled fixture cleanup.
 
 Magazine cover saves validate nonempty JPEG/PNG/WebP/GIF metadata and bounded image headers before saving an article. A failed/cancelled cover preserves the confirmed article ID for an explicit same-article edit retry; unknown outcomes require reload/verification without automatic resubmission. Confirmed upload with cleanup/audit pending shows an informational closeable result. This is not transactional storage replacement, malware scanning, durable idempotency or automatic reconciliation.
 
