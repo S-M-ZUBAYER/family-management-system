@@ -108,6 +108,22 @@ Cleanup requires the exact labeled article to be unpublished and have no media; 
 
 Magazine XLSX exports the entire currently loaded, authorized snapshot, not only the search/status filter. The existing three sheets retain article links/content/tags/counts; timestamps are native numeric Excel dates with explicit browser timezone, and Articles also includes Updated at. Enum labels follow BN/EN, counts/bytes stay numeric, optional publication time stays blank and formula-looking text stays literal. Only allowed fields export; account/family/storage identifiers are excluded. Inconsistent/orphan/duplicate/malformed data prevents an incomplete download and uses the closeable localized error modal. Seven workbook regressions cover 20,000 synthetic rows; buffer/import/render checks are not proof of a physical browser download or real-role access. Database privacy, file recovery and browser acceptance remain separately tracked.
 
+### Magazine cover integration QA
+
+Magazine cover saves validate nonempty JPEG/PNG/WebP/GIF metadata and bounded image headers before saving an article. A failed/cancelled cover preserves the confirmed article ID for an explicit same-article edit retry; unknown outcomes require reload/verification without automatic resubmission. Confirmed upload with cleanup/audit pending shows an informational closeable result. This is not transactional storage replacement, malware scanning, durable idempotency or automatic reconciliation.
+
+```powershell
+npm.cmd run test:magazine-cover-workflow
+npm.cmd run test:magazine-cover-write
+# Opt-in: creates a disposable draft and tiny PNG covers in the configured database/storage.
+# Loopback may be production-backed. Verify environment and record printed exact IDs first.
+node scripts/qa-magazine-cover-local.mjs --allow-local-qa-writes
+# Only the exact owned draft/current second cover from that run may be permanently removed:
+node scripts/qa-magazine-cover-local.mjs --allow-local-qa-writes --cleanup --prefix 'QA Magazine Cover <14-digit timestamp>' --article-id '<article-UUID>' --media-id '<current-cover-UUID>'
+```
+
+Never rerun completed historical cleanup. `--resume` is only for the same exact untouched, no-media draft from an interrupted cover run, using its recorded `--prefix` and `--article-id`; it must not create a replacement fixture. See October 11 acceptance evidence and remaining real-role/fault/browser/hosted gates.
+
 ## Manual Qurbani integration QA
 
 `scripts/qa-qurbani-lifecycle.mjs` provides opt-in `seed`, `cleanup`, `verify`, `finalize-seed` and `finalize-verify` workflows. Use the actual loopback dev-server origin, exact QA family ID and (except seed modes) exact campaign ID. Mutating modes require `--allow-local-qa-writes`. These tests use the server's configured database, **which may be production**; they are not an isolated in-memory test. Do not run them against real family/financial records.
