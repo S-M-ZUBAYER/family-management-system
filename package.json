@@ -38,6 +38,8 @@
     "test:magazine-action-copy": "node scripts/test-magazine-action-copy.mjs",
     "test:magazine-validation": "node scripts/test-magazine-validation.mjs",
     "test:magazine-export": "node scripts/test-magazine-export.mjs",
+    "test:magazine-cover-workflow": "node scripts/test-magazine-cover-workflow.mjs",
+    "test:magazine-cover-write": "node scripts/test-magazine-cover-write.mjs",
     "test:archive-export-headers": "node scripts/test-archive-export-headers.mjs",
     "test:household-export-headers": "node scripts/test-household-export-headers.mjs",
     "test:qurbani-validation": "node scripts/test-qurbani-validation.mjs",

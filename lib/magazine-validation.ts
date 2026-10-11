@@ -64,6 +64,8 @@ export function magazineErrorCopy(code: unknown, locale: "bn" | "en"): string | 
     MAGAZINE_INVALID_TAGS: ["কমা দিয়ে সর্বোচ্চ ১২টি tag দিন; প্রতিটি সর্বোচ্চ ৬০ অক্ষর।", "Use at most 12 comma-separated tags, each at most 60 characters."],
     MAGAZINE_ADMIN_ONLY: ["এই কাজটি শুধু পরিবারের অ্যাডমিন করতে পারবেন।", "Only a family administrator can perform this action."],
     MAGAZINE_RECORD_CHANGED: ["লেখা বা মন্তব্যটি বদলে গেছে। তালিকা রিলোড করে আবার যাচাই করুন।", "The article or comment changed. Reload the list and review it again."],
+    MAGAZINE_INVALID_COVER: ["আসল JPG, PNG, WebP বা GIF ছবি দিন; আকার ১ byte–১০ MB, filename সর্বোচ্চ ২২০ অক্ষর এবং extension ছবির ধরনের সঙ্গে মিলতে হবে।", "Use a JPG, PNG, WebP or GIF image with a matching extension, size 1 byte–10 MB and filename up to 220 characters."],
+    MAGAZINE_STORAGE_UNAVAILABLE: ["কভারের storage এখন পাওয়া যাচ্ছে না। লেখাটি আলাদা সংরক্ষণ করে পরে কভার যোগ করুন।", "Cover storage is unavailable. Save the article separately and add its cover later."],
   };
   return typeof code === "string" && Object.hasOwn(messages, code) ? messages[code][locale === "bn" ? 0 : 1] : null;
 }
