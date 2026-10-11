@@ -110,6 +110,17 @@ Magazine XLSX exports the entire currently loaded, authorized snapshot, not only
 
 ### Magazine cover integration QA
 
+Magazine GET returns explicit authorized article/comment/media fields, not raw author/uploader account IDs or storage keys. Ownership/reaction flags preserve controls without exposing those IDs; author display names and authorized family/workspace identity remain intentionally visible. Member/admin visibility is enforced server-side before projection. Load failures use coded BN/EN errors and an explicit closeable Error result. This does not solve external credential/clock failures or prove real-user access through pure tests.
+
+```powershell
+npm.cmd run test:magazine-projection
+# Read-only mock-owner probe; set the actual printed FMS origin, not an old port.
+$env:FMS_QA_ORIGIN = 'http://localhost:5174'
+node scripts/qa-magazine-projection-readonly.mjs
+```
+
+The origin is only an example: verify the running server belongs to this checkout. Wrong-origin/auth/schema guards stop the probe. Empty actual snapshots are not populated role acceptance; see the six pure regression cases and newest October 11 evidence.
+
 Magazine cover saves validate nonempty JPEG/PNG/WebP/GIF metadata and bounded image headers before saving an article. A failed/cancelled cover preserves the confirmed article ID for an explicit same-article edit retry; unknown outcomes require reload/verification without automatic resubmission. Confirmed upload with cleanup/audit pending shows an informational closeable result. This is not transactional storage replacement, malware scanning, durable idempotency or automatic reconciliation.
 
 ```powershell
