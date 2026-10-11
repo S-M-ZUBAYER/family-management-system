@@ -57,6 +57,13 @@ export function magazineStatusChanges(data: Record<string, unknown>, now: string
 }
 export function magazineErrorCopy(code: unknown, locale: "bn" | "en"): string | null {
   const messages: Record<string, [string, string]> = {
+    MAGAZINE_INVALID_SNAPSHOT: ["ম্যাগাজিনের তথ্য অসম্পূর্ণ বা অসংগত। কোনো পুরোনো তথ্য দেখানো হয়নি; Retry করুন বা সাপোর্টে জানান।", "Magazine data is incomplete or inconsistent. Previous data is hidden; retry loading or contact support."],
+    MAGAZINE_FAMILY_CHANGED: ["সক্রিয় পরিবার বদলে গেছে। পেজ রিলোড করে সঠিক পরিবার যাচাই করুন; আগের পরিবারের তথ্য দেখানো হয়নি।", "The active family changed. Reload the page and verify the correct family; previous-family data is hidden."],
+    MAGAZINE_SIGN_IN_REQUIRED: ["ম্যাগাজিন দেখতে আগে sign in করুন।", "Sign in before viewing the magazine."],
+    MAGAZINE_ACCESS_DENIED: ["এই পরিবারের ম্যাগাজিন দেখার অনুমতি নেই। পরিবারের অ্যাডমিনের সঙ্গে যোগাযোগ করুন।", "You cannot access this family magazine. Contact your family administrator."],
+    MAGAZINE_LOAD_FAILED: ["ম্যাগাজিনের তথ্য লোড হয়নি। সংযোগ যাচাই করে Retry করুন; পুরোনো তথ্য লুকানো হয়েছে।", "Magazine data could not be loaded. Check your connection and retry; previous data is hidden."],
+    MAGAZINE_LOAD_TIMEOUT: ["ম্যাগাজিন লোড হতে বেশি সময় লাগছে। পুরোনো তথ্য লুকানো হয়েছে; সংযোগ যাচাই করে Retry করুন।", "Loading the magazine timed out. Previous data is hidden; check your connection and retry."],
+    MAGAZINE_ROW_LIMIT: ["ম্যাগাজিনের একটি অংশে ২০,০০০-এর বেশি রেকর্ড আছে। অসম্পূর্ণ তথ্য বা XLSX দেখানো হয়নি; paged export-এর জন্য সাপোর্টে যোগাযোগ করুন।", "A magazine section exceeds 20,000 records. No partial data or XLSX is shown; contact support for a paged export."],
     MAGAZINE_NOT_CONFIGURED: ["ম্যাগাজিনের ডাটাবেস সংযোগ সেট করা হয়নি। পরিবারের অ্যাডমিন বা সাপোর্টে যোগাযোগ করুন।", "The magazine database connection is not configured. Contact your family administrator or support."],
     MAGAZINE_BACKEND_UNAVAILABLE: ["ম্যাগাজিনের তথ্য এখন লোড করা যাচ্ছে না। কিছুক্ষণ পর তালিকার Retry ব্যবহার করুন। কোনো পরিবর্তন আবার পাঠানোর আগে ফল যাচাই করুন।", "Magazine data is temporarily unavailable. Retry loading the library shortly. Verify any mutation outcome before submitting it again."],
     MAGAZINE_REQUEST_FAILED: ["ম্যাগাজিনের কাজটি সম্পন্ন হয়েছে কি না নিশ্চিত নয়। তালিকা রিলোড করে যাচাই করুন; কোনো পরিবর্তন অন্ধভাবে আবার পাঠাবেন না।", "The magazine request could not be confirmed. Reload and verify the outcome; do not blindly resubmit a mutation."],

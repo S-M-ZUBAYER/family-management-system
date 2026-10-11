@@ -59,7 +59,7 @@ test("confirmed cover with audit/cleanup pending stays saved; missing storage al
 test("localized errors, blocked save/reload/remove-file UI, closeable explicit modal and route wiring",()=>{
  for(const locale of ["bn","en"])for(const code of ["MAGAZINE_INVALID_COVER","MAGAZINE_STORAGE_UNAVAILABLE"])assert.ok(magazineErrorCopy(code,locale));
  const client=readFileSync(new URL("../app/magazine-center.tsx",import.meta.url),"utf8");
- for(const text of ["saveMagazineWithCover","onPersisted: (articleId) => setEditingId(articleId)","Boolean(saveBlocked)","checkSavedArticle","validateMagazineCover(coverFile)","Remove selected file","if (saving) return;","useActionResult"])assert.ok(client.includes(text),text);
+ for(const text of ["saveMagazineWithCover","editorArticle.current = articleId; setEditingId(articleId)","Boolean(saveBlocked)","checkSavedArticle","validateMagazineCover(coverFile)","Remove selected file","if (saving) return;","useActionResult"])assert.ok(client.includes(text),text);
  for(const text of ["md:grid-cols-[minmax(0,1fr)_250px]", "[&>*]:min-w-0", "max-w-full break-all", "sr-only h-px w-px", "relative flex min-h-32"])assert.ok(client.includes(text),text);
  const server=readFileSync(new URL("../app/api/magazine/upload/route.ts",import.meta.url),"utf8");
  assert.ok(server.includes("validateMagazineCover(file)"));assert.ok(server.includes("magazineCoverWrite"));assert.ok(server.includes("return=representation"));assert.ok(server.includes("in.(${batch.map"));assert.ok(!server.includes("neq.${created.id}"));

@@ -1,10 +1,11 @@
 // Read-only loopback mock-owner acceptance; never creates a fixture.
 import assert from 'node:assert/strict';
+import { magazineReadSnapshot } from '../lib/magazine-read.ts';
 const origin=new URL(process.env.FMS_QA_ORIGIN??'http://localhost:5173');
 assert.ok(['localhost','127.0.0.1','[::1]'].includes(origin.hostname));
 const families=['20000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001'];
 let checks=0;const eq=(a,b)=>{assert.deepEqual(a,b);checks++;};
-async function read(family,signed=true){const response=await fetch(new URL('/api/magazine',origin),{signal:AbortSignal.timeout(30000),headers:signed?{Cookie:`__sites_local_auth=1; fms_active_family=${family}`}:{}});eq(response.status,signed?200:401);return response.json();}
+async function read(family,signed=true){const response=await fetch(new URL('/api/magazine',origin),{signal:AbortSignal.timeout(30000),headers:signed?{Cookie:`__sites_local_auth=1; fms_active_family=${family}`}:{}});eq(response.status,signed?200:401);const payload=await response.json();if(signed){magazineReadSnapshot(payload,family);checks++;}return payload;}
 const allowed={articles:['id','title','summary','content','category','tags','visibility','status','featured','published_at','author_name','created_at','updated_at','reaction_count','comment_count','reacted_by_me','is_mine'],comments:['id','article_id','body','author_name','status','created_at','is_mine'],media:['id','article_id','media_type','file_name','mime_type','file_size','created_at']};
 await read(families[0],false);
 const counts=[];
