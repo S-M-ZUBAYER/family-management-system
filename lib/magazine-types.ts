@@ -12,7 +12,6 @@ export type MagazineArticle = {
   status: MagazineArticleStatus;
   featured: boolean;
   published_at: string | null;
-  author_user_id: string;
   author_name: string;
   created_at: string;
   updated_at: string;
@@ -26,7 +25,6 @@ export type MagazineComment = {
   id: string;
   article_id: string;
   body: string;
-  author_user_id: string;
   author_name: string;
   status: "visible" | "hidden";
   created_at: string;

@@ -1,22 +1,23 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageMagazine, getActiveFamilyMembership } from "@/lib/family-access";
-import type { MagazineArticle, MagazineComment, MagazineMedia, MagazinePayload } from "@/lib/magazine-types";
+import type { MagazineMedia, MagazinePayload } from "@/lib/magazine-types";
+import { projectMagazineRows, type MagazineArticleRow, type MagazineCommentRow, type MagazineReactionRow } from "@/lib/magazine-projection";
 import { PaginatedRowLimitError } from "@/lib/paginated-rows";
 import { readAllSupabaseRows } from "@/lib/supabase-pagination";
 import { MagazineValidationError, magazineErrorCopy } from "@/lib/magazine-validation";
 import { BackendNotConfiguredError, isBackendConfigured, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 
-type ArticleRow = Omit<MagazineArticle, "reaction_count" | "comment_count" | "reacted_by_me" | "is_mine">;
-type CommentRow = Omit<MagazineComment, "is_mine">;
-type MediaRow = MagazineMedia & { storage_key: string; uploaded_by_user_id: string };
-type ReactionRow = { id: string; article_id: string; user_id: string };
+type ArticleRow = MagazineArticleRow;
+type CommentRow = MagazineCommentRow;
+type MediaRow = MagazineMedia;
+type ReactionRow = MagazineReactionRow;
 
 export function magazineErrorResponse(error: unknown, label: string) {
   if (error instanceof MagazineValidationError) return Response.json({ code: error.code, error: magazineErrorCopy(error.code, "en") }, { status: error.code === "MAGAZINE_ADMIN_ONLY" ? 403 : error.code === "MAGAZINE_RECORD_CHANGED" ? 409 : 400 });
   if (error instanceof PaginatedRowLimitError) return Response.json({ code: "MAGAZINE_ROW_LIMIT", maxRows: error.maxRows, error: `Magazine history exceeds ${error.maxRows} rows in one section. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });
-  if (error instanceof BackendNotConfiguredError) return Response.json({ error: "PostgreSQL connection configured নয়।" }, { status: 503 });
-  if (error instanceof SupabaseRequestError) { console.error(label, error.status, error.message); return Response.json({ error: "Magazine data সাময়িকভাবে পাওয়া যাচ্ছে না।" }, { status: 502 }); }
-  console.error(label, error); return Response.json({ error: "Magazine request সম্পন্ন হয়নি।" }, { status: 500 });
+  if (error instanceof BackendNotConfiguredError) return Response.json({ code: "MAGAZINE_NOT_CONFIGURED", error: magazineErrorCopy("MAGAZINE_NOT_CONFIGURED", "en") }, { status: 503 });
+  if (error instanceof SupabaseRequestError) { console.error(label, error.status, error.message); return Response.json({ code: "MAGAZINE_BACKEND_UNAVAILABLE", error: magazineErrorCopy("MAGAZINE_BACKEND_UNAVAILABLE", "en") }, { status: 502 }); }
+  console.error(label, error); return Response.json({ code: "MAGAZINE_REQUEST_FAILED", error: magazineErrorCopy("MAGAZINE_REQUEST_FAILED", "en") }, { status: 500 });
 }
 
 export async function GET() {
@@ -35,24 +36,20 @@ export async function GET() {
       [articleRows, commentRows, mediaRows, reactionRows] = await Promise.all([
         readAllSupabaseRows<ArticleRow>("family_magazine_articles", new URLSearchParams({ select: "id,title,summary,content,category,tags,visibility,status,featured,published_at,author_user_id,author_name,created_at,updated_at", family_id: familyId, order: "featured.desc,published_at.desc.nullslast,created_at.desc,id.asc" })),
         readAllSupabaseRows<CommentRow>("magazine_article_comments", new URLSearchParams({ select: "id,article_id,body,author_user_id,author_name,status,created_at", family_id: familyId, order: "created_at.asc,id.asc" })),
-        readAllSupabaseRows<MediaRow>("magazine_media", new URLSearchParams({ select: "id,article_id,media_type,file_name,mime_type,file_size,storage_key,uploaded_by_user_id,created_at", family_id: familyId, order: "created_at.desc,id.asc" })),
-        readAllSupabaseRows<ReactionRow>("magazine_article_reactions", new URLSearchParams({ select: "id,article_id,user_id", family_id: familyId, order: "id.asc" })),
+        readAllSupabaseRows<MediaRow>("magazine_media", new URLSearchParams({ select: "id,article_id,media_type,file_name,mime_type,file_size,created_at", family_id: familyId, order: "created_at.desc,id.asc" })),
+        readAllSupabaseRows<ReactionRow>("magazine_article_reactions", new URLSearchParams({ select: "article_id,user_id", family_id: familyId, order: "id.asc" })),
       ]);
     } catch (error) {
       if (error instanceof SupabaseRequestError && /PGRST205|42P01|42703/.test(error.message)) migrationRequired = true;
       else throw error;
     }
-    const visible = articleRows.filter((item) => item.author_user_id === user.userId || canManage || (item.status === "published" && item.visibility === "family"));
-    const articleIds = new Set(visible.map((item) => item.id));
-    const comments = commentRows.filter((item) => articleIds.has(item.article_id) && (item.status === "visible" || canManage || item.author_user_id === user.userId));
-    const media = mediaRows.filter((item) => articleIds.has(item.article_id));
-    const reactions = reactionRows.filter((item) => articleIds.has(item.article_id));
+    const projected = projectMagazineRows({ articles: articleRows, comments: commentRows, media: mediaRows, reactions: reactionRows }, user.userId, canManage);
     const payload: MagazinePayload = {
       family,
       viewer: { displayName: user.displayName, role: membership.role },
-      articles: visible.map((item) => ({ ...item, reaction_count: reactions.filter((reaction) => reaction.article_id === item.id).length, comment_count: comments.filter((comment) => comment.article_id === item.id && comment.status === "visible").length, reacted_by_me: reactions.some((reaction) => reaction.article_id === item.id && reaction.user_id === user.userId), is_mine: item.author_user_id === user.userId })),
-      comments: comments.map((item) => ({ ...item, is_mine: item.author_user_id === user.userId })),
-      media: media.map((item) => ({ id: item.id, article_id: item.article_id, media_type: item.media_type, file_name: item.file_name, mime_type: item.mime_type, file_size: item.file_size, created_at: item.created_at })),
+      articles: projected.articles,
+      comments: projected.comments,
+      media: projected.media,
       permissions: { canManage },
       migrationRequired,
     };

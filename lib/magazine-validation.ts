@@ -57,6 +57,9 @@ export function magazineStatusChanges(data: Record<string, unknown>, now: string
 }
 export function magazineErrorCopy(code: unknown, locale: "bn" | "en"): string | null {
   const messages: Record<string, [string, string]> = {
+    MAGAZINE_NOT_CONFIGURED: ["ম্যাগাজিনের ডাটাবেস সংযোগ সেট করা হয়নি। পরিবারের অ্যাডমিন বা সাপোর্টে যোগাযোগ করুন।", "The magazine database connection is not configured. Contact your family administrator or support."],
+    MAGAZINE_BACKEND_UNAVAILABLE: ["ম্যাগাজিনের তথ্য এখন লোড করা যাচ্ছে না। কিছুক্ষণ পর তালিকার Retry ব্যবহার করুন। কোনো পরিবর্তন আবার পাঠানোর আগে ফল যাচাই করুন।", "Magazine data is temporarily unavailable. Retry loading the library shortly. Verify any mutation outcome before submitting it again."],
+    MAGAZINE_REQUEST_FAILED: ["ম্যাগাজিনের কাজটি সম্পন্ন হয়েছে কি না নিশ্চিত নয়। তালিকা রিলোড করে যাচাই করুন; কোনো পরিবর্তন অন্ধভাবে আবার পাঠাবেন না।", "The magazine request could not be confirmed. Reload and verify the outcome; do not blindly resubmit a mutation."],
     MAGAZINE_INVALID_BODY: ["সঠিক ম্যাগাজিন তথ্য দিন।", "Provide a valid magazine object."],
     MAGAZINE_INVALID_ID: ["সঠিক লেখা বা মন্তব্যের আইডি দিন।", "Provide a valid article or comment ID."],
     MAGAZINE_INVALID_TEXT: ["শিরোনাম ১–১৮০, সারাংশ সর্বোচ্চ ৫০০, লেখা ২০–৩০,০০০ ও মন্তব্য ১–২,০০০ অক্ষরের মধ্যে দিন।", "Use 1–180 characters for titles, up to 500 for summaries, 20–30,000 for articles and 1–2,000 for comments."],

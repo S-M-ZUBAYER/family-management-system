@@ -63,9 +63,9 @@ export function MagazineCenter() {
       if (payload.code === "FAMILY_SETUP_REQUIRED") { setFamily(undefined); setArticles([]); setComments([]); setMedia([]); setCanManage(false); setSelectedId(null); setSetupRequired(true); return false; }
       if (!response.ok) throw new Error(magazineErrorCopy(payload.code, locale) ?? payload.error ?? pick("ফ্যামিলি ম্যাগাজিন লোড হয়নি।", "Family magazine could not be loaded."));
       setFamily(payload.family); setArticles(payload.articles ?? []); setComments(payload.comments ?? []); setMedia(payload.media ?? []); setCanManage(Boolean(payload.permissions?.canManage)); setMigrationRequired(Boolean(payload.migrationRequired)); setSetupRequired(false); return true;
-    } catch (error) { setFamily(undefined); setArticles([]); setComments([]); setMedia([]); setCanManage(false); setSelectedId(null); setFeedback(error instanceof Error ? error.message : pick("ফ্যামিলি ম্যাগাজিন লোড হয়নি।", "Family magazine could not be loaded.")); return false; }
+    } catch (error) { setFamily(undefined); setArticles([]); setComments([]); setMedia([]); setCanManage(false); setSelectedId(null); showResult({ kind: "error", title: pick("ম্যাগাজিন লোড হয়নি", "Magazine could not be loaded"), message: error instanceof Error ? error.message : pick("ফ্যামিলি ম্যাগাজিন লোড হয়নি।", "Family magazine could not be loaded.") }); return false; }
     finally { setLoading(false); }
-  }, [locale, pick, setFeedback]);
+  }, [locale, pick, showResult]);
   useEffect(() => { queueMicrotask(() => void load()); }, [load]);
 
   const selected = articles.find((item) => item.id === selectedId) ?? null;
