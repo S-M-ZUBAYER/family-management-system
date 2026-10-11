@@ -15,6 +15,8 @@ A bilingual (বাংলা/English), multi-family web application for family r
 
 Features have different acceptance levels. In particular, external SMS/email/WhatsApp delivery, billing/custom domains, complete two-user access testing, every XLSX's contents, and the latest deployment have **not** been verified. The Contact page's email link opens the visitor's email app; submitting an in-app support ticket does not itself send email.
 
+Latest local checkpoint (2026-10-11): Notices now distinguishes confirmed saves with pending audit from uncertain outcomes, guards resubmission until a valid reload, and returns validated public fields. The synthetic lifecycle passed 152 API checks; 60 regression suites and quality/build checks passed. Browser, separate-user and hosted acceptance remain incomplete. See the latest QA log for exact cleanup and remaining work.
+
 ## Technology
 
 | Layer | Current implementation |
