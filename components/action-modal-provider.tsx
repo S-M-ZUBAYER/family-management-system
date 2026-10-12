@@ -32,6 +32,7 @@ import { noticeWriteFeedback } from "@/lib/notice-write-outcome";
 import { eventActionCopy } from "@/lib/event-action-copy";
 import { eventErrorCopy } from "@/lib/event-validation";
 import { eventWriteFeedback } from "@/lib/event-write-outcome";
+import { eventMediaFeedback } from "@/lib/event-media-workflow";
 import { eventParticipationFeedback } from "@/lib/event-participation";
 import { magazineActionCopy } from "@/lib/magazine-action-copy";
 import { magazineErrorCopy } from "@/lib/magazine-validation";
@@ -471,11 +472,14 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
           const participationPayload = /^\/api\/events\/[^/]+\/(rsvp|comments)$/.test(url.pathname)
             ? await response.clone().json().then((value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}).catch(() => ({})) : null;
           const participationResult = participationPayload ? eventParticipationFeedback(url.pathname, response.status, participationPayload, locale, method, parseBody(init?.body)) : null;
+          const mediaPayload = /^\/api\/events\/[^/]+\/media$|^\/api\/event-media\/[^/]+$/.test(url.pathname)
+            ? await response.clone().json().then((value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}).catch(() => ({})) : null;
+          const mediaResult = mediaPayload ? eventMediaFeedback(url.pathname, response.status, mediaPayload, locale, method, init?.body) : null;
           const message = memberResult ? memberResult.message : response.ok && response.status !== 202 && (url.pathname === "/api/notices" || url.pathname.startsWith("/api/notices/") || url.pathname === "/api/events" || url.pathname.startsWith("/api/events/") || url.pathname.startsWith("/api/event-media/") || ["/api/magazine/records", "/api/magazine/upload", "/api/qurbani/records", "/api/household/records", "/api/welfare/records", "/api/archives/records", "/api/archives/upload"].includes(url.pathname))
             ? copy.successMessage
             : response.ok && ["/api/finance/records", "/api/finance/status", "/api/health/records"].includes(url.pathname) ? copy.successMessage
             : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."), locale);
-          const nextResult = noticeResult ?? eventResult ?? participationResult ?? magazineResult ?? welfareResult ?? (memberResult?.noChange
+          const nextResult = noticeResult ?? eventResult ?? participationResult ?? mediaResult ?? magazineResult ?? welfareResult ?? (memberResult?.noChange
             ? { kind: "info" as const, title: locale === "bn" ? "পরিবর্তন প্রয়োজন নেই" : "No change needed", message }
             : mutationResponseResult(memberResult?.status ?? response.status, message, locale));
           lastMutationResult.current = { kind: nextResult.kind, message: nextResult.message, at: Date.now() };
@@ -491,9 +495,10 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
         const noticeFailure = noticeWriteFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
         const eventFailure = eventWriteFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
         const participationFailure = eventParticipationFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
-        const propagatedError = participationFailure ? new Error(participationFailure.message) : eventFailure ? new Error(eventFailure.message) : noticeFailure ? new Error(noticeFailure.message) : magazineFailure ? new Error(magazineFailure.message) : welfareFailure ? new Error(welfareFailure.message) : error;
+        const mediaFailure = eventMediaFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
+        const propagatedError = mediaFailure ? new Error(mediaFailure.message) : participationFailure ? new Error(participationFailure.message) : eventFailure ? new Error(eventFailure.message) : noticeFailure ? new Error(noticeFailure.message) : magazineFailure ? new Error(magazineFailure.message) : welfareFailure ? new Error(welfareFailure.message) : error;
         if (mounted.current) {
-          const nextResult: ResultState = noticeFailure ?? eventFailure ?? participationFailure ?? magazineFailure ?? welfareFailure ?? {
+          const nextResult: ResultState = noticeFailure ?? eventFailure ?? participationFailure ?? mediaFailure ?? magazineFailure ?? welfareFailure ?? {
             kind: "error",
             title: locale === "bn" ? "সংযোগজনিত error" : "Connection error",
             message: error instanceof Error ? error.message : (locale === "bn" ? "Server-এর সাথে যোগাযোগ করা যায়নি। আবার চেষ্টা করুন।" : "Could not contact the server. Please try again."),

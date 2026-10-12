@@ -46,6 +46,13 @@ export function eventRecord(value: unknown, editing = false) {
 }
 export function eventErrorCopy(code: unknown, locale: "bn" | "en") {
   const messages: Record<string, [string, string]> = {
+    EVENT_MEDIA_INVALID_FILE: ["সঠিক JPG, PNG, WebP, GIF, MP4 বা WebM file দিন; নিরাপদ নাম ও মিলে যাওয়া header প্রয়োজন। ছবি সর্বোচ্চ ৮ MB, ভিডিও ২৫ MB।", "Provide a JPG, PNG, WebP, GIF, MP4 or WebM file with a safe name and matching header. Images: 8 MB; videos: 25 MB."],
+    EVENT_MEDIA_INVALID_CAPTION: ["ক্যাপশন সর্বোচ্চ ৫০০ অক্ষর দিন; লেখা কেটে সংরক্ষণ করা হবে না।", "Use a caption up to 500 characters; text will not be silently truncated."],
+    EVENT_MEDIA_STORAGE_UNAVAILABLE: ["মিডিয়ার storage পাওয়া যাচ্ছে না। কোনো upload/delete করা হয়নি; পরে চেষ্টা করুন।", "Media storage is unavailable. No upload/deletion was performed; try later."],
+    EVENT_MEDIA_UPLOAD_REJECTED: ["File সংরক্ষণ সম্পন্ন হয়নি এবং নতুন media row তৈরি হয়নি। ফাইল রেখে পরে চেষ্টা করুন।", "File storage did not complete and no new media row was created. Keep the file and try later."],
+    EVENT_MEDIA_UNLINKED_PENDING: ["নতুন media row নিশ্চিত হয়নি; এই upload-এর অব্যবহৃত file cleanup বাকি। আবার upload না করে support-এর সাহায্য নিন।", "No new media row was confirmed; this upload's unlinked file cleanup is pending. Ask support instead of uploading again."],
+    EVENT_MEDIA_PENDING: ["মিডিয়ার পরিবর্তন সংরক্ষিত হয়েছে; audit বা private file cleanup বাকি। একই কাজ আবার পাঠাবেন না; support-এর সাহায্য নিন।", "The media change is saved; audit or private file cleanup is pending. Do not repeat it; ask support."],
+    EVENT_MEDIA_UNKNOWN: ["মিডিয়ার upload/delete সম্পন্ন হয়েছে কি না নিশ্চিত নয়। একই কাজ আবার পাঠাবেন না; gallery রিলোড করে support-এর মাধ্যমে যাচাই করুন।", "The media upload/deletion may already be saved. Do not repeat it; reload the gallery and verify with support."],
     EVENT_RSVP_INVALID_RESPONSE: ["যাব, হয়তো অথবা যেতে পারব না—সঠিক RSVP উত্তর নির্বাচন করুন।", "Choose a valid Going, Maybe or Not going RSVP response."],
     EVENT_RSVP_INVALID_GUESTS: ["অতিথির সংখ্যা ০–১০ পূর্ণসংখ্যা দিন; ভুল type বা দশমিক গ্রহণ করা হবে না।", "Use an integer guest count from 0 to 10; invalid types or decimals are not accepted."],
     EVENT_PARTICIPATION_INVALID_TEXT: ["মন্তব্য ২–২০০০ অক্ষর এবং RSVP note সর্বোচ্চ ৫০০ অক্ষর দিন; লেখা কেটে সংরক্ষণ করা হবে না।", "Use a 2–2,000 character comment and RSVP note up to 500 characters; text will not be silently truncated."],
