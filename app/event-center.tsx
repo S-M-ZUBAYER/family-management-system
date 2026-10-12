@@ -9,6 +9,7 @@ import { qurbaniIsoToLocalDateTime, qurbaniLocalDateTimeToIso } from "@/lib/qurb
 import { eventErrorCopy, EventValidationError } from "@/lib/event-validation";
 import { eventRsvpRecord, eventCommentRecord, readEventParticipation, eventParticipationFeedback, type ParticipationKind } from "@/lib/event-participation";
 import { validateEventMedia, eventMediaCaption, readEventMediaMutation, eventMediaFeedback } from "@/lib/event-media-workflow";
+import { eventWorkbook } from "@/lib/event-export";
 import { readEvents, eventEditorStillAvailable } from "@/lib/event-read";
 import { readEventMutation, eventWriteFeedback } from "@/lib/event-write-outcome";
 import { NoticeRequestGate } from "@/lib/notice-write-outcome";
@@ -219,6 +220,7 @@ export function EventCenter() {
   const [saving, setSaving] = useState(false);
   const [working, setWorking] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const exportBusy = useRef(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<FamilyEvent | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -523,8 +525,14 @@ export function EventCenter() {
     if (!outcome.pending) setFeedback(pick("ইভেন্ট গ্যালারিতে মিডিয়া যোগ হয়েছে।", "Media added to the event gallery."));
   }
 
+  function changeEventView(kind: "query" | "filter", value: string) {
+    if (!access.current.ready || access.current.busy || access.current.blocked) return;
+    requestGate.current.cancel();
+    if (kind === "query") setQuery(value); else setFilter(value);
+  }
   async function exportXlsx() {
-    if (!access.current.ready || access.current.blocked || access.current.busy || exporting) return;
+    if (!family || !access.current.ready || access.current.blocked || access.current.busy || exportBusy.current) return;
+    exportBusy.current = true;
     const checkpoint = requestGate.current.checkpoint();
     setExporting(true);
     try {
@@ -534,38 +542,21 @@ export function EventCenter() {
         showResult({ kind: "info", title: pick("Export-এর তথ্য বদলে গেছে", "Export data changed"), message: eventErrorCopy("EVENT_EXPORT_SUPERSEDED", locale)! });
         return;
       }
-      const includedEvents = new Map(visibleEvents.map((event) => [event.id, event]));
-      const eventName = (id: string) => {
-        const event = includedEvents.get(id);
-        return event ? (locale === "en" ? event.title_en || event.title_bn : event.title_bn) : "";
-      };
-      const eventSheet = XLSX.utils.aoa_to_sheet([
-        [pick("ইভেন্ট ID", "Event ID"), pick("বাংলা নাম", "Bangla title"), pick("ইংরেজি নাম", "English title"), pick("বাংলা বিবরণ", "Bangla description"), pick("ইংরেজি বিবরণ", "English description"), pick("ধরন", "Type"), pick("শুরু (ISO)", "Start (ISO)"), pick("শেষ (ISO)", "End (ISO)"), pick("স্থান", "Venue"), pick("শহর", "City"), pick("মিলনস্থল", "Meeting point"), pick("প্রতি ব্যক্তি (BDT)", "Per person (BDT)"), pick("মোট বাজেট (BDT)", "Total budget (BDT)"), pick("ধারণক্ষমতা", "Capacity"), pick("নিবন্ধনের শেষ সময় (ISO)", "Registration deadline (ISO)"), pick("অংশগ্রহণকারী", "Participants"), pick("অবস্থা", "Status"), pick("তৈরির সময় (ISO)", "Created (ISO)")],
-        ...visibleEvents.map((event) => [event.id, event.title_bn, event.title_en ?? "", event.description_bn, event.description_en ?? "", typeLabels[event.event_type], event.start_at, event.end_at ?? "", event.venue, event.city ?? "", event.meeting_point ?? "", Number(event.estimated_cost_per_person), Number(event.total_budget), event.capacity ?? "", event.registration_deadline ?? "", goingCount(event.id), statusLabels[event.status], event.created_at]),
-      ]);
-      const rsvpSheet = XLSX.utils.aoa_to_sheet([
-        [pick("ইভেন্ট ID", "Event ID"), pick("ইভেন্ট", "Event"), pick("সদস্য", "Member"), pick("উত্তর", "Response"), pick("অতিথি", "Guests"), pick("মন্তব্য", "Note"), pick("হালনাগাদের সময় (ISO)", "Updated (ISO)")],
-        ...rsvps.filter((item) => includedEvents.has(item.event_id)).map((item) => [item.event_id, eventName(item.event_id), item.respondent_name, responseLabels[item.response], item.guest_count, item.note ?? "", item.updated_at]),
-      ]);
-      const commentSheet = XLSX.utils.aoa_to_sheet([
-        [pick("ইভেন্ট ID", "Event ID"), pick("ইভেন্ট", "Event"), pick("সদস্য", "Member"), pick("মন্তব্য", "Comment"), pick("সময় (ISO)", "Time (ISO)")],
-        ...comments.filter((item) => includedEvents.has(item.event_id)).map((item) => [item.event_id, eventName(item.event_id), item.author_name, item.body, item.created_at]),
-      ]);
-      const mediaSheet = XLSX.utils.aoa_to_sheet([
-        [pick("ইভেন্ট ID", "Event ID"), pick("ইভেন্ট", "Event"), pick("ফাইলের নাম", "File name"), pick("ফাইলের ধরন", "MIME type"), pick("আকার (বাইট)", "Size (bytes)"), pick("ক্যাপশন", "Caption"), pick("আপলোডকারী", "Uploader"), pick("সময় (ISO)", "Time (ISO)")],
-        ...media.filter((item) => includedEvents.has(item.event_id)).map((item) => [item.event_id, eventName(item.event_id), item.file_name, item.mime_type, item.file_size, item.caption ?? "", item.uploader_name, item.created_at]),
-      ]);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, eventSheet, pick("ইভেন্ট", "Events"));
-      XLSX.utils.book_append_sheet(workbook, rsvpSheet, "RSVPs");
-      XLSX.utils.book_append_sheet(workbook, commentSheet, pick("আলোচনা", "Discussion"));
-      XLSX.utils.book_append_sheet(workbook, mediaSheet, pick("মিডিয়া", "Media"));
-      XLSX.writeFile(workbook, `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-events.xlsx`);
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const workbook = eventWorkbook(XLSX, { family, events, rsvps, comments, media, permissions: { canManage }, migrationRequired }, visibleEvents.map(event => event.id), locale, timeZone);
+      XLSX.writeFile(workbook, `${family.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-events.xlsx`);
       setFeedback(pick("ইভেন্ট XLSX রপ্তানি হয়েছে।", "Event XLSX exported."));
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : pick("XLSX রপ্তানি হয়নি।", "XLSX export failed."));
+      if (!mounted.current) return;
+      if (!access.current.ready || access.current.blocked || access.current.busy || !requestGate.current.current(checkpoint)) {
+        showResult({ kind: "info", title: pick("Export-এর তথ্য বদলে গেছে", "Export data changed"), message: eventErrorCopy("EVENT_EXPORT_SUPERSEDED", locale)! });
+        return;
+      }
+      showResult({ kind: "error", title: pick("XLSX তৈরি হয়নি", "XLSX could not be created"),
+        message: eventErrorCopy(error instanceof Error && error.message === "EVENT_EXPORT_INVALID_DATA" ? "EVENT_EXPORT_INVALID_DATA" : "EVENT_EXPORT_FAILED", locale)! });
     } finally {
-      setExporting(false);
+      exportBusy.current = false;
+      if (mounted.current) setExporting(false);
     }
   }
 
@@ -622,7 +613,7 @@ export function EventCenter() {
         { label: pick("সম্পন্ন আয়োজন", "Completed events"), value: events.filter((event) => event.status === "completed").length, icon: CheckCircle2 },
       ].map(({ label, value, icon: Icon, money }) => <Card key={label} className="rounded-2xl border-border/75 py-0 shadow-none"><CardContent className="flex items-start justify-between p-5"><div><p className="text-sm text-muted-foreground">{label}</p><p className={`mt-2 font-bold ${money ? "text-xl" : "text-3xl"}`}>{typeof value === "number" ? value.toLocaleString(locale === "bn" ? "bn-BD" : "en-US") : value}</p></div><span className="grid size-10 place-items-center rounded-2xl bg-primary/10 text-primary"><Icon className="size-5" /></span></CardContent></Card>)}</section>
 
-      <Card className="gap-0 overflow-hidden rounded-3xl border-border/75 py-0 shadow-none"><div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between md:p-5"><div className="relative w-full md:max-w-md"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={pick("ইভেন্ট, স্থান বা শহর খুঁজুন", "Search events, venues, or cities")} className="h-10 rounded-xl pl-10" /></div><Select value={filter} onValueChange={setFilter}><SelectTrigger className="w-full rounded-xl md:w-52"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="upcoming">{pick("আসন্ন আয়োজন", "Upcoming events")}</SelectItem><SelectItem value="all">{pick("সব আয়োজন", "All events")}</SelectItem><SelectItem value="tour">{pick("শুধু ট্যুর", "Tours only")}</SelectItem><SelectItem value="published">{pick("Registration চলছে", "Registration open")}</SelectItem><SelectItem value="completed">{pick("সম্পন্ন", "Completed")}</SelectItem><SelectItem value="draft">{pick("খসড়া", "Draft")}</SelectItem></SelectContent></Select></div>
+      <Card className="gap-0 overflow-hidden rounded-3xl border-border/75 py-0 shadow-none"><div className="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between md:p-5"><div className="relative w-full md:max-w-md"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => changeEventView("query", event.target.value)} placeholder={pick("ইভেন্ট, স্থান বা শহর খুঁজুন", "Search events, venues, or cities")} className="h-10 rounded-xl pl-10" /></div><Select value={filter} onValueChange={(value) => changeEventView("filter", value)}><SelectTrigger className="w-full rounded-xl md:w-52"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="upcoming">{pick("আসন্ন আয়োজন", "Upcoming events")}</SelectItem><SelectItem value="all">{pick("সব আয়োজন", "All events")}</SelectItem><SelectItem value="tour">{pick("শুধু ট্যুর", "Tours only")}</SelectItem><SelectItem value="published">{pick("Registration চলছে", "Registration open")}</SelectItem><SelectItem value="completed">{pick("সম্পন্ন", "Completed")}</SelectItem><SelectItem value="draft">{pick("খসড়া", "Draft")}</SelectItem></SelectContent></Select></div>
         {loading ? <div className="flex min-h-80 items-center justify-center gap-3 text-muted-foreground"><LoaderCircle className="size-5 animate-spin" /> {pick("Event লোড হচ্ছে", "Loading events")}</div> : visibleEvents.length ? <div className="grid gap-4 p-4 md:grid-cols-2 md:p-5 xl:grid-cols-3">{visibleEvents.map((event) => { const count = goingCount(event.id); const date = new Date(event.start_at); const numberLocale = locale === "bn" ? "bn-BD" : "en-GB"; return <article key={event.id} className="overflow-hidden rounded-2xl border border-border/75 bg-card transition hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"><div className="flex items-start gap-4 p-5"><div className="grid w-16 shrink-0 place-items-center rounded-2xl bg-primary/10 px-2 py-3 text-primary"><span className="text-xs font-bold uppercase">{date.toLocaleDateString(numberLocale, { month: "short" })}</span><span className="text-2xl font-black">{date.toLocaleDateString(numberLocale, { day: "2-digit" })}</span></div><div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2"><Badge variant="secondary">{typeLabels[event.event_type]}</Badge><Badge variant={event.status === "cancelled" ? "destructive" : "outline"}>{statusLabels[event.status]}</Badge></div><button type="button" className="mt-3 block w-full text-left" onClick={() => setSelectedId(event.id)}><h2 className="text-lg font-bold leading-snug">{locale === "en" ? event.title_en || event.title_bn : event.title_bn}</h2><p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground"><MapPin className="size-4 shrink-0" /> <span className="truncate">{[event.venue, event.city].filter(Boolean).join(", ")}</span></p><p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground"><Clock3 className="size-4" /> {dateFormatter.format(date)}</p></button></div></div><div className="grid grid-cols-2 border-t bg-muted/20"><button type="button" className="border-r px-4 py-3 text-left" onClick={() => setSelectedId(event.id)}><p className="text-xs text-muted-foreground">{pick("অংশগ্রহণকারী", "Participants")}</p><p className="mt-1 font-bold">{count.toLocaleString(numberLocale)}{event.capacity ? ` / ${event.capacity.toLocaleString(numberLocale)}` : ""}</p></button><button type="button" className="px-4 py-3 text-left" onClick={() => setSelectedId(event.id)}><p className="text-xs text-muted-foreground">{pick("প্রতি ব্যক্তি", "Per person")}</p><p className="mt-1 font-bold">{moneyFormatter.format(Number(event.estimated_cost_per_person))}</p></button></div></article>; })}</div> : <div className="flex min-h-80 flex-col items-center justify-center px-6 text-center"><CalendarDays className="size-11 text-muted-foreground/45" /><h2 className="mt-4 text-xl font-bold">{pick("এই তালিকায় কোনো আয়োজন নেই", "There are no events in this list")}</h2><p className="mt-1 text-sm text-muted-foreground">{pick("Filter বদলান অথবা নতুন event/tour তৈরি করুন।", "Change the filter or create a new event or tour.")}</p>{canManage && !migrationRequired ? <Button className="mt-5 gap-2 rounded-xl" onClick={openCreateEvent}><Plus className="size-4" /> {pick("প্রথম ইভেন্ট তৈরি করুন", "Create first event")}</Button> : null}</div>}
       </Card>
 
