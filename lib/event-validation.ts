@@ -46,6 +46,15 @@ export function eventRecord(value: unknown, editing = false) {
 }
 export function eventErrorCopy(code: unknown, locale: "bn" | "en") {
   const messages: Record<string, [string, string]> = {
+    EVENT_LOAD_FAILED: ["ইভেন্ট তালিকা লোড হয়নি। সংযোগ যাচাই করে আবার লোড করুন।", "The event list could not be loaded. Check your connection and reload."],
+    EVENT_SCHEMA_UNAVAILABLE: ["ইভেন্ট database যাচাই বাকি। সঠিক migration installation support-এর মাধ্যমে যাচাই করে আবার লোড করুন; অনুমান করে SQL পুনরায় চালাবেন না।", "The event database needs verification. Check the correct migration installation with support and reload; do not blindly rerun SQL."],
+    EVENT_LOAD_TIMEOUT: ["ইভেন্ট লোড বা JSON পড়ার সময়সীমা শেষ। পুরোনো তথ্য দেখানো হয়নি; আবার লোড করুন।", "Loading or parsing the event list timed out. Old data was hidden; reload the list."],
+    EVENT_SIGN_IN_REQUIRED: ["ইভেন্ট দেখতে আগে লগইন করুন, তারপর তালিকা আবার লোড করুন।", "Sign in before viewing events, then reload the list."],
+    EVENT_ACCESS_DENIED: ["এই পরিবারের ইভেন্ট দেখার অনুমতি নেই। Admin-এর সঙ্গে যোগাযোগ করুন।", "You do not have permission to view this family's events. Contact its admin."],
+    EVENT_BACKEND_UNAVAILABLE: ["ইভেন্টের backend এখন পাওয়া যাচ্ছে না। কোনো অসম্পূর্ণ তালিকা দেখানো হয়নি; পরে আবার লোড করুন।", "The event backend is unavailable. No incomplete list was shown; reload later."],
+    EVENT_FAMILY_CHANGED: ["ফ্যামিলি workspace বদলে গেছে। সঠিক পরিবারের ইভেন্ট পৃষ্ঠা আবার খুলুন।", "The family workspace changed. Reopen the event page for the correct family."],
+    EVENTS_ROW_LIMIT: ["ইভেন্ট ইতিহাসের কোনো অংশ ২০,০০০ সারির সীমা ছাড়িয়েছে। অসম্পূর্ণ তালিকা বা export তৈরি হয়নি; support-এর সাহায্য নিন।", "One section of event history exceeds 20,000 rows. No partial list or export was produced; ask support."],
+    EVENT_EXPORT_SUPERSEDED: ["লোড, পরিবর্তন বা workspace বন্ধ হওয়ার কারণে export-এর snapshot পুরোনো হয়েছে। বর্তমান তালিকা দেখে নতুন করে export করুন।", "Reloading, a change or leaving the workspace invalidated the export snapshot. Review the current list and export again."],
     EVENT_MEDIA_INVALID_FILE: ["সঠিক JPG, PNG, WebP, GIF, MP4 বা WebM file দিন; নিরাপদ নাম ও মিলে যাওয়া header প্রয়োজন। ছবি সর্বোচ্চ ৮ MB, ভিডিও ২৫ MB।", "Provide a JPG, PNG, WebP, GIF, MP4 or WebM file with a safe name and matching header. Images: 8 MB; videos: 25 MB."],
     EVENT_MEDIA_INVALID_CAPTION: ["ক্যাপশন সর্বোচ্চ ৫০০ অক্ষর দিন; লেখা কেটে সংরক্ষণ করা হবে না।", "Use a caption up to 500 characters; text will not be silently truncated."],
     EVENT_MEDIA_STORAGE_UNAVAILABLE: ["মিডিয়ার storage পাওয়া যাচ্ছে না। কোনো upload/delete করা হয়নি; পরে চেষ্টা করুন।", "Media storage is unavailable. No upload/deletion was performed; try later."],
