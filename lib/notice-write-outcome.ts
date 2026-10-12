@@ -111,6 +111,7 @@ export function noticeReadSnapshot(raw: unknown) {
     || !noticeObject(raw.permissions) || typeof raw.permissions.canManage !== "boolean"
     || typeof raw.migrationRequired !== "boolean" || !Array.isArray(raw.notices) || raw.notices.length > 20000) return null;
   const notices: NoticePublicRow[] = [], ids = new Set<string>();
+  if (raw.migrationRequired && raw.notices.length) return null;
   for (const value of raw.notices) {
     const row = noticePublicRow(value);
     if (!row || ids.has(row.id.toLowerCase()) || (noticeObject(value) && Object.hasOwn(value, "family_id") && value.family_id !== raw.family.id)) return null;
@@ -125,5 +126,6 @@ export class NoticeRequestGate {
   private controller: AbortController | null = null;
   begin() { this.cancel(); this.controller = new AbortController(); return { generation: this.generation, controller: this.controller }; }
   current(ticket: { generation: number }) { return ticket.generation === this.generation; }
+  checkpoint() { return { generation: this.generation }; }
   cancel() { this.generation++; this.controller?.abort(); this.controller = null; }
 }

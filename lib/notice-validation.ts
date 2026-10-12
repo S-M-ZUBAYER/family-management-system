@@ -61,6 +61,14 @@ export function noticeStatusPatch(action: unknown, expiresAt: string | null, now
 }
 export function noticeErrorCopy(code: unknown, locale: "bn" | "en"): string | null {
   const messages: Record<string, [string, string]> = {
+    NOTICE_LOAD_FAILED: ["নোটিশ তালিকা লোড হয়নি। পুরোনো তথ্য সরানো হয়েছে; আবার লোড করুন।", "The notice list could not be loaded. Previous data was cleared; reload the list."],
+    NOTICE_LOAD_TIMEOUT: ["নোটিশ লোড হতে বেশি সময় লাগছে। পুরোনো তথ্য দেখানো হচ্ছে না; আবার লোড করুন।", "Loading notices timed out. Previous data is not being shown; reload the list."],
+    NOTICE_SIGN_IN_REQUIRED: ["নোটিশ দেখতে আগে sign in করুন।", "Sign in before viewing notices."],
+    NOTICE_ACCESS_DENIED: ["এই পরিবারের নোটিশ দেখার access নেই। সদস্যপদ যাচাই করুন।", "You do not have access to this family's notices. Check your membership."],
+    NOTICE_BACKEND_UNAVAILABLE: ["নোটিশের database সাময়িকভাবে পাওয়া যাচ্ছে না। পুরোনো তথ্য সরানো হয়েছে; আবার লোড করুন।", "The notice database is temporarily unavailable. Previous data was cleared; reload the list."],
+    NOTICE_FAMILY_CHANGED: ["লোডের সময় পরিবার বদলে গেছে। সঠিক পরিবার বেছে পেজ নতুন করে খুলুন; কোনো পরিবর্তন বা export পাঠানো হয়নি।", "The family changed during loading. Select the correct family and reopen the page; no change or export was submitted."],
+    NOTICES_ROW_LIMIT: ["নোটিশ ইতিহাস ২০,০০০ সারির সীমা ছাড়িয়েছে। অসম্পূর্ণ তথ্য দেখানো বা XLSX-এ রপ্তানি করা হয়নি।", "Notice history exceeds 20,000 rows. No partial data was shown or exported."],
+    NOTICE_EXPORT_SUPERSEDED: ["নোটিশ তালিকা বদলেছে বা আবার লোড হচ্ছে। পুরোনো তথ্য দিয়ে XLSX তৈরি করা হয়নি; বর্তমান তালিকা যাচাই করে export করুন।", "The notice list changed or is reloading. No XLSX was created from previous data; review the current list before exporting."],
     NOTICE_WRITE_OUTCOME_UNKNOWN: ["নোটিশের পরিবর্তন সংরক্ষিত হয়েছে কি না নিশ্চিত নয়। একই কাজ আবার পাঠাবেন না; তালিকা রিলোড করে ফল যাচাই করুন।", "The notice change may already be saved. Do not submit it again; reload the list and verify the outcome."],
     NOTICE_AUDIT_PENDING: ["নোটিশের পরিবর্তন সংরক্ষিত হয়েছে, কিন্তু audit log লেখা হয়নি। একই পরিবর্তন আবার পাঠাবেন না; support-এর মাধ্যমে audit যাচাই করুন।", "The notice change is saved, but its audit log is pending. Do not repeat the change; ask support to verify the audit."],
     NOTICE_WRITE_REJECTED: ["Database নোটিশের পরিবর্তন গ্রহণ করেনি। তথ্য ও permission যাচাই করুন।", "The database rejected the notice change. Review the data and permissions."],
