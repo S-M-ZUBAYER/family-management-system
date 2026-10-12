@@ -15,7 +15,7 @@ A bilingual (বাংলা/English), multi-family web application for family r
 
 Features have different acceptance levels. In particular, external SMS/email/WhatsApp delivery, billing/custom domains, complete two-user access testing, every XLSX's contents, and the latest deployment have **not** been verified. The Contact page's email link opens the visitor's email app; submitting an in-app support ticket does not itself send email.
 
-Latest local checkpoint (2026-10-12): Notices distinguishes confirmed audit-pending from uncertain saves and guards resubmission until a valid reload. Reload now hides stale data, handles hung fetch/JSON with a deadline, validates family/snapshot identity and protects draft editors and asynchronous exports. Ten loader regressions, 55 read-only two-family checks, all 61 regression suites and quality/build gates passed with existing records unchanged. Full browser, separate-user and hosted acceptance remain incomplete; see the latest QA log.
+Latest local checkpoint (2026-10-12): Notices reload and core Event create/edit/status/delete recovery now distinguish confirmed pending work from uncertain writes, protect verification and validate public snapshots. Events has strict dates, text, exact-cent money and integer capacity. Core Event QA passed 133 lifecycle checks plus scoped synthetic cleanup and read-only checks; all 63 regression suites and quality/build gates passed. Retained records remain unchanged. RSVP/comment/media recovery and full browser, separate-user, physical-export and hosted acceptance remain incomplete; see the latest QA log.
 
 ## Technology
 
