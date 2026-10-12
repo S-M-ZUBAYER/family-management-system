@@ -46,6 +46,12 @@ export function eventRecord(value: unknown, editing = false) {
 }
 export function eventErrorCopy(code: unknown, locale: "bn" | "en") {
   const messages: Record<string, [string, string]> = {
+    EVENT_RSVP_INVALID_RESPONSE: ["যাব, হয়তো অথবা যেতে পারব না—সঠিক RSVP উত্তর নির্বাচন করুন।", "Choose a valid Going, Maybe or Not going RSVP response."],
+    EVENT_RSVP_INVALID_GUESTS: ["অতিথির সংখ্যা ০–১০ পূর্ণসংখ্যা দিন; ভুল type বা দশমিক গ্রহণ করা হবে না।", "Use an integer guest count from 0 to 10; invalid types or decimals are not accepted."],
+    EVENT_PARTICIPATION_INVALID_TEXT: ["মন্তব্য ২–২০০০ অক্ষর এবং RSVP note সর্বোচ্চ ৫০০ অক্ষর দিন; লেখা কেটে সংরক্ষণ করা হবে না।", "Use a 2–2,000 character comment and RSVP note up to 500 characters; text will not be silently truncated."],
+    EVENT_REGISTRATION_CLOSED: ["ইভেন্টের নিবন্ধন খোলা নেই অথবা সময়সীমা শেষ। RSVP পাঠানো হয়নি।", "Registration is closed or its deadline has passed. The RSVP was not submitted."],
+    EVENT_PARTICIPATION_PENDING: ["RSVP বা মন্তব্য সংরক্ষিত হয়েছে, কিন্তু audit বাকি। একই কাজ আবার পাঠাবেন না; support-এর মাধ্যমে audit যাচাই করুন।", "The RSVP or comment is saved, but its audit is pending. Do not repeat it; ask support to verify the audit."],
+    EVENT_PARTICIPATION_UNKNOWN: ["RSVP বা মন্তব্য সংরক্ষিত হয়েছে কি না নিশ্চিত নয়। আবার পাঠাবেন না; তালিকা রিলোড করে উত্তর ও আলোচনা যাচাই করুন।", "The RSVP or comment may already be saved. Do not submit it again; reload the list and review responses and discussion."],
     EVENT_INVALID_BODY: ["সঠিক ইভেন্ট তথ্য দিন।", "Provide a valid event object."],
     EVENT_INVALID_ID: ["সঠিক ইভেন্ট আইডি দিন।", "Provide a valid event ID."],
     EVENT_INVALID_ACTION: ["সমর্থিত ইভেন্ট action নির্বাচন করুন।", "Choose a supported event action."],

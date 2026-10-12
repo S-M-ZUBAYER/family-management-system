@@ -39,6 +39,7 @@
     "test:event-action-copy": "node scripts/test-event-action-copy.mjs",
     "test:event-validation": "node scripts/test-event-validation.mjs",
     "test:event-write-outcome": "node scripts/test-event-write-outcome.mjs",
+    "test:event-participation": "node scripts/test-event-participation.mjs",
     "test:magazine-action-copy": "node scripts/test-magazine-action-copy.mjs",
     "test:magazine-validation": "node scripts/test-magazine-validation.mjs",
     "test:magazine-export": "node scripts/test-magazine-export.mjs",

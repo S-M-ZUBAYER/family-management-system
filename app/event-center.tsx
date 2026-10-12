@@ -6,7 +6,8 @@ import { useActionFeedback, useActionResult } from "@/components/action-modal-pr
 import { useLocale } from "@/components/locale-provider";
 import { useCurrentTime } from "@/components/use-current-time";
 import { qurbaniIsoToLocalDateTime, qurbaniLocalDateTimeToIso } from "@/lib/qurbani-validation";
-import { eventErrorCopy, eventObject } from "@/lib/event-validation";
+import { eventErrorCopy, eventObject, EventValidationError } from "@/lib/event-validation";
+import { eventRsvpRecord, eventCommentRecord, readEventParticipation, eventParticipationFeedback, type ParticipationKind } from "@/lib/event-participation";
 import { eventReadSnapshot, readEventMutation, eventWriteFeedback } from "@/lib/event-write-outcome";
 import { NoticeRequestGate } from "@/lib/notice-write-outcome";
 
@@ -315,7 +316,37 @@ export function EventCenter() {
   function beginAuxiliary() {
     if (!access.current.ready || access.current.blocked || access.current.busy) return false;
     access.current.busy = true;
+    requestGate.current.begin();
     return true;
+  }
+  async function mutateParticipation(kind: ParticipationKind, eventId: string, body: Record<string, unknown>) {
+    if (!beginAuxiliary()) return null;
+    const checkpoint = requestGate.current.checkpoint(), path = `/api/events/${eventId}/${kind === "rsvp" ? "rsvp" : "comments"}`;
+    setWorking(true);
+    try {
+      const outcome = await readEventParticipation(async () => {
+        const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        if (response.status === 499) return response;
+        return response;
+      }, kind, eventId, body);
+      if (!mounted.current || outcome.kind === "cancelled") return null;
+      if (outcome.kind === "unknown" || !requestGate.current.current(checkpoint)) {
+        access.current.blocked = true; setVerificationBlocked(true); setCreateOpen(false); setSelectedId(null);
+        showResult(eventParticipationFeedback(path, 503, { outcomeUnknown: true }, locale)!);
+        return null;
+      }
+      if (outcome.kind === "rejected") throw new Error(eventErrorCopy(outcome.payload.code, locale) ?? (typeof outcome.payload.error === "string" ? outcome.payload.error : pick("RSVP বা মন্তব্য গ্রহণ করা হয়নি।", "The RSVP or comment was rejected.")));
+      return outcome;
+    } finally { access.current.busy = false; if (mounted.current) setWorking(false); }
+  }
+  function participationInput<T>(parse: () => T): T | null {
+    try { return parse(); } catch (error) {
+      if (error instanceof EventValidationError) {
+        showResult({ kind: "error", title: pick("RSVP/মন্তব্যের তথ্য যাচাই করুন", "Check RSVP/comment input"), message: eventErrorCopy(error.code, locale) ?? error.message });
+        return null;
+      }
+      throw error;
+    }
   }
   async function verifyEventOutcome() {
     if (access.current.busy) return;
@@ -460,48 +491,26 @@ export function EventCenter() {
 
   async function saveRsvp(responseValue: EventRsvp["response"]) {
     if (!selected) return;
-    if (!beginAuxiliary()) return;
-    setWorking(true);
-    setFeedback(null);
-    try {
-      const response = await fetch(`/api/events/${selected.id}/rsvp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ response: responseValue, guestCount: Number(guestCount || 0), note: rsvpNote }),
-      });
-      if (response.status === 499) return;
-      const payload = (await response.json()) as { rsvp?: EventRsvp; error?: string };
-      if (!response.ok || !payload.rsvp) throw new Error(payload.error ?? pick("RSVP সংরক্ষণ হয়নি।", "RSVP could not be saved."));
-      setRsvps((current) => [...current.filter((item) => item.id !== payload.rsvp!.id && !(item.event_id === payload.rsvp!.event_id && item.is_current_user)), payload.rsvp!]);
-      setFeedback(pick(`আপনার উত্তর “${responseLabels[responseValue]}” হিসেবে সংরক্ষিত হয়েছে।`, `Your response was saved as “${responseLabels[responseValue]}”.`));
-      return { eventId: selected.id, response: responseValue, guestCount: payload.rsvp.guest_count };
-    } finally {
-      setWorking(false);
-      access.current.busy = false;
-    }
+    const record = participationInput(() => eventRsvpRecord({ response: responseValue, guestCount, note: rsvpNote }));
+    if (!record) return;
+    const outcome = await mutateParticipation("rsvp", selected.id, { response: record.response, guestCount: record.guest_count, note: record.note });
+    if (!outcome?.rsvp) return;
+    const rsvp = outcome.rsvp;
+    setRsvps(current => [...current.filter(item => item.id !== rsvp.id && !(item.event_id === rsvp.event_id && item.is_current_user)), rsvp]);
+    if (!outcome.pending) setFeedback(pick(`আপনার উত্তর “${responseLabels[responseValue]}” হিসেবে সংরক্ষিত হয়েছে।`, `Your response was saved as “${responseLabels[responseValue]}”.`));
+    return { eventId: selected.id, response: responseValue, guestCount: rsvp.guest_count, pending: outcome.pending };
   }
 
-
   async function addComment() {
-    if (!selected || commentText.trim().length < 2) return;
-    if (!beginAuxiliary()) return;
-    setWorking(true);
-    try {
-      const response = await fetch(`/api/events/${selected.id}/comments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: commentText }),
-      });
-      if (response.status === 499) return;
-      const payload = (await response.json()) as { comment?: EventComment; error?: string };
-      if (!response.ok || !payload.comment) throw new Error(payload.error ?? pick("মন্তব্য সংরক্ষণ হয়নি।", "Comment could not be saved."));
-      setComments((current) => [...current, payload.comment!]);
-      setCommentText("");
-      setFeedback(pick("মন্তব্য যোগ হয়েছে।", "Comment added."));
-    } finally {
-      setWorking(false);
-      access.current.busy = false;
-    }
+    if (!selected) return;
+    const record = participationInput(() => eventCommentRecord({ body: commentText }));
+    if (!record) return;
+    const outcome = await mutateParticipation("comment", selected.id, record);
+    if (!outcome?.comment) return;
+    const comment = outcome.comment;
+    setComments(current => [...current.filter(item => item.id !== comment.id), comment]);
+    setCommentText("");
+    if (!outcome.pending) setFeedback(pick("মন্তব্য যোগ হয়েছে।", "Comment added."));
   }
 
   async function uploadMedia(file: File) {

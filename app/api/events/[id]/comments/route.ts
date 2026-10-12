@@ -1,8 +1,9 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getActiveFamilyMembership } from "@/lib/family-access";
-import { BackendNotConfiguredError, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
-
-import type { EventCommentRow, FamilyEventRow } from "../../route";
+import { supabaseRest } from "@/lib/supabase-rest";
+import { eventUuid, EventValidationError } from "@/lib/event-validation";
+import { eventCommentRecord, eventCommentVisible, eventParticipationWrite, eventParticipationResponse } from "@/lib/event-participation";
+import { eventErrorResponse, eventWriteConfirmedRejected, type FamilyEventRow } from "../../route";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
@@ -11,36 +12,19 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const membership = await getActiveFamilyMembership(user.userId);
     if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
     const { id } = await context.params;
-    const body = (await request.json()) as { body?: unknown };
-    const commentBody = typeof body.body === "string" ? body.body.trim().slice(0, 2000) : "";
-    if (!id || commentBody.length < 2) return Response.json({ error: "Comment লিখুন।" }, { status: 400 });
-    const eventQuery = new URLSearchParams({
-      select: "id,status",
-      id: `eq.${id}`,
-      family_id: `eq.${membership.family_id}`,
-      limit: "1",
+    if (!eventUuid(id)) throw new EventValidationError("EVENT_INVALID_ID");
+    const record = eventCommentRecord(await request.json().catch(() => { throw new EventValidationError("EVENT_INVALID_BODY"); }));
+    const eventQuery = new URLSearchParams({ select: "id,status", id: `eq.${id}`, family_id: `eq.${membership.family_id}`, limit: "1" });
+    const [event] = await supabaseRest<Array<Pick<FamilyEventRow, "id" | "status">>>(`family_events?${eventQuery}`);
+    if (!eventCommentVisible(event)) return Response.json({ error: "Event পাওয়া যায়নি।" }, { status: 404 });
+    const result = await eventParticipationWrite({ kind: "comment", familyId: membership.family_id, eventId: event.id, actorId: user.userId, confirmedRejected: eventWriteConfirmedRejected,
+      write: () => supabaseRest("event_comments", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({
+        family_id: membership.family_id, event_id: event.id, auth_user_id: user.userId, author_name: user.displayName.trim().slice(0, 180) || "Family member", ...record,
+      }) }),
+      audit: savedId => supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
+        family_id: membership.family_id, actor_user_id: user.userId, action: "event_comment_created", entity_type: "event_comment", entity_id: savedId, metadata: { event_id: event.id },
+      }) }),
     });
-    const event = (await supabaseRest<Array<Pick<FamilyEventRow, "id" | "status">>>(`family_events?${eventQuery}`))[0];
-    if (!event || event.status === "draft") return Response.json({ error: "Event পাওয়া যায়নি।" }, { status: 404 });
-    const [comment] = await supabaseRest<EventCommentRow[]>("event_comments", {
-      method: "POST",
-      headers: { Prefer: "return=representation" },
-      body: JSON.stringify({
-        family_id: membership.family_id,
-        event_id: id,
-        auth_user_id: user.userId,
-        author_name: user.displayName.slice(0, 180),
-        body: commentBody,
-      }),
-    });
-    return Response.json({ comment }, { status: 201 });
-  } catch (error) {
-    if (error instanceof BackendNotConfiguredError) return Response.json({ error: "Backend configured নয়।" }, { status: 503 });
-    if (error instanceof SupabaseRequestError) {
-      console.error("Unable to save event comment", error.status, error.message);
-      return Response.json({ error: "Comment save হয়নি।" }, { status: 502 });
-    }
-    console.error("Unable to save event comment", error);
-    return Response.json({ error: "Comment save হয়নি।" }, { status: 500 });
-  }
+    return eventParticipationResponse(result);
+  } catch (error) { return eventErrorResponse(error, "Unable to save event comment"); }
 }
