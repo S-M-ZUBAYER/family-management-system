@@ -2,7 +2,7 @@
 
 A bilingual (বাংলা/English), multi-family web application for family records and day-to-day coordination. The first family is Sheikh Monsuf Family, but the application is designed so each registered family has its own workspace and approval process.
 
-> **Project status:** This is an active, partially tested project—not a finished or newly deployed release. Code in this checkout, database migrations applied to Supabase, and the version currently hosted on Sites may differ. Start with [NEXT_ACCOUNT_HANDOFF.md](NEXT_ACCOUNT_HANDOFF.md), then [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) and [the latest local QA log](QA_ACCEPTANCE_2026-10-11.md) before continuing or deploying.
+> **Project status:** This is an active, partially tested project—not a finished or newly deployed release. Code in this checkout, database migrations applied to Supabase, and the version currently hosted on Sites may differ. Start with [NEXT_ACCOUNT_HANDOFF.md](NEXT_ACCOUNT_HANDOFF.md), then [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) and [the latest local QA log](QA_ACCEPTANCE_2026-10-12.md) before continuing or deploying.
 
 ## What is in the application
 
@@ -15,7 +15,7 @@ A bilingual (বাংলা/English), multi-family web application for family r
 
 Features have different acceptance levels. In particular, external SMS/email/WhatsApp delivery, billing/custom domains, complete two-user access testing, every XLSX's contents, and the latest deployment have **not** been verified. The Contact page's email link opens the visitor's email app; submitting an in-app support ticket does not itself send email.
 
-Latest local checkpoint (2026-10-11): Notices now distinguishes confirmed saves with pending audit from uncertain outcomes, guards resubmission until a valid reload, and returns validated public fields. The synthetic lifecycle passed 152 API checks; 60 regression suites and quality/build checks passed. Browser, separate-user and hosted acceptance remain incomplete. See the latest QA log for exact cleanup and remaining work.
+Latest local checkpoint (2026-10-12): Notices distinguishes confirmed audit-pending from uncertain saves and guards resubmission until a valid reload. Reload now hides stale data, handles hung fetch/JSON with a deadline, validates family/snapshot identity and protects draft editors and asynchronous exports. Ten loader regressions, 55 read-only two-family checks, all 61 regression suites and quality/build gates passed with existing records unchanged. Full browser, separate-user and hosted acceptance remain incomplete; see the latest QA log.
 
 ## Technology
 
