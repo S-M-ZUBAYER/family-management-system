@@ -30,6 +30,8 @@ import { noticeActionCopy } from "@/lib/notice-action-copy";
 import { noticeErrorCopy } from "@/lib/notice-validation";
 import { noticeWriteFeedback } from "@/lib/notice-write-outcome";
 import { eventActionCopy } from "@/lib/event-action-copy";
+import { eventErrorCopy } from "@/lib/event-validation";
+import { eventWriteFeedback } from "@/lib/event-write-outcome";
 import { magazineActionCopy } from "@/lib/magazine-action-copy";
 import { magazineErrorCopy } from "@/lib/magazine-validation";
 import { magazineWriteFeedback } from "@/lib/magazine-cover-write";
@@ -302,6 +304,8 @@ async function responseMessage(response: Response, fallback: string, locale: App
     if (!response.ok && magazineMessage) return magazineMessage;
     const noticeMessage = noticeErrorCopy(payload.code, locale);
     if (!response.ok && noticeMessage) return noticeMessage;
+    const eventMessage = eventErrorCopy(payload.code, locale);
+    if (!response.ok && eventMessage) return eventMessage;
     const qurbaniMessage = qurbaniErrorCopy(payload.code, locale);
     if (!response.ok && qurbaniMessage) return qurbaniMessage;
     const financeMessage = financeErrorCopy(payload.code, locale);
@@ -460,11 +464,14 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
           const noticePayload = /^\/api\/notices(?:\/[^/]+)?$/.test(url.pathname)
             ? await response.clone().json().then((value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}).catch(() => ({})) : null;
           const noticeResult = noticePayload ? noticeWriteFeedback(url.pathname, response.status, noticePayload, locale, method, parseBody(init?.body)) : null;
+          const eventPayload = /^\/api\/events(?:\/[^/]+)?$/.test(url.pathname)
+            ? await response.clone().json().then((value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}).catch(() => ({})) : null;
+          const eventResult = eventPayload ? eventWriteFeedback(url.pathname, response.status, eventPayload, locale, method, parseBody(init?.body)) : null;
           const message = memberResult ? memberResult.message : response.ok && response.status !== 202 && (url.pathname === "/api/notices" || url.pathname.startsWith("/api/notices/") || url.pathname === "/api/events" || url.pathname.startsWith("/api/events/") || url.pathname.startsWith("/api/event-media/") || ["/api/magazine/records", "/api/magazine/upload", "/api/qurbani/records", "/api/household/records", "/api/welfare/records", "/api/archives/records", "/api/archives/upload"].includes(url.pathname))
             ? copy.successMessage
             : response.ok && ["/api/finance/records", "/api/finance/status", "/api/health/records"].includes(url.pathname) ? copy.successMessage
             : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."), locale);
-          const nextResult = noticeResult ?? magazineResult ?? welfareResult ?? (memberResult?.noChange
+          const nextResult = noticeResult ?? eventResult ?? magazineResult ?? welfareResult ?? (memberResult?.noChange
             ? { kind: "info" as const, title: locale === "bn" ? "পরিবর্তন প্রয়োজন নেই" : "No change needed", message }
             : mutationResponseResult(memberResult?.status ?? response.status, message, locale));
           lastMutationResult.current = { kind: nextResult.kind, message: nextResult.message, at: Date.now() };
@@ -478,9 +485,10 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
           ? welfareRecordFeedback(503, { code: "WELFARE_WRITE_OUTCOME_UNKNOWN", outcomeUnknown: true }, locale) : null;
         const magazineFailure = magazineWriteFeedback(url.pathname, 503, { code: "MAGAZINE_COVER_OUTCOME_UNKNOWN", outcomeUnknown: true }, locale);
         const noticeFailure = noticeWriteFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
-        const propagatedError = noticeFailure ? new Error(noticeFailure.message) : magazineFailure ? new Error(magazineFailure.message) : welfareFailure ? new Error(welfareFailure.message) : error;
+        const eventFailure = eventWriteFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
+        const propagatedError = eventFailure ? new Error(eventFailure.message) : noticeFailure ? new Error(noticeFailure.message) : magazineFailure ? new Error(magazineFailure.message) : welfareFailure ? new Error(welfareFailure.message) : error;
         if (mounted.current) {
-          const nextResult: ResultState = noticeFailure ?? magazineFailure ?? welfareFailure ?? {
+          const nextResult: ResultState = noticeFailure ?? eventFailure ?? magazineFailure ?? welfareFailure ?? {
             kind: "error",
             title: locale === "bn" ? "সংযোগজনিত error" : "Connection error",
             message: error instanceof Error ? error.message : (locale === "bn" ? "Server-এর সাথে যোগাযোগ করা যায়নি। আবার চেষ্টা করুন।" : "Could not contact the server. Please try again."),

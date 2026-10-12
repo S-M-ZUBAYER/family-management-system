@@ -2,10 +2,13 @@
 /* Event media uses authenticated API URLs and must not be fetched by the image optimizer. */
 /* eslint-disable @next/next/no-img-element */
 
-import { useActionFeedback } from "@/components/action-modal-provider";
+import { useActionFeedback, useActionResult } from "@/components/action-modal-provider";
 import { useLocale } from "@/components/locale-provider";
 import { useCurrentTime } from "@/components/use-current-time";
 import { qurbaniIsoToLocalDateTime, qurbaniLocalDateTimeToIso } from "@/lib/qurbani-validation";
+import { eventErrorCopy, eventObject } from "@/lib/event-validation";
+import { eventReadSnapshot, readEventMutation, eventWriteFeedback } from "@/lib/event-write-outcome";
+import { NoticeRequestGate } from "@/lib/notice-write-outcome";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -86,6 +89,7 @@ export type FamilyEvent = {
   registration_deadline: string | null;
   status: "draft" | "published" | "registration_closed" | "completed" | "cancelled";
   created_at: string;
+  updated_at: string;
 };
 
 type EventRsvp = {
@@ -119,7 +123,7 @@ type EventMedia = {
 };
 
 type EventPayload = {
-  family?: { id: string; name_bn: string; name_en: string };
+  family?: { id: string; name_bn: string; name_en: string | null };
   events?: FamilyEvent[];
   rsvps?: EventRsvp[];
   comments?: EventComment[];
@@ -223,16 +227,30 @@ export function EventCenter() {
   const [commentText, setCommentText] = useState("");
   const [mediaCaption, setMediaCaption] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const showResult = useActionResult();
+  const [verificationBlocked, setVerificationBlocked] = useState(false);
+  const access = useRef({ ready: false, canManage: false, blocked: false, busy: false });
+  const requestGate = useRef(new NoticeRequestGate());
+  const readFamily = useRef<string | undefined>(undefined);
+  const mounted = useRef(false);
 
   const selected = useMemo(() => events.find((event) => event.id === selectedId) ?? null, [events, selectedId]);
 
   const loadEvents = useCallback(async () => {
+    if (!mounted.current) return false;
+    const ticket = requestGate.current.begin();
+    const timer = setTimeout(() => ticket.controller.abort(), 25000);
+    access.current.ready = false; access.current.canManage = false;
     setLoading(true);
+    setFamily(undefined); setEvents([]); setRsvps([]); setComments([]); setMedia([]); setCanManage(false);
     setFeedback(null);
     try {
-      const response = await fetch("/api/events", { cache: "no-store" });
-      const payload = (await response.json()) as EventPayload;
-      if (payload.code === "FAMILY_SETUP_REQUIRED") {
+      const response = await fetch("/api/events", { cache: "no-store", signal: ticket.controller.signal });
+      const raw: unknown = await response.json();
+      if (!mounted.current || !requestGate.current.current(ticket)) return false;
+      if (ticket.controller.signal.aborted) throw new Error(eventErrorCopy("EVENT_INVALID_SNAPSHOT", locale)!);
+      const payload = eventObject(raw) ? raw : {};
+      if (response.status === 409 && payload.code === "FAMILY_SETUP_REQUIRED") {
         setSetupRequired(true);
         setEvents([]);
         setRsvps([]);
@@ -241,19 +259,20 @@ export function EventCenter() {
         setFamily(undefined);
         setCanManage(false);
         setMigrationRequired(false);
-        return;
+        return false;
       }
       if (payload.code === "EVENTS_ROW_LIMIT") throw new Error(pick("ইভেন্ট ইতিহাসের কোনো অংশ ২০,০০০ সারির সীমা ছাড়িয়েছে। অসম্পূর্ণ তথ্য দেখানো বা XLSX-এ রপ্তানি করা হয়নি।", "One section of event history exceeds 20,000 rows. No partial data was shown or exported."));
-      if (!response.ok) throw new Error(payload.error ?? pick("ইভেন্ট পরিকল্পনা পাওয়া যায়নি।", "Event planner could not be loaded."));
-      setFamily(payload.family);
-      setEvents(payload.events ?? []);
-      setRsvps(payload.rsvps ?? []);
-      setComments(payload.comments ?? []);
-      setMedia(payload.media ?? []);
-      setCanManage(Boolean(payload.permissions?.canManage));
-      setMigrationRequired(Boolean(payload.migrationRequired));
+      if (!response.ok) throw new Error(eventErrorCopy(payload.code, locale) ?? (typeof payload.error === "string" ? payload.error : pick("ইভেন্ট পরিকল্পনা পাওয়া যায়নি।", "Event planner could not be loaded.")));
+      const snapshot = eventReadSnapshot(raw, readFamily.current);
+      if (!snapshot) throw new Error(eventErrorCopy("EVENT_INVALID_SNAPSHOT", locale)!);
+      readFamily.current = snapshot.family.id;
+      setFamily(snapshot.family); setEvents(snapshot.events); setRsvps(snapshot.rsvps); setComments(snapshot.comments); setMedia(snapshot.media);
+      setCanManage(snapshot.permissions.canManage); setMigrationRequired(snapshot.migrationRequired);
+      access.current.ready = !snapshot.migrationRequired; access.current.canManage = snapshot.permissions.canManage;
       setSetupRequired(false);
+      return !snapshot.migrationRequired;
     } catch (error) {
+      if (!mounted.current || !requestGate.current.current(ticket)) return false;
       setEvents([]);
       setRsvps([]);
       setComments([]);
@@ -263,18 +282,58 @@ export function EventCenter() {
       setMigrationRequired(false);
       setSetupRequired(false);
       setFeedback(error instanceof Error ? error.message : pick("ইভেন্ট পরিকল্পনা পাওয়া যায়নি।", "Event planner could not be loaded."));
+      return false;
     } finally {
-      setLoading(false);
+      clearTimeout(timer);
+      if (mounted.current && requestGate.current.current(ticket)) setLoading(false);
     }
-  }, [pick, setFeedback]);
+  }, [locale, pick, setFeedback]);
 
+  const mutateEvent = useCallback(async (method: "POST" | "PATCH" | "DELETE", id: string | undefined, body: Record<string, unknown>) => {
+    const gate = access.current;
+    if (!gate.ready || !gate.canManage || gate.blocked || gate.busy) throw new Error(eventErrorCopy("EVENT_INVALID_SNAPSHOT", locale)!);
+    gate.busy = true;
+    const ticket = requestGate.current.begin(), path = id ? `/api/events/${id}` : "/api/events";
+    if (method === "POST" || body.action === "edit") setSaving(true); else setWorking(true);
+    try {
+      const outcome = await readEventMutation(async () => {
+        const response = await fetch(path, { method: method, headers: { "Content-Type": "application/json" }, ...(method === "DELETE" ? {} : { body: JSON.stringify(body) }) });
+        if (response.status === 499) return response;
+        return response;
+      }, method, id, body);
+      if (!mounted.current || outcome.kind === "cancelled") return null;
+      if (outcome.kind === "unknown" || !requestGate.current.current(ticket)) {
+        access.current.blocked = true; setVerificationBlocked(true); setCreateOpen(false); setSelectedId(null);
+        showResult(eventWriteFeedback(path, 503, { outcomeUnknown: true }, locale)!);
+        return null;
+      }
+      if (outcome.kind === "rejected") throw new Error(eventErrorCopy(outcome.payload.code, locale) ?? (typeof outcome.payload.error === "string" ? outcome.payload.error : pick("ইভেন্টের পরিবর্তন গ্রহণ করা হয়নি।", "The event change was rejected.")));
+      return outcome;
+    } finally { access.current.busy = false; if (mounted.current) { setSaving(false); setWorking(false); } }
+  }, [locale, pick, showResult]);
+
+  function beginAuxiliary() {
+    if (!access.current.ready || access.current.blocked || access.current.busy) return false;
+    access.current.busy = true;
+    return true;
+  }
+  async function verifyEventOutcome() {
+    if (access.current.busy) return;
+    setCreateOpen(false); setSelectedId(null);
+    if (await loadEvents()) {
+      access.current.blocked = false; setVerificationBlocked(false);
+      showResult({ kind: "info", title: pick("তালিকা পুনরায় লোড হয়েছে", "List reloaded"), message: pick("ইভেন্টের অবস্থা মিলিয়ে দেখুন। রিলোড audit বা file cleanup ঠিক করে না এবং কোনো পরিবর্তন আবার পাঠায় না।", "Review the event state. Reloading does not repair audit or file cleanup, or resubmit any change.") });
+    }
+  }
   function openCreateEvent() {
+    if (!access.current.ready || !access.current.canManage || access.current.blocked || access.current.busy) return;
     setEditingEvent(null);
     setForm(emptyForm);
     setCreateOpen(true);
   }
 
   function openEditEvent(event: FamilyEvent) {
+    if (!access.current.ready || !access.current.canManage || access.current.blocked || access.current.busy) return;
     setEditingEvent(event);
     setForm({
       titleBn: event.title_bn,
@@ -298,49 +357,33 @@ export function EventCenter() {
   }
 
   async function updateEventDetails(id: string, input: EventForm) {
-    setSaving(true);
-    try {
       const startAt = qurbaniLocalDateTimeToIso(input.startAt);
       const endAt = qurbaniLocalDateTimeToIso(input.endAt);
       const registrationDeadline = qurbaniLocalDateTimeToIso(input.registrationDeadline);
       if (!startAt || endAt === undefined || registrationDeadline === undefined) throw new Error(pick("সঠিক সময়সূচি দিন।", "Enter a valid schedule."));
-      const response = await fetch(`/api/events/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "edit", data: { ...input, startAt, endAt, registrationDeadline } }),
-      });
-      if (response.status === 499) return;
-      const payload = await response.json() as { event?: FamilyEvent; error?: string; message?: string };
-      if (!response.ok || !payload.event) throw new Error(payload.error ?? pick("ইভেন্ট হালনাগাদ হয়নি।", "Event could not be updated."));
+      const outcome = await mutateEvent("PATCH", id, { action: "edit", data: { ...input, startAt, endAt, registrationDeadline } });
+      if (!outcome?.event) return;
+      const payload = outcome;
       setEvents((current) => current.map((event) => event.id === id ? payload.event! : event).sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
       setCreateOpen(false);
       setEditingEvent(null);
       setForm(emptyForm);
-      setFeedback(pick("ইভেন্টের বিস্তারিত আপডেট হয়েছে।", "Event details updated."));
-    } finally {
-      setSaving(false);
-    }
+      if (!outcome.pending) setFeedback(pick("ইভেন্টের বিস্তারিত আপডেট হয়েছে।", "Event details updated."));
   }
 
   async function deleteEvent(id: string) {
-    setWorking(true);
-    try {
-      const response = await fetch(`/api/events/${id}`, { method: "DELETE" });
-      if (response.status === 499) return;
-      const payload = await response.json() as { error?: string; message?: string };
-      if (!response.ok) throw new Error(payload.error ?? pick("ইভেন্ট মোছা যায়নি।", "Event could not be deleted."));
+      const outcome = await mutateEvent("DELETE", id, {});
+      if (!outcome) return;
       setEvents((current) => current.filter((event) => event.id !== id));
       setRsvps((current) => current.filter((item) => item.event_id !== id));
       setComments((current) => current.filter((item) => item.event_id !== id));
       setMedia((current) => current.filter((item) => item.event_id !== id));
       setSelectedId(null);
-      setFeedback(pick("ইভেন্ট ও সংশ্লিষ্ট তথ্য মুছে ফেলা হয়েছে।", "Event and linked records deleted."));
-    } finally {
-      setWorking(false);
-    }
+      if (!outcome.pending) setFeedback(pick("ইভেন্ট ও সংশ্লিষ্ট তথ্য মুছে ফেলা হয়েছে।", "Event and linked records deleted."));
   }
 
   async function deleteMedia(id: string) {
+    if (!beginAuxiliary()) return;
     setWorking(true);
     try {
       const response = await fetch(`/api/event-media/${id}`, { method: "DELETE" });
@@ -351,11 +394,16 @@ export function EventCenter() {
       setFeedback(pick("ইভেন্টের media মুছে ফেলা হয়েছে।", "Event media deleted."));
     } finally {
       setWorking(false);
+      access.current.busy = false;
     }
   }
 
   useEffect(() => {
-    queueMicrotask(() => void loadEvents());
+    mounted.current = true;
+    const gate = requestGate.current, currentAccess = access.current;
+    let active = true;
+    queueMicrotask(() => { if (active) void loadEvents(); });
+    return () => { active = false; mounted.current = false; currentAccess.ready = false; gate.cancel(); };
   }, [loadEvents]);
 
   useEffect(() => {
@@ -385,53 +433,34 @@ export function EventCenter() {
   const goingCount = useCallback((id: string) => rsvps.filter((item) => item.event_id === id && item.response === "going").reduce((total, item) => total + 1 + item.guest_count, 0), [rsvps]);
 
   const createEvent = useCallback(async (input: EventForm) => {
-    setSaving(true);
     setFeedback(null);
-    try {
       const startAt = qurbaniLocalDateTimeToIso(input.startAt);
       const endAt = qurbaniLocalDateTimeToIso(input.endAt);
       const registrationDeadline = qurbaniLocalDateTimeToIso(input.registrationDeadline);
       if (!startAt || endAt === undefined || registrationDeadline === undefined) throw new Error(pick("সঠিক সময়সূচি দিন।", "Enter a valid schedule."));
-      const response = await fetch("/api/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...input, startAt, endAt, registrationDeadline }),
-      });
-      if (response.status === 499) return;
-      const payload = (await response.json()) as { event?: FamilyEvent; error?: string };
-      if (!response.ok || !payload.event) throw new Error(payload.error ?? pick("ইভেন্ট সংরক্ষণ হয়নি।", "Event could not be saved."));
+      const outcome = await mutateEvent("POST", undefined, { ...input, startAt, endAt, registrationDeadline });
+      if (!outcome?.event) return;
+      const payload = outcome;
       setEvents((current) => [...current, payload.event!].sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()));
       setForm(emptyForm);
       setCreateOpen(false);
-      setFeedback(payload.event.status === "published" ? pick("ইভেন্ট প্রকাশিত হয়েছে।", "Event published.") : pick("ইভেন্ট খসড়া হিসেবে সংরক্ষিত হয়েছে।", "Event saved as a draft."));
-      return { id: payload.event.id, title: payload.event.title_bn, status: payload.event.status };
-    } finally {
-      setSaving(false);
-    }
-  }, [pick, setFeedback]);
+      if (!outcome.pending) setFeedback(outcome.event.status === "published" ? pick("ইভেন্ট প্রকাশিত হয়েছে।", "Event published.") : pick("ইভেন্ট খসড়া হিসেবে সংরক্ষিত হয়েছে।", "Event saved as a draft."));
+      return { id: outcome.event.id, title: outcome.event.title_bn, status: outcome.event.status, pending: outcome.pending };
+  }, [mutateEvent, pick, setFeedback]);
 
   async function updateEvent(action: "publish" | "close" | "complete" | "cancel" | "draft") {
     if (!selected) return;
-    setWorking(true);
     setFeedback(null);
-    try {
-      const response = await fetch(`/api/events/${selected.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
-      });
-      if (response.status === 499) return;
-      const payload = (await response.json()) as { event?: FamilyEvent; error?: string };
-      if (!response.ok || !payload.event) throw new Error(payload.error ?? pick("ইভেন্ট হালনাগাদ হয়নি।", "Event could not be updated."));
+      const outcome = await mutateEvent("PATCH", selected.id, { action });
+      if (!outcome?.event) return;
+      const payload = outcome;
       setEvents((current) => current.map((event) => event.id === selected.id ? payload.event! : event));
-      setFeedback(pick("ইভেন্টের স্ট্যাটাস হালনাগাদ হয়েছে।", "Event status updated."));
-    } finally {
-      setWorking(false);
-    }
+      if (!outcome.pending) setFeedback(pick("ইভেন্টের স্ট্যাটাস হালনাগাদ হয়েছে।", "Event status updated."));
   }
 
   async function saveRsvp(responseValue: EventRsvp["response"]) {
     if (!selected) return;
+    if (!beginAuxiliary()) return;
     setWorking(true);
     setFeedback(null);
     try {
@@ -448,11 +477,14 @@ export function EventCenter() {
       return { eventId: selected.id, response: responseValue, guestCount: payload.rsvp.guest_count };
     } finally {
       setWorking(false);
+      access.current.busy = false;
     }
   }
 
+
   async function addComment() {
     if (!selected || commentText.trim().length < 2) return;
+    if (!beginAuxiliary()) return;
     setWorking(true);
     try {
       const response = await fetch(`/api/events/${selected.id}/comments`, {
@@ -468,11 +500,13 @@ export function EventCenter() {
       setFeedback(pick("মন্তব্য যোগ হয়েছে।", "Comment added."));
     } finally {
       setWorking(false);
+      access.current.busy = false;
     }
   }
 
   async function uploadMedia(file: File) {
     if (!selected) return;
+    if (!beginAuxiliary()) return;
     setWorking(true);
     setFeedback(null);
     try {
@@ -489,13 +523,17 @@ export function EventCenter() {
       setFeedback(pick("ইভেন্ট গ্যালারিতে মিডিয়া যোগ হয়েছে।", "Media added to the event gallery."));
     } finally {
       setWorking(false);
+      access.current.busy = false;
     }
   }
 
   async function exportXlsx() {
+    if (!access.current.ready || access.current.blocked || access.current.busy || exporting) return;
+    const checkpoint = requestGate.current.checkpoint();
     setExporting(true);
     try {
       const XLSX = await import("xlsx");
+      if (!access.current.ready || access.current.blocked || access.current.busy || !requestGate.current.current(checkpoint)) return;
       const includedEvents = new Map(visibleEvents.map((event) => [event.id, event]));
       const eventName = (id: string) => {
         const event = includedEvents.get(id);
@@ -563,8 +601,12 @@ export function EventCenter() {
   const selectedGoing = selected ? goingCount(selected.id) : 0;
   const capacityProgress = selected?.capacity ? Math.min(100, (selectedGoing / selected.capacity) * 100) : 0;
 
+  if (!loading && !family) return <main className="mx-auto max-w-3xl p-6"><Card className="rounded-3xl"><CardContent className="space-y-4 p-6"><h1 className="text-2xl font-bold">{pick("ইভেন্ট তালিকা পাওয়া যায়নি", "Event list unavailable")}</h1><p>{eventErrorCopy("EVENT_INVALID_SNAPSHOT", locale)}</p><Button onClick={() => void (verificationBlocked ? verifyEventOutcome() : loadEvents())}>{pick("আবার লোড করুন", "Reload list")}</Button></CardContent></Card></main>;
+
   return (
     <main className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 md:px-7 md:py-8">
+      {verificationBlocked ? <div role="status" className="space-y-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4"><p>{eventErrorCopy("EVENT_WRITE_OUTCOME_UNKNOWN", locale)}</p><Button disabled={loading || saving || working} onClick={() => void verifyEventOutcome()}>{pick("তালিকা লোড করে যাচাই করুন", "Reload to verify")}</Button></div> : null}
+      <fieldset disabled={loading || saving || working || verificationBlocked || !family || migrationRequired} className="contents">
       <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary"><CalendarDays className="size-4" /> {pick("ইভেন্ট ও ট্যুর কার্যক্রম", "Event & Tour Operations")}</div><h1 className="text-2xl font-bold tracking-tight md:text-3xl">{pick("ইভেন্ট ও ট্যুর ম্যানেজমেন্ট", "Event & Tour Management")}</h1><p className="mt-1 text-muted-foreground">{pick("পরিকল্পনা, নিবন্ধন, আলোচনা, বাজেট ও স্মৃতির গ্যালারি এক জায়গায়।", "Planning, registration, discussion, budgets, and memory galleries in one place.")}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="gap-2 rounded-xl" disabled={!visibleEvents.length || exporting} onClick={() => void exportXlsx()}>{exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} {pick("XLSX রপ্তানি", "Export XLSX")}</Button>{canManage ? <Button className="gap-2 rounded-xl" disabled={migrationRequired} onClick={openCreateEvent}><Plus className="size-4" /> {pick("নতুন ইভেন্ট", "New event")}</Button> : null}</div></section>
       {migrationRequired ? <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/8 px-4 py-3 text-sm text-amber-800 dark:text-amber-200"><TriangleAlert className="mt-0.5 size-4 shrink-0" /> {pick("Event & Tour database migration Supabase SQL Editor-এ একবার চালাতে হবে।", "Run the Event & Tour database migration once in the Supabase SQL Editor.")}</div> : null}
       {feedback ? <div className="rounded-2xl border bg-muted/35 px-4 py-3 text-sm font-medium">{feedback}</div> : null}
@@ -580,12 +622,13 @@ export function EventCenter() {
         {loading ? <div className="flex min-h-80 items-center justify-center gap-3 text-muted-foreground"><LoaderCircle className="size-5 animate-spin" /> {pick("Event লোড হচ্ছে", "Loading events")}</div> : visibleEvents.length ? <div className="grid gap-4 p-4 md:grid-cols-2 md:p-5 xl:grid-cols-3">{visibleEvents.map((event) => { const count = goingCount(event.id); const date = new Date(event.start_at); const numberLocale = locale === "bn" ? "bn-BD" : "en-GB"; return <article key={event.id} className="overflow-hidden rounded-2xl border border-border/75 bg-card transition hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"><div className="flex items-start gap-4 p-5"><div className="grid w-16 shrink-0 place-items-center rounded-2xl bg-primary/10 px-2 py-3 text-primary"><span className="text-xs font-bold uppercase">{date.toLocaleDateString(numberLocale, { month: "short" })}</span><span className="text-2xl font-black">{date.toLocaleDateString(numberLocale, { day: "2-digit" })}</span></div><div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2"><Badge variant="secondary">{typeLabels[event.event_type]}</Badge><Badge variant={event.status === "cancelled" ? "destructive" : "outline"}>{statusLabels[event.status]}</Badge></div><button type="button" className="mt-3 block w-full text-left" onClick={() => setSelectedId(event.id)}><h2 className="text-lg font-bold leading-snug">{locale === "en" ? event.title_en || event.title_bn : event.title_bn}</h2><p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground"><MapPin className="size-4 shrink-0" /> <span className="truncate">{[event.venue, event.city].filter(Boolean).join(", ")}</span></p><p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground"><Clock3 className="size-4" /> {dateFormatter.format(date)}</p></button></div></div><div className="grid grid-cols-2 border-t bg-muted/20"><button type="button" className="border-r px-4 py-3 text-left" onClick={() => setSelectedId(event.id)}><p className="text-xs text-muted-foreground">{pick("অংশগ্রহণকারী", "Participants")}</p><p className="mt-1 font-bold">{count.toLocaleString(numberLocale)}{event.capacity ? ` / ${event.capacity.toLocaleString(numberLocale)}` : ""}</p></button><button type="button" className="px-4 py-3 text-left" onClick={() => setSelectedId(event.id)}><p className="text-xs text-muted-foreground">{pick("প্রতি ব্যক্তি", "Per person")}</p><p className="mt-1 font-bold">{moneyFormatter.format(Number(event.estimated_cost_per_person))}</p></button></div></article>; })}</div> : <div className="flex min-h-80 flex-col items-center justify-center px-6 text-center"><CalendarDays className="size-11 text-muted-foreground/45" /><h2 className="mt-4 text-xl font-bold">{pick("এই তালিকায় কোনো আয়োজন নেই", "There are no events in this list")}</h2><p className="mt-1 text-sm text-muted-foreground">{pick("Filter বদলান অথবা নতুন event/tour তৈরি করুন।", "Change the filter or create a new event or tour.")}</p>{canManage && !migrationRequired ? <Button className="mt-5 gap-2 rounded-xl" onClick={openCreateEvent}><Plus className="size-4" /> {pick("প্রথম ইভেন্ট তৈরি করুন", "Create first event")}</Button> : null}</div>}
       </Card>
 
-      <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) { setEditingEvent(null); setForm(emptyForm); } }}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-4xl"><DialogHeader><DialogTitle>{editingEvent ? pick("ইভেন্টের বিস্তারিত সম্পাদনা", "Edit event details") : pick("নতুন event বা tour", "New event or tour")}</DialogTitle><DialogDescription>{editingEvent ? pick("তারিখ, স্থান, capacity, budget এবং বর্তমান অবস্থা update করুন।", "Update the date, venue, capacity, budget, and current status.") : pick("তারিখ, স্থান, registration, capacity এবং budget নির্ধারণ করুন।", "Set the date, venue, registration, capacity, and budget.")}</DialogDescription></DialogHeader><div className="grid gap-4 py-2 sm:grid-cols-2"><Field label={pick("নাম (বাংলা)", "Name (Bangla)")} id="event-title-bn"><Input id="event-title-bn" value={form.titleBn} onChange={(event) => setForm({ ...form, titleBn: event.target.value })} /></Field><Field label={pick("নাম (ইংরেজি)", "Name (English)")} id="event-title-en"><Input id="event-title-en" value={form.titleEn} onChange={(event) => setForm({ ...form, titleEn: event.target.value })} /></Field><div className="sm:col-span-2"><Field label={pick("বিস্তারিত পরিকল্পনা (বাংলা)", "Detailed plan (Bangla)")} id="event-description-bn"><Textarea id="event-description-bn" rows={5} value={form.descriptionBn} onChange={(event) => setForm({ ...form, descriptionBn: event.target.value })} /></Field></div><div className="sm:col-span-2"><Field label={pick("বিস্তারিত পরিকল্পনা (ইংরেজি)", "Detailed plan (English)")} id="event-description-en"><Textarea id="event-description-en" rows={3} value={form.descriptionEn} onChange={(event) => setForm({ ...form, descriptionEn: event.target.value })} /></Field></div><Field label={pick("আয়োজনের ধরন", "Event type")} id="event-type"><Select value={form.eventType} onValueChange={(value) => setForm({ ...form, eventType: value as FamilyEvent["event_type"] })}><SelectTrigger id="event-type" className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(typeLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field><Field label={pick("অবস্থা", "Status")} id="event-status"><Select value={form.status} onValueChange={(value) => setForm({ ...form, status: value as EventForm["status"] })}><SelectTrigger id="event-status" className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="published">{statusLabels.published}</SelectItem><SelectItem value="draft">{statusLabels.draft}</SelectItem>{editingEvent ? <><SelectItem value="registration_closed">{statusLabels.registration_closed}</SelectItem><SelectItem value="completed">{statusLabels.completed}</SelectItem><SelectItem value="cancelled">{statusLabels.cancelled}</SelectItem></> : null}</SelectContent></Select></Field><Field label={pick("শুরুর সময়", "Start time")} id="event-start"><Input id="event-start" type="datetime-local" value={form.startAt} onChange={(event) => setForm({ ...form, startAt: event.target.value })} /></Field><Field label={pick("শেষের সময়", "End time")} id="event-end"><Input id="event-end" type="datetime-local" value={form.endAt} onChange={(event) => setForm({ ...form, endAt: event.target.value })} /></Field><Field label={pick("স্থান / Venue", "Venue")} id="event-venue"><Input id="event-venue" value={form.venue} onChange={(event) => setForm({ ...form, venue: event.target.value })} /></Field><Field label={pick("শহর", "City")} id="event-city"><Input id="event-city" value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} /></Field><Field label={pick("Meeting point", "Meeting point")} id="event-meeting"><Input id="event-meeting" value={form.meetingPoint} onChange={(event) => setForm({ ...form, meetingPoint: event.target.value })} /></Field><Field label={pick("Registration deadline", "Registration deadline")} id="event-deadline"><Input id="event-deadline" type="datetime-local" value={form.registrationDeadline} onChange={(event) => setForm({ ...form, registrationDeadline: event.target.value })} /></Field><Field label={pick("প্রতি ব্যক্তির খরচ", "Cost per person")} id="event-cost"><Input id="event-cost" type="number" min="0" step="0.01" value={form.estimatedCostPerPerson} onChange={(event) => setForm({ ...form, estimatedCostPerPerson: event.target.value })} /></Field><Field label={pick("মোট budget", "Total budget")} id="event-budget"><Input id="event-budget" type="number" min="0" step="0.01" value={form.totalBudget} onChange={(event) => setForm({ ...form, totalBudget: event.target.value })} /></Field><Field label={pick("সর্বোচ্চ capacity", "Maximum capacity")} id="event-capacity"><Input id="event-capacity" type="number" min="1" value={form.capacity} onChange={(event) => setForm({ ...form, capacity: event.target.value })} /></Field></div><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setCreateOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="gap-2 rounded-xl" disabled={saving || form.titleBn.trim().length < 3 || form.descriptionBn.trim().length < 5 || !form.startAt || !form.venue.trim()} onClick={() => void (editingEvent ? updateEventDetails(editingEvent.id, form) : createEvent(form)).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Event save হয়নি।", "Event could not be saved.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingEvent ? <Pencil className="size-4" /> : <CalendarDays className="size-4" />} {editingEvent ? pick("Event update", "Update event") : form.status === "published" ? pick("প্রকাশ করুন", "Publish") : pick("খসড়া সংরক্ষণ", "Save draft")}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={createOpen} onOpenChange={(open) => { if (!access.current.ready || access.current.busy || access.current.blocked) return; setCreateOpen(open); if (!open) { setEditingEvent(null); setForm(emptyForm); } }}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-4xl"><DialogHeader><DialogTitle>{editingEvent ? pick("ইভেন্টের বিস্তারিত সম্পাদনা", "Edit event details") : pick("নতুন event বা tour", "New event or tour")}</DialogTitle><DialogDescription>{editingEvent ? pick("তারিখ, স্থান, capacity, budget এবং বর্তমান অবস্থা update করুন।", "Update the date, venue, capacity, budget, and current status.") : pick("তারিখ, স্থান, registration, capacity এবং budget নির্ধারণ করুন।", "Set the date, venue, registration, capacity, and budget.")}</DialogDescription></DialogHeader><fieldset disabled={verificationBlocked || loading || working || saving || working || loading || verificationBlocked} className="contents"><div className="grid gap-4 py-2 sm:grid-cols-2"><Field label={pick("নাম (বাংলা)", "Name (Bangla)")} id="event-title-bn"><Input id="event-title-bn" value={form.titleBn} onChange={(event) => setForm({ ...form, titleBn: event.target.value })} /></Field><Field label={pick("নাম (ইংরেজি)", "Name (English)")} id="event-title-en"><Input id="event-title-en" value={form.titleEn} onChange={(event) => setForm({ ...form, titleEn: event.target.value })} /></Field><div className="sm:col-span-2"><Field label={pick("বিস্তারিত পরিকল্পনা (বাংলা)", "Detailed plan (Bangla)")} id="event-description-bn"><Textarea id="event-description-bn" rows={5} value={form.descriptionBn} onChange={(event) => setForm({ ...form, descriptionBn: event.target.value })} /></Field></div><div className="sm:col-span-2"><Field label={pick("বিস্তারিত পরিকল্পনা (ইংরেজি)", "Detailed plan (English)")} id="event-description-en"><Textarea id="event-description-en" rows={3} value={form.descriptionEn} onChange={(event) => setForm({ ...form, descriptionEn: event.target.value })} /></Field></div><Field label={pick("আয়োজনের ধরন", "Event type")} id="event-type"><Select value={form.eventType} onValueChange={(value) => setForm({ ...form, eventType: value as FamilyEvent["event_type"] })}><SelectTrigger id="event-type" className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(typeLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field><Field label={pick("অবস্থা", "Status")} id="event-status"><Select value={form.status} onValueChange={(value) => setForm({ ...form, status: value as EventForm["status"] })}><SelectTrigger id="event-status" className="w-full rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="published">{statusLabels.published}</SelectItem><SelectItem value="draft">{statusLabels.draft}</SelectItem>{editingEvent ? <><SelectItem value="registration_closed">{statusLabels.registration_closed}</SelectItem><SelectItem value="completed">{statusLabels.completed}</SelectItem><SelectItem value="cancelled">{statusLabels.cancelled}</SelectItem></> : null}</SelectContent></Select></Field><Field label={pick("শুরুর সময়", "Start time")} id="event-start"><Input id="event-start" type="datetime-local" value={form.startAt} onChange={(event) => setForm({ ...form, startAt: event.target.value })} /></Field><Field label={pick("শেষের সময়", "End time")} id="event-end"><Input id="event-end" type="datetime-local" value={form.endAt} onChange={(event) => setForm({ ...form, endAt: event.target.value })} /></Field><Field label={pick("স্থান / Venue", "Venue")} id="event-venue"><Input id="event-venue" value={form.venue} onChange={(event) => setForm({ ...form, venue: event.target.value })} /></Field><Field label={pick("শহর", "City")} id="event-city"><Input id="event-city" value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} /></Field><Field label={pick("Meeting point", "Meeting point")} id="event-meeting"><Input id="event-meeting" value={form.meetingPoint} onChange={(event) => setForm({ ...form, meetingPoint: event.target.value })} /></Field><Field label={pick("Registration deadline", "Registration deadline")} id="event-deadline"><Input id="event-deadline" type="datetime-local" value={form.registrationDeadline} onChange={(event) => setForm({ ...form, registrationDeadline: event.target.value })} /></Field><Field label={pick("প্রতি ব্যক্তির খরচ", "Cost per person")} id="event-cost"><Input id="event-cost" type="number" min="0" step="0.01" value={form.estimatedCostPerPerson} onChange={(event) => setForm({ ...form, estimatedCostPerPerson: event.target.value })} /></Field><Field label={pick("মোট budget", "Total budget")} id="event-budget"><Input id="event-budget" type="number" min="0" step="0.01" value={form.totalBudget} onChange={(event) => setForm({ ...form, totalBudget: event.target.value })} /></Field><Field label={pick("সর্বোচ্চ capacity", "Maximum capacity")} id="event-capacity"><Input id="event-capacity" type="number" min="1" value={form.capacity} onChange={(event) => setForm({ ...form, capacity: event.target.value })} /></Field></div><DialogFooter><Button variant="outline" className="rounded-xl" disabled={verificationBlocked || loading || working || saving || working || loading || verificationBlocked} onClick={() => setCreateOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="gap-2 rounded-xl" disabled={verificationBlocked || loading || working || saving || form.titleBn.trim().length < 3 || form.descriptionBn.trim().length < 5 || !form.startAt || !form.venue.trim()} onClick={() => void (editingEvent ? updateEventDetails(editingEvent.id, form) : createEvent(form)).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Event save হয়নি।", "Event could not be saved.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingEvent ? <Pencil className="size-4" /> : <CalendarDays className="size-4" />} {editingEvent ? pick("Event update", "Update event") : form.status === "published" ? pick("প্রকাশ করুন", "Publish") : pick("খসড়া সংরক্ষণ", "Save draft")}</Button></DialogFooter></fieldset></DialogContent></Dialog>
 
-      <Sheet open={Boolean(selected)} onOpenChange={(open) => !open && setSelectedId(null)}><SheetContent className="w-full overflow-y-auto p-0 sm:max-w-2xl"><SheetHeader className="border-b p-6 text-left"><div className="flex items-start justify-between gap-4 pr-8"><div className="flex flex-wrap gap-2">{selected ? <><Badge variant="secondary">{typeLabels[selected.event_type]}</Badge><Badge variant={selected.status === "cancelled" ? "destructive" : "outline"}>{statusLabels[selected.status]}</Badge></> : null}</div>{canManage && selected ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="gap-2 rounded-xl" disabled={working}><Ellipsis className="size-4" /> {pick("পরিচালনা", "Manage")}</Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-52"><DropdownMenuItem onClick={() => openEditEvent(selected)}><Pencil /> {pick("বিস্তারিত সম্পাদনা", "Edit details")}</DropdownMenuItem>{selected.status !== "published" ? <DropdownMenuItem onClick={() => void updateEvent("publish").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Update হয়নি।", "Update failed.")))}>{pick("Registration প্রকাশ করুন", "Publish registration")}</DropdownMenuItem> : <DropdownMenuItem onClick={() => void updateEvent("close").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Update হয়নি।", "Update failed.")))}>{pick("Registration বন্ধ করুন", "Close registration")}</DropdownMenuItem>}<DropdownMenuItem onClick={() => void updateEvent("complete").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Update হয়নি।", "Update failed.")))}>{pick("সম্পন্ন হিসেবে চিহ্নিত করুন", "Mark completed")}</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onClick={() => void updateEvent("cancel").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Update হয়নি।", "Update failed.")))}>{pick("ইভেন্ট বাতিল করুন", "Cancel event")}</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void deleteEvent(selected.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Event delete হয়নি।", "Event could not be deleted.")))}><Trash2 /> {pick("স্থায়ীভাবে মুছুন", "Delete permanently")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}</div><SheetTitle className="text-2xl leading-snug">{locale === "en" ? selected?.title_en || selected?.title_bn : selected?.title_bn}</SheetTitle><SheetDescription>{locale === "bn" ? selected?.title_en || (selected ? `${dateFormatter.format(new Date(selected.start_at))} · ${selected.venue}` : "ইভেন্টের বিস্তারিত") : selected ? `${dateFormatter.format(new Date(selected.start_at))} · ${selected.venue}` : "Event details"}</SheetDescription></SheetHeader>{selected ? <div className="space-y-6 p-6"><div className="grid gap-3 rounded-2xl border bg-muted/20 p-4 sm:grid-cols-2"><Info icon={<CalendarDays />} label={pick("সময়", "Time")} value={dateFormatter.format(new Date(selected.start_at))} /><Info icon={<MapPin />} label={pick("স্থান", "Venue")} value={[selected.venue, selected.city].filter(Boolean).join(", ")} /><Info icon={<CircleDollarSign />} label={pick("প্রতি ব্যক্তি", "Per person")} value={moneyFormatter.format(Number(selected.estimated_cost_per_person))} /><Info icon={<Users />} label={pick("নিবন্ধিত", "Registered")} value={`${selectedGoing.toLocaleString(locale === "bn" ? "bn-BD" : "en-US")}${selected.capacity ? ` / ${selected.capacity.toLocaleString(locale === "bn" ? "bn-BD" : "en-US")}` : ""}`} /></div>{selected.capacity ? <div><div className="mb-2 flex justify-between text-sm"><span>{pick("Capacity", "Capacity")}</span><strong>{Math.round(capacityProgress).toLocaleString(locale === "bn" ? "bn-BD" : "en-US")}%</strong></div><Progress value={capacityProgress} /></div> : null}
-        {selected.status === "published" ? <div className="rounded-2xl border border-primary/20 bg-primary/[0.04] p-4"><div className="flex flex-wrap items-end gap-3"><div className="flex-1"><p className="font-bold">{pick("আপনার RSVP", "Your RSVP")}</p><p className="mt-1 text-sm text-muted-foreground">{pick("বর্তমান উত্তর", "Current response")}: {myRsvp ? responseLabels[myRsvp.response] : pick("দেওয়া হয়নি", "Not provided")}</p></div><Field label={pick("অতিথি", "Guests")} id="event-guests"><Input id="event-guests" className="w-24" type="number" min="0" max="10" value={guestCount} onChange={(event) => setGuestCount(event.target.value)} /></Field></div><Input className="mt-3" placeholder={pick("বিশেষ note (ঐচ্ছিক)", "Special note (optional)")} value={rsvpNote} onChange={(event) => setRsvpNote(event.target.value)} /><div className="mt-3 flex flex-wrap gap-2"><Button size="sm" className="rounded-xl" disabled={working} onClick={() => void saveRsvp("going").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("RSVP হয়নি।", "RSVP could not be saved.")))}>{responseLabels.going}</Button><Button size="sm" variant="outline" className="rounded-xl" disabled={working} onClick={() => void saveRsvp("maybe").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("RSVP হয়নি।", "RSVP could not be saved.")))}>{responseLabels.maybe}</Button><Button size="sm" variant="ghost" className="rounded-xl" disabled={working} onClick={() => void saveRsvp("not_going").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("RSVP হয়নি।", "RSVP could not be saved.")))}>{responseLabels.not_going}</Button></div></div> : null}
-        <Tabs defaultValue="overview"><TabsList className="grid w-full grid-cols-3"><TabsTrigger value="overview">{pick("পরিকল্পনা", "Plan")}</TabsTrigger><TabsTrigger value="discussion">{pick("আলোচনা", "Discussion")} ({selectedComments.length.toLocaleString(locale === "bn" ? "bn-BD" : "en-US")})</TabsTrigger><TabsTrigger value="gallery">{pick("Gallery", "Gallery")} ({selectedMedia.length.toLocaleString(locale === "bn" ? "bn-BD" : "en-US")})</TabsTrigger></TabsList><TabsContent value="overview" className="space-y-4 pt-4"><p className="whitespace-pre-wrap leading-7">{locale === "en" ? selected.description_en || selected.description_bn : selected.description_bn}</p>{locale === "bn" && selected.description_en ? <p className="rounded-2xl bg-muted/45 p-4 leading-7 text-muted-foreground">{selected.description_en}</p> : null}{selected.meeting_point ? <Info icon={<MapPin />} label={pick("Meeting point", "Meeting point")} value={selected.meeting_point} /> : null}{selected.registration_deadline ? <Info icon={<Clock3 />} label={pick("Registration deadline", "Registration deadline")} value={dateFormatter.format(new Date(selected.registration_deadline))} /> : null}<div className="rounded-2xl border p-4"><p className="text-sm text-muted-foreground">{pick("মোট পরিকল্পিত budget", "Total planned budget")}</p><p className="mt-1 text-2xl font-bold">{moneyFormatter.format(Number(selected.total_budget))}</p></div><div className="space-y-2"><p className="font-bold">{pick("অংশগ্রহণকারীরা", "Participants")}</p>{selectedRsvps.length ? selectedRsvps.map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl bg-muted/35 px-3 py-2 text-sm"><span>{item.respondent_name}{item.guest_count ? ` + ${item.guest_count}` : ""}</span><Badge variant="outline">{responseLabels[item.response]}</Badge></div>) : <p className="text-sm text-muted-foreground">{pick("এখনও কেউ RSVP করেননি।", "No one has responded yet.")}</p>}</div></TabsContent><TabsContent value="discussion" className="space-y-4 pt-4"><div className="max-h-80 space-y-3 overflow-y-auto">{selectedComments.length ? selectedComments.map((comment) => <div key={comment.id} className="flex gap-3"><Avatar className="size-9"><AvatarFallback>{comment.author_name.slice(0, 2)}</AvatarFallback></Avatar><div className="flex-1 rounded-2xl bg-muted/45 p-3"><div className="flex justify-between gap-3"><strong className="text-sm">{comment.author_name}</strong><span className="text-xs text-muted-foreground">{dateFormatter.format(new Date(comment.created_at))}</span></div><p className="mt-1 whitespace-pre-wrap text-sm leading-6">{comment.body}</p></div></div>) : <p className="py-8 text-center text-sm text-muted-foreground">{pick("আলোচনা শুরু হয়নি।", "The discussion has not started.")}</p>}</div><Textarea rows={3} placeholder={pick("আপনার মতামত বা প্রশ্ন লিখুন", "Write your opinion or question")} value={commentText} onChange={(event) => setCommentText(event.target.value)} /><Button className="gap-2 rounded-xl" disabled={working || commentText.trim().length < 2} onClick={() => void addComment().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Comment হয়নি।", "Comment could not be added.")))}><MessageCircle className="size-4" /> {pick("Comment করুন", "Add comment")}</Button></TabsContent><TabsContent value="gallery" className="space-y-4 pt-4"><div className="grid grid-cols-2 gap-3">{selectedMedia.map((item) => <figure key={item.id} className="relative overflow-hidden rounded-2xl border bg-muted/30">{item.mime_type.startsWith("image/") ? <img src={`/api/event-media/${item.id}`} alt={item.caption || item.file_name} className="aspect-square w-full object-cover" /> : <video src={`/api/event-media/${item.id}`} controls className="aspect-video w-full bg-black" />}{canManage ? <Button type="button" variant="destructive" size="icon-sm" className="absolute right-2 top-2 rounded-full shadow" disabled={working} aria-label={pick("Media মুছুন", "Delete media")} onClick={() => void deleteMedia(item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Media delete হয়নি।", "Media could not be deleted.")))}><Trash2 className="size-4" /></Button> : null}<figcaption className="p-3 text-xs"><p className="font-medium">{item.caption || item.file_name}</p><p className="mt-1 text-muted-foreground">{item.uploader_name}</p></figcaption></figure>)}</div>{!selectedMedia.length ? <div className="rounded-2xl border border-dashed p-8 text-center"><ImagePlus className="mx-auto size-9 text-muted-foreground/50" /><p className="mt-3 text-sm text-muted-foreground">{pick("এখনও কোনো ছবি বা ভিডিও নেই।", "There are no photos or videos yet.")}</p></div> : null}<div className="rounded-2xl border p-4"><Label htmlFor="event-media-file">{pick("ছবি বা ভিডিও যোগ করুন", "Add a photo or video")}</Label><Input className="mt-2" placeholder={pick("Caption (ঐচ্ছিক)", "Caption (optional)")} value={mediaCaption} onChange={(event) => setMediaCaption(event.target.value)} /><input ref={fileInputRef} id="event-media-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" className="mt-3 block w-full text-sm" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadMedia(file).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Upload হয়নি।", "Upload failed."))); }} /><p className="mt-2 text-xs text-muted-foreground">{pick("ছবি সর্বোচ্চ ৮ MB, ভিডিও সর্বোচ্চ ২৫ MB।", "Images up to 8 MB and videos up to 25 MB.")}</p><Button variant="outline" className="mt-3 gap-2 rounded-xl" disabled={working} onClick={() => fileInputRef.current?.click()}><Upload className="size-4" /> {pick("File নির্বাচন", "Choose file")}</Button></div></TabsContent></Tabs>
+      <Sheet open={Boolean(selected)} onOpenChange={(open) => !open && setSelectedId(null)}><SheetContent className="w-full overflow-y-auto p-0 sm:max-w-2xl"><SheetHeader className="border-b p-6 text-left"><div className="flex items-start justify-between gap-4 pr-8"><div className="flex flex-wrap gap-2">{selected ? <><Badge variant="secondary">{typeLabels[selected.event_type]}</Badge><Badge variant={selected.status === "cancelled" ? "destructive" : "outline"}>{statusLabels[selected.status]}</Badge></> : null}</div>{canManage && selected ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="gap-2 rounded-xl" disabled={verificationBlocked || loading || saving || working}><Ellipsis className="size-4" /> {pick("পরিচালনা", "Manage")}</Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-52"><DropdownMenuItem onClick={() => openEditEvent(selected)}><Pencil /> {pick("বিস্তারিত সম্পাদনা", "Edit details")}</DropdownMenuItem>{selected.status !== "published" ? <DropdownMenuItem onClick={() => void updateEvent("publish").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Update হয়নি।", "Update failed.")))}>{pick("Registration প্রকাশ করুন", "Publish registration")}</DropdownMenuItem> : <DropdownMenuItem onClick={() => void updateEvent("close").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Update হয়নি।", "Update failed.")))}>{pick("Registration বন্ধ করুন", "Close registration")}</DropdownMenuItem>}<DropdownMenuItem onClick={() => void updateEvent("complete").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Update হয়নি।", "Update failed.")))}>{pick("সম্পন্ন হিসেবে চিহ্নিত করুন", "Mark completed")}</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onClick={() => void updateEvent("cancel").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Update হয়নি।", "Update failed.")))}>{pick("ইভেন্ট বাতিল করুন", "Cancel event")}</DropdownMenuItem><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void deleteEvent(selected.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Event delete হয়নি।", "Event could not be deleted.")))}><Trash2 /> {pick("স্থায়ীভাবে মুছুন", "Delete permanently")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}</div><SheetTitle className="text-2xl leading-snug">{locale === "en" ? selected?.title_en || selected?.title_bn : selected?.title_bn}</SheetTitle><SheetDescription>{locale === "bn" ? selected?.title_en || (selected ? `${dateFormatter.format(new Date(selected.start_at))} · ${selected.venue}` : "ইভেন্টের বিস্তারিত") : selected ? `${dateFormatter.format(new Date(selected.start_at))} · ${selected.venue}` : "Event details"}</SheetDescription></SheetHeader>{selected ? <div className="space-y-6 p-6"><div className="grid gap-3 rounded-2xl border bg-muted/20 p-4 sm:grid-cols-2"><Info icon={<CalendarDays />} label={pick("সময়", "Time")} value={dateFormatter.format(new Date(selected.start_at))} /><Info icon={<MapPin />} label={pick("স্থান", "Venue")} value={[selected.venue, selected.city].filter(Boolean).join(", ")} /><Info icon={<CircleDollarSign />} label={pick("প্রতি ব্যক্তি", "Per person")} value={moneyFormatter.format(Number(selected.estimated_cost_per_person))} /><Info icon={<Users />} label={pick("নিবন্ধিত", "Registered")} value={`${selectedGoing.toLocaleString(locale === "bn" ? "bn-BD" : "en-US")}${selected.capacity ? ` / ${selected.capacity.toLocaleString(locale === "bn" ? "bn-BD" : "en-US")}` : ""}`} /></div>{selected.capacity ? <div><div className="mb-2 flex justify-between text-sm"><span>{pick("Capacity", "Capacity")}</span><strong>{Math.round(capacityProgress).toLocaleString(locale === "bn" ? "bn-BD" : "en-US")}%</strong></div><Progress value={capacityProgress} /></div> : null}
+        {selected.status === "published" ? <div className="rounded-2xl border border-primary/20 bg-primary/[0.04] p-4"><div className="flex flex-wrap items-end gap-3"><div className="flex-1"><p className="font-bold">{pick("আপনার RSVP", "Your RSVP")}</p><p className="mt-1 text-sm text-muted-foreground">{pick("বর্তমান উত্তর", "Current response")}: {myRsvp ? responseLabels[myRsvp.response] : pick("দেওয়া হয়নি", "Not provided")}</p></div><Field label={pick("অতিথি", "Guests")} id="event-guests"><Input id="event-guests" className="w-24" type="number" min="0" max="10" value={guestCount} onChange={(event) => setGuestCount(event.target.value)} /></Field></div><Input className="mt-3" placeholder={pick("বিশেষ note (ঐচ্ছিক)", "Special note (optional)")} value={rsvpNote} onChange={(event) => setRsvpNote(event.target.value)} /><div className="mt-3 flex flex-wrap gap-2"><Button size="sm" className="rounded-xl" disabled={verificationBlocked || loading || saving || working} onClick={() => void saveRsvp("going").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("RSVP হয়নি।", "RSVP could not be saved.")))}>{responseLabels.going}</Button><Button size="sm" variant="outline" className="rounded-xl" disabled={verificationBlocked || loading || saving || working} onClick={() => void saveRsvp("maybe").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("RSVP হয়নি।", "RSVP could not be saved.")))}>{responseLabels.maybe}</Button><Button size="sm" variant="ghost" className="rounded-xl" disabled={verificationBlocked || loading || saving || working} onClick={() => void saveRsvp("not_going").catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("RSVP হয়নি।", "RSVP could not be saved.")))}>{responseLabels.not_going}</Button></div></div> : null}
+        <Tabs defaultValue="overview"><TabsList className="grid w-full grid-cols-3"><TabsTrigger value="overview">{pick("পরিকল্পনা", "Plan")}</TabsTrigger><TabsTrigger value="discussion">{pick("আলোচনা", "Discussion")} ({selectedComments.length.toLocaleString(locale === "bn" ? "bn-BD" : "en-US")})</TabsTrigger><TabsTrigger value="gallery">{pick("Gallery", "Gallery")} ({selectedMedia.length.toLocaleString(locale === "bn" ? "bn-BD" : "en-US")})</TabsTrigger></TabsList><TabsContent value="overview" className="space-y-4 pt-4"><p className="whitespace-pre-wrap leading-7">{locale === "en" ? selected.description_en || selected.description_bn : selected.description_bn}</p>{locale === "bn" && selected.description_en ? <p className="rounded-2xl bg-muted/45 p-4 leading-7 text-muted-foreground">{selected.description_en}</p> : null}{selected.meeting_point ? <Info icon={<MapPin />} label={pick("Meeting point", "Meeting point")} value={selected.meeting_point} /> : null}{selected.registration_deadline ? <Info icon={<Clock3 />} label={pick("Registration deadline", "Registration deadline")} value={dateFormatter.format(new Date(selected.registration_deadline))} /> : null}<div className="rounded-2xl border p-4"><p className="text-sm text-muted-foreground">{pick("মোট পরিকল্পিত budget", "Total planned budget")}</p><p className="mt-1 text-2xl font-bold">{moneyFormatter.format(Number(selected.total_budget))}</p></div><div className="space-y-2"><p className="font-bold">{pick("অংশগ্রহণকারীরা", "Participants")}</p>{selectedRsvps.length ? selectedRsvps.map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl bg-muted/35 px-3 py-2 text-sm"><span>{item.respondent_name}{item.guest_count ? ` + ${item.guest_count}` : ""}</span><Badge variant="outline">{responseLabels[item.response]}</Badge></div>) : <p className="text-sm text-muted-foreground">{pick("এখনও কেউ RSVP করেননি।", "No one has responded yet.")}</p>}</div></TabsContent><TabsContent value="discussion" className="space-y-4 pt-4"><div className="max-h-80 space-y-3 overflow-y-auto">{selectedComments.length ? selectedComments.map((comment) => <div key={comment.id} className="flex gap-3"><Avatar className="size-9"><AvatarFallback>{comment.author_name.slice(0, 2)}</AvatarFallback></Avatar><div className="flex-1 rounded-2xl bg-muted/45 p-3"><div className="flex justify-between gap-3"><strong className="text-sm">{comment.author_name}</strong><span className="text-xs text-muted-foreground">{dateFormatter.format(new Date(comment.created_at))}</span></div><p className="mt-1 whitespace-pre-wrap text-sm leading-6">{comment.body}</p></div></div>) : <p className="py-8 text-center text-sm text-muted-foreground">{pick("আলোচনা শুরু হয়নি।", "The discussion has not started.")}</p>}</div><Textarea rows={3} placeholder={pick("আপনার মতামত বা প্রশ্ন লিখুন", "Write your opinion or question")} value={commentText} onChange={(event) => setCommentText(event.target.value)} /><Button className="gap-2 rounded-xl" disabled={verificationBlocked || loading || saving || working || commentText.trim().length < 2} onClick={() => void addComment().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Comment হয়নি।", "Comment could not be added.")))}><MessageCircle className="size-4" /> {pick("Comment করুন", "Add comment")}</Button></TabsContent><TabsContent value="gallery" className="space-y-4 pt-4"><div className="grid grid-cols-2 gap-3">{selectedMedia.map((item) => <figure key={item.id} className="relative overflow-hidden rounded-2xl border bg-muted/30">{item.mime_type.startsWith("image/") ? <img src={`/api/event-media/${item.id}`} alt={item.caption || item.file_name} className="aspect-square w-full object-cover" /> : <video src={`/api/event-media/${item.id}`} controls className="aspect-video w-full bg-black" />}{canManage ? <Button type="button" variant="destructive" size="icon-sm" className="absolute right-2 top-2 rounded-full shadow" disabled={verificationBlocked || loading || saving || working} aria-label={pick("Media মুছুন", "Delete media")} onClick={() => void deleteMedia(item.id).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Media delete হয়নি।", "Media could not be deleted.")))}><Trash2 className="size-4" /></Button> : null}<figcaption className="p-3 text-xs"><p className="font-medium">{item.caption || item.file_name}</p><p className="mt-1 text-muted-foreground">{item.uploader_name}</p></figcaption></figure>)}</div>{!selectedMedia.length ? <div className="rounded-2xl border border-dashed p-8 text-center"><ImagePlus className="mx-auto size-9 text-muted-foreground/50" /><p className="mt-3 text-sm text-muted-foreground">{pick("এখনও কোনো ছবি বা ভিডিও নেই।", "There are no photos or videos yet.")}</p></div> : null}<div className="rounded-2xl border p-4"><Label htmlFor="event-media-file">{pick("ছবি বা ভিডিও যোগ করুন", "Add a photo or video")}</Label><Input className="mt-2" placeholder={pick("Caption (ঐচ্ছিক)", "Caption (optional)")} value={mediaCaption} onChange={(event) => setMediaCaption(event.target.value)} /><input ref={fileInputRef} id="event-media-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" className="mt-3 block w-full text-sm" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadMedia(file).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("Upload হয়নি।", "Upload failed."))); }} /><p className="mt-2 text-xs text-muted-foreground">{pick("ছবি সর্বোচ্চ ৮ MB, ভিডিও সর্বোচ্চ ২৫ MB।", "Images up to 8 MB and videos up to 25 MB.")}</p><Button variant="outline" className="mt-3 gap-2 rounded-xl" disabled={verificationBlocked || loading || saving || working} onClick={() => fileInputRef.current?.click()}><Upload className="size-4" /> {pick("File নির্বাচন", "Choose file")}</Button></div></TabsContent></Tabs>
       </div> : null}</SheetContent></Sheet>
+      </fieldset>
     </main>
   );
 }

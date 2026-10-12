@@ -1,6 +1,8 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageEvents, getActiveFamilyMembership } from "@/lib/family-access";
 import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
+import { eventRecord, EventValidationError, eventErrorCopy } from "@/lib/event-validation";
+import { eventPublicRow, eventWrite, eventWriteResponse, EventWriteOutcomeUnknownError, EventWriteRejectedError } from "@/lib/event-write-outcome";
 import {
   BackendNotConfiguredError,
   isBackendConfigured,
@@ -61,50 +63,6 @@ export type EventMediaRow = {
   uploader_name: string;
   created_at: string;
 };
-
-type CreateEventBody = {
-  titleBn?: unknown;
-  titleEn?: unknown;
-  descriptionBn?: unknown;
-  descriptionEn?: unknown;
-  eventType?: unknown;
-  startAt?: unknown;
-  endAt?: unknown;
-  venue?: unknown;
-  city?: unknown;
-  meetingPoint?: unknown;
-  estimatedCostPerPerson?: unknown;
-  totalBudget?: unknown;
-  capacity?: unknown;
-  registrationDeadline?: unknown;
-  status?: unknown;
-};
-
-const eventTypes = ["reunion", "tour", "wedding", "religious", "meeting", "other"] as const;
-const createStatuses = ["draft", "published"] as const;
-
-const optionalText = (value: unknown, max: number) =>
-  typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
-
-const optionalNumber = (value: unknown) => {
-  if (value === "" || value === null || value === undefined) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-};
-
-function requiredTimestamp(value: unknown) {
-  const text = optionalText(value, 40);
-  if (!text) return undefined;
-  const date = new Date(text);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-}
-
-function optionalTimestamp(value: unknown) {
-  const text = optionalText(value, 40);
-  if (!text) return null;
-  const date = new Date(text);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-}
 
 async function readAllEventRows<T>(table: string, query: URLSearchParams): Promise<T[]> {
   return collectPaginatedRows(
@@ -204,7 +162,7 @@ export async function GET() {
 
     return Response.json({
       family,
-      events,
+      events: events.map(event => { const row = eventPublicRow(event); if (!row) throw new EventValidationError("EVENT_INVALID_SNAPSHOT"); return row; }),
       rsvps: safeRsvps,
       comments: safeComments,
       media,
@@ -232,83 +190,30 @@ export async function POST(request: Request) {
       return Response.json({ error: "Event তৈরি করার permission নেই।" }, { status: 403 });
     }
 
-    const body = (await request.json()) as CreateEventBody;
-    const titleBn = optionalText(body.titleBn, 180);
-    const descriptionBn = optionalText(body.descriptionBn, 5000);
-    const venue = optionalText(body.venue, 220);
-    const eventType = optionalText(body.eventType, 20) ?? "reunion";
-    const status = optionalText(body.status, 24) ?? "draft";
-    const startAt = requiredTimestamp(body.startAt);
-    const endAt = optionalTimestamp(body.endAt);
-    const registrationDeadline = optionalTimestamp(body.registrationDeadline);
-    const cost = optionalNumber(body.estimatedCostPerPerson);
-    const budget = optionalNumber(body.totalBudget);
-    const capacity = optionalNumber(body.capacity);
-
-    if (!titleBn || titleBn.length < 3 || !descriptionBn || descriptionBn.length < 5 || !venue || !startAt) {
-      return Response.json({ error: "Title, details, date এবং venue পূরণ করুন।" }, { status: 400 });
-    }
-    if (!eventTypes.includes(eventType as (typeof eventTypes)[number])) {
-      return Response.json({ error: "Event type সঠিক নয়।" }, { status: 400 });
-    }
-    if (!createStatuses.includes(status as (typeof createStatuses)[number])) {
-      return Response.json({ error: "Event status সঠিক নয়।" }, { status: 400 });
-    }
-    if ([endAt, registrationDeadline, cost, budget, capacity].includes(undefined)) {
-      return Response.json({ error: "Event date বা budget value সঠিক নয়।" }, { status: 400 });
-    }
-    if (endAt && new Date(endAt) < new Date(startAt)) {
-      return Response.json({ error: "Event শেষ হওয়ার সময় শুরুর পরে হতে হবে।" }, { status: 400 });
-    }
-    if ((cost ?? 0) < 0 || (budget ?? 0) < 0 || (capacity !== null && (capacity! < 1 || capacity! > 10000))) {
-      return Response.json({ error: "Budget বা capacity value সঠিক নয়।" }, { status: 400 });
-    }
-
-    const [event] = await supabaseRest<FamilyEventRow[]>("family_events", {
-      method: "POST",
-      headers: { Prefer: "return=representation" },
-      body: JSON.stringify({
-        family_id: membership.family_id,
-        title_bn: titleBn,
-        title_en: optionalText(body.titleEn, 180),
-        description_bn: descriptionBn,
-        description_en: optionalText(body.descriptionEn, 5000),
-        event_type: eventType,
-        start_at: startAt,
-        end_at: endAt,
-        venue,
-        city: optionalText(body.city, 120),
-        meeting_point: optionalText(body.meetingPoint, 220),
-        estimated_cost_per_person: cost ?? 0,
-        total_budget: budget ?? 0,
-        capacity,
-        registration_deadline: registrationDeadline,
-        status,
-        created_by_user_id: user.userId,
-      }),
+    const record = eventRecord(await request.json().catch(() => { throw new EventValidationError("EVENT_INVALID_BODY"); }));
+    const result = await eventWrite({ confirmedRejected: eventWriteConfirmedRejected,
+      write: () => supabaseRest<FamilyEventRow[]>("family_events", { method: "POST", headers: { Prefer: "return=representation" },
+        body: JSON.stringify({ family_id: membership.family_id, ...record, created_by_user_id: user.userId }) }),
+      audit: (id) => supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
+        family_id: membership.family_id, actor_user_id: user.userId, action: "family_event_created", entity_type: "family_event", entity_id: id,
+        metadata: { status: record.status, event_type: record.event_type },
+      }) }),
     });
-
-    await supabaseRest("audit_logs", {
-      method: "POST",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({
-        family_id: membership.family_id,
-        actor_user_id: user.userId,
-        action: "family_event_created",
-        entity_type: "family_event",
-        entity_id: event.id,
-        metadata: { status: event.status, event_type: event.event_type },
-      }),
-    });
-
-    return Response.json({ event }, { status: 201 });
+    return eventWriteResponse(result, 201);
   } catch (error) {
     return eventErrorResponse(error, "Unable to create event");
   }
 }
 
-function eventErrorResponse(error: unknown, logMessage: string) {
+export function eventWriteConfirmedRejected(error: unknown) {
+  return error instanceof SupabaseRequestError && error.status >= 400 && error.status < 500 && error.status !== 408;
+}
+export function eventErrorResponse(error: unknown, logMessage: string) {
+  if (error instanceof EventWriteOutcomeUnknownError) return Response.json({ code: "EVENT_WRITE_OUTCOME_UNKNOWN", outcomeUnknown: true, error: eventErrorCopy("EVENT_WRITE_OUTCOME_UNKNOWN", "en") }, { status: 503 });
+  if (error instanceof EventWriteRejectedError) return Response.json({ code: "EVENT_WRITE_REJECTED", error: eventErrorCopy("EVENT_WRITE_REJECTED", "en") }, { status: 400 });
+  if (error instanceof EventValidationError) return Response.json({ code: error.code, error: eventErrorCopy(error.code, "en") }, { status: error.code === "EVENT_INVALID_SNAPSHOT" ? 503 : ["EVENT_RECORD_CHANGED", "EVENT_DELETE_UNAVAILABLE"].includes(error.code) ? 409 : 400 });
   if (error instanceof PaginatedRowLimitError) {
+    if (logMessage === "Unable to delete event") return Response.json({ code: "EVENT_MEDIA_ROW_LIMIT", maxRows: error.maxRows, error: `Event media exceeds ${error.maxRows} files. No partial deletion was performed; contact support for a paged cleanup.` }, { status: 413 });
     return Response.json({ code: "EVENTS_ROW_LIMIT", maxRows: error.maxRows, error: `Event history exceeds ${error.maxRows} rows in one section. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });
   }
   if (error instanceof BackendNotConfiguredError) {

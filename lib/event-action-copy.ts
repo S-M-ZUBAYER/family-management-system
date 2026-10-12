@@ -39,7 +39,7 @@ export function eventActionCopy(pathname: string, method: string, body: Record<s
       complete: ["ইভেন্ট সম্পন্ন করবেন?", "ইভেন্টটি সম্পন্ন হিসেবে চিহ্নিত হবে; RSVP বন্ধ থাকবে।", "হ্যাঁ, সম্পন্ন করুন", "ইভেন্ট সম্পন্ন হিসেবে চিহ্নিত হয়েছে।", "Mark event completed?", "The event will be marked completed and RSVPs will close.", "Yes, mark completed", "Event marked completed.", false],
       cancel: ["ইভেন্ট বাতিল করবেন?", "সদস্যদের কাছে ইভেন্টটি বাতিল দেখাবে এবং RSVP বন্ধ থাকবে।", "হ্যাঁ, বাতিল করুন", "ইভেন্ট বাতিল হয়েছে।", "Cancel event?", "Members will see the cancellation and RSVPs will close.", "Yes, cancel event", "Event cancelled.", true],
     };
-    return actions[action] ? localize(actions[action], locale) : null;
+    return Object.hasOwn(actions, action) ? localize(actions[action], locale) : null;
   }
 
   if (/^\/api\/events\/[^/]+\/rsvp$/.test(pathname) && method === "POST") {
