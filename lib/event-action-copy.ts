@@ -18,6 +18,14 @@ function localize(copy: LocalizedCopy, locale: Locale): ActionCopy {
 }
 
 export function eventActionCopy(pathname: string, method: string, body: Record<string, unknown>, locale: Locale): ActionCopy | null {
+  if (/^\/api\/event-comments\/[^/]+$/.test(pathname) && method === "PATCH") return localize([
+    "নিজের মন্তব্য আপডেট করবেন?", "নতুন লেখাটি আলোচনায় দেখা যাবে। মূল লেখকের নাম বদলাবে না।", "হ্যাঁ, আপডেট করুন", "মন্তব্য আপডেট হয়েছে।",
+    "Update your comment?", "The discussion will show your new text. Its author name will not change.", "Yes, update comment", "Comment updated.", false,
+  ], locale);
+  if (/^\/api\/event-comments\/[^/]+$/.test(pathname) && method === "DELETE") return localize([
+    "মন্তব্য স্থায়ীভাবে মুছবেন?", "নিজের মন্তব্য অথবা Admin হিসেবে নির্বাচিত মন্তব্য আলোচনার তালিকা থেকে স্থায়ীভাবে সরে যাবে; undo নেই।", "হ্যাঁ, মুছে ফেলুন", "মন্তব্য মুছে ফেলা হয়েছে।",
+    "Permanently remove comment?", "Your comment, or the selected comment you moderate as an admin, will leave the discussion permanently. There is no undo.", "Yes, remove comment", "Comment removed.", true,
+  ], locale);
   if (pathname === "/api/events" && method === "POST") {
     return localize(body.status === "draft"
       ? ["ইভেন্ট খসড়া হিসেবে সংরক্ষণ করবেন?", "খসড়াটি পরিবারের সদস্যদের কাছে প্রকাশিত হবে না।", "হ্যাঁ, খসড়া সংরক্ষণ করুন", "ইভেন্ট খসড়া হিসেবে সংরক্ষিত হয়েছে।", "Save event as a draft?", "The draft will not be visible to family members.", "Yes, save draft", "Event saved as a draft.", false]

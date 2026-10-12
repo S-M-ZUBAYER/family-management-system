@@ -43,6 +43,7 @@
     "test:event-read": "node scripts/test-event-read.mjs",
     "test:event-media-workflow": "node scripts/test-event-media-workflow.mjs",
     "test:event-participation": "node scripts/test-event-participation.mjs",
+    "test:event-comments": "node scripts/test-event-comment-management.mjs",
     "test:magazine-action-copy": "node scripts/test-magazine-action-copy.mjs",
     "test:magazine-validation": "node scripts/test-magazine-validation.mjs",
     "test:magazine-export": "node scripts/test-magazine-export.mjs",

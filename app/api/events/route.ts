@@ -158,6 +158,7 @@ export async function GET() {
       author_name: comment.author_name,
       body: comment.body,
       created_at: comment.created_at,
+      is_current_user: comment.auth_user_id === user.userId,
     }));
 
     return Response.json({
@@ -211,7 +212,7 @@ export function eventWriteConfirmedRejected(error: unknown) {
 export function eventErrorResponse(error: unknown, logMessage: string) {
   if (error instanceof EventWriteOutcomeUnknownError) return Response.json({ code: "EVENT_WRITE_OUTCOME_UNKNOWN", outcomeUnknown: true, error: eventErrorCopy("EVENT_WRITE_OUTCOME_UNKNOWN", "en") }, { status: 503 });
   if (error instanceof EventWriteRejectedError) return Response.json({ code: "EVENT_WRITE_REJECTED", error: eventErrorCopy("EVENT_WRITE_REJECTED", "en") }, { status: 400 });
-  if (error instanceof EventValidationError) return Response.json({ code: error.code, error: eventErrorCopy(error.code, "en") }, { status: error.code === "EVENT_INVALID_SNAPSHOT" ? 503 : ["EVENT_RECORD_CHANGED", "EVENT_DELETE_UNAVAILABLE", "EVENT_REGISTRATION_CLOSED"].includes(error.code) ? 409 : 400 });
+  if (error instanceof EventValidationError) return Response.json({ code: error.code, error: eventErrorCopy(error.code, "en") }, { status: error.code === "EVENT_INVALID_SNAPSHOT" ? 503 : ["EVENT_RECORD_CHANGED", "EVENT_DELETE_UNAVAILABLE", "EVENT_REGISTRATION_CLOSED", "EVENT_COMMENT_CHANGED"].includes(error.code) ? 409 : 400 });
   if (error instanceof PaginatedRowLimitError) {
     if (logMessage === "Unable to delete event") return Response.json({ code: "EVENT_MEDIA_ROW_LIMIT", maxRows: error.maxRows, error: `Event media exceeds ${error.maxRows} files. No partial deletion was performed; contact support for a paged cleanup.` }, { status: 413 });
     return Response.json({ code: "EVENTS_ROW_LIMIT", maxRows: error.maxRows, error: `Event history exceeds ${error.maxRows} rows in one section. No partial data was shown or exported; contact support for a paged export.` }, { status: 413 });

@@ -46,6 +46,12 @@ export function eventRecord(value: unknown, editing = false) {
 }
 export function eventErrorCopy(code: unknown, locale: "bn" | "en") {
   const messages: Record<string, [string, string]> = {
+    EVENT_COMMENT_VERSION_REQUIRED: ["মন্তব্যের আগের লেখা প্রয়োজন। তালিকা লোড করে আবার চেষ্টা করুন।", "The original comment text is required. Reload the list before trying again."],
+    EVENT_COMMENT_CHANGED: ["মন্তব্যটি বদলেছে বা মুছে গেছে। তালিকা লোড করে বর্তমান লেখা দেখুন; পুরোনো লেখা দিয়ে আবার পাঠাবেন না।", "The comment changed or was removed. Reload to review its current text; do not resubmit the old version."],
+    EVENT_COMMENT_NOT_FOUND: ["এই পরিবারের মন্তব্য পাওয়া যায়নি।", "The comment was not found in this family."],
+    EVENT_COMMENT_FORBIDDEN: ["শুধু নিজের মন্তব্য বদলাতে পারবেন। নিজের মন্তব্য অথবা Admin হিসেবে অন্যের মন্তব্য মুছতে পারবেন; খসড়ায় editing বন্ধ।", "You can edit only your own comment. You can delete your own comment or moderate as an admin; editing is closed on drafts."],
+    EVENT_COMMENT_CHANGE_PENDING: ["মন্তব্যের পরিবর্তন নিশ্চিত হয়েছে; audit log এখনও বাকি। পরিবর্তনটি আবার পাঠাবেন না।", "The comment change is confirmed; its audit log is still pending. Do not resubmit the change."],
+    EVENT_COMMENT_CHANGE_UNKNOWN: ["মন্তব্যের পরিবর্তনের ফল নিশ্চিত নয়। আবার edit/delete না করে তালিকা লোড করে যাচাই করুন।", "The comment change outcome is uncertain. Reload to verify before any further edit/delete."],
     EVENT_LOAD_FAILED: ["ইভেন্ট তালিকা লোড হয়নি। সংযোগ যাচাই করে আবার লোড করুন।", "The event list could not be loaded. Check your connection and reload."],
     EVENT_SCHEMA_UNAVAILABLE: ["ইভেন্ট database যাচাই বাকি। সঠিক migration installation support-এর মাধ্যমে যাচাই করে আবার লোড করুন; অনুমান করে SQL পুনরায় চালাবেন না।", "The event database needs verification. Check the correct migration installation with support and reload; do not blindly rerun SQL."],
     EVENT_LOAD_TIMEOUT: ["ইভেন্ট লোড বা JSON পড়ার সময়সীমা শেষ। পুরোনো তথ্য দেখানো হয়নি; আবার লোড করুন।", "Loading or parsing the event list timed out. Old data was hidden; reload the list."],

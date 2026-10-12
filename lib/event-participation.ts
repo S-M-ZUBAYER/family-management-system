@@ -40,10 +40,12 @@ export function eventRsvpPublicRow(value: unknown, own?: boolean): EventRsvpPubl
   return { id: value.id, event_id: value.event_id, respondent_name: value.respondent_name, response: value.response as EventRsvpPublic["response"], guest_count: value.guest_count,
     note: value.note as string | null, updated_at: value.updated_at as string, is_current_user: own ?? value.is_current_user as boolean };
 }
-export function eventCommentPublicRow(value: unknown): EventCommentPublic | null {
+export function eventCommentPublicRow(value: unknown, own?: boolean): EventCommentPublic | null {
   if (!eventObject(value) || !eventUuid(value.id) || !eventUuid(value.event_id) || !name(value.author_name) || !stamp(value.created_at)
-    || typeof value.body !== "string" || value.body.trim().length < 2 || value.body.length > 2000) return null;
-  return { id: value.id, event_id: value.event_id, author_name: value.author_name, body: value.body, created_at: value.created_at as string };
+    || typeof value.body !== "string" || value.body.trim().length < 2 || value.body.length > 2000
+    || (Object.hasOwn(value, "is_current_user") && typeof value.is_current_user !== "boolean")) return null;
+  return { id: value.id, event_id: value.event_id, author_name: value.author_name, body: value.body, created_at: value.created_at as string,
+    ...(own !== undefined ? { is_current_user: own } : Object.hasOwn(value, "is_current_user") ? { is_current_user: value.is_current_user as boolean } : {}) };
 }
 // Parent policy check, child write and audit remain separate database calls.
 // No retries, compensation or phantom audit after an uncertain write.
@@ -56,7 +58,7 @@ export async function eventParticipationWrite(options: {
     const rows = await options.write();
     if (!Array.isArray(rows) || rows.length !== 1 || !eventObject(rows[0]) || rows[0].family_id !== options.familyId
       || rows[0].event_id !== options.eventId || rows[0].auth_user_id !== options.actorId) throw new EventWriteOutcomeUnknownError();
-    const projected = options.kind === "rsvp" ? eventRsvpPublicRow(rows[0], true) : eventCommentPublicRow(rows[0]);
+    const projected = options.kind === "rsvp" ? eventRsvpPublicRow(rows[0], true) : eventCommentPublicRow(rows[0], true);
     if (!projected) throw new EventWriteOutcomeUnknownError();
     row = projected;
   } catch (error) {
