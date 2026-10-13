@@ -6,6 +6,7 @@ import { useActionFeedback, useActionResult } from "@/components/action-modal-pr
 import { chatTextRecord, chatTextCopy, readChatTextChange, chatFeedSnapshot, reconcileChatMessages } from "@/lib/chat-text-management";
 import { chatAttachmentInput, chatAttachmentCopy, readChatAttachmentChange } from "@/lib/chat-attachment-policy";
 import { chatAttachmentDeleteInput, readChatAttachmentDeletion, chatAttachmentDeleteCopy } from "@/lib/chat-attachment-deletion";
+import { chatSendInput, chatReactionInput, readChatFlow, chatFlowCopy } from "@/lib/chat-send-reaction";
 import { useLocale } from "@/components/locale-provider";
 
 import {
@@ -198,7 +199,8 @@ export function FamilyChat() {
   const showResult = useActionResult();
   const [textEdit, setTextEdit] = useState<{ original: ChatMessage; body: string } | null>(null);
   const [verifyChannel, setVerifyChannel] = useState<string | null>(null);
-  const [verifyKind,setVerifyKind]=useState<"text"|"upload"|"attachment-delete">("text");
+  const [verifyKind,setVerifyKind]=useState<"text"|"upload"|"attachment-delete"|"send"|"reaction">("text");
+  const sendRequest=useRef<{fingerprint:string;id:string}|null>(null);
   const textState = useRef({ busy: false, blocked: false, ready: false });
   const feedEpoch = useRef(0);
   const removedText = useRef(new Set<string>());
@@ -493,10 +495,9 @@ export function FamilyChat() {
     if (textState.current.busy || textState.current.blocked) return;
     if (!selected || (!draft.trim() && !pendingFile)) return;
     const channelId=selected.id;
-    if(pendingFile && (!textState.current.ready || messagesLoading || working))return;
-    const attachmentUpload=!!pendingFile;
-    const epoch=attachmentUpload?++feedEpoch.current:feedEpoch.current;
-    if(attachmentUpload){textState.current.busy=true;setMessagesLoading(false);}
+    if(!textState.current.ready || messagesLoading || working)return;
+    const epoch=++feedEpoch.current;
+    textState.current.busy=true;setMessagesLoading(false);
     setWorking(true);
     setFeedback(null);
     try {
@@ -520,21 +521,27 @@ export function FamilyChat() {
         setMessages(current=>mergeById(current,[outcome.message]));
         setAttachments(current=>mergeById(current,[outcome.attachment]));
       } else {
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "send_message",
-            channelId: selected.id,
-            body: draft,
-            replyToId: replyingTo?.id,
-          }),
-        });
-        if (response.status === 499) return;
-        const payload = (await response.json()) as { message?: ChatMessage; error?: string };
-        if (!response.ok || !payload.message) throw new Error(payload.error ?? pick("বার্তা পাঠানো যায়নি।", "The message could not be sent."));
-        setMessages((current) => mergeById(current, [payload.message!]));
+        let input:ReturnType<typeof chatSendInput>;
+        try{
+          input=chatSendInput({action:"send_message",channelId,body:draft,replyToId:replyingTo?.id});
+          // Keep the same ID when a reload changes only the reply reference.
+          const fingerprint=JSON.stringify([channelId,input.body]);
+          if(sendRequest.current?.fingerprint!==fingerprint)sendRequest.current={fingerprint,id:crypto.randomUUID()};
+          input={...input,clientMessageId:sendRequest.current.id};
+        }catch{showResult({kind:"error",title:pick("Message যাচাই করুন","Check message"),message:chatFlowCopy("CHAT_SEND_INPUT",locale)});return;}
+        const outcome=await readChatFlow(async()=>{
+          const response=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(input)});
+          if(response.status===499)return response;
+          return response;
+        },input);
+        if(!chatMounted.current||outcome.kind==="cancelled")return;
+        if(outcome.kind==="unknown"||epoch!==feedEpoch.current||activeChannelIdRef.current!==channelId){textState.current.blocked=true;textState.current.ready=false;setVerifyKind("send");setVerifyChannel(channelId);return;}
+        if(outcome.kind==="rejected"){setFeedback(chatFlowCopy(outcome.code??"CHAT_FLOW_REJECTED",locale));return;}
+        if(!outcome.message)return;
+        setMessages(current=>mergeById(current,[outcome.message!]));
+        sendRequest.current=null;
       }
+      sendRequest.current=null;
       setDraft("");
       setPendingFile(null);
       setReplyingTo(null);
@@ -543,7 +550,7 @@ export function FamilyChat() {
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : pick("বার্তা পাঠানো যায়নি।", "The message could not be sent."));
     } finally {
-      if(attachmentUpload)textState.current.busy=false;
+      textState.current.busy=false;
       if(chatMounted.current)setWorking(false);
     }
   }
@@ -613,21 +620,24 @@ export function FamilyChat() {
   }
 
   async function toggleReaction(messageId: string, emoji: string) {
-    if (textState.current.busy || textState.current.blocked) return;
-    if (!selected) return;
+    if(working||messagesLoading||textState.current.busy||textState.current.blocked||!textState.current.ready||!selected||!messages.some(m=>m.id===messageId&&m.channel_id===selected.id))return;
+    const existing=reactions.find(r=>r.message_id===messageId&&r.emoji===emoji&&r.is_mine);
+    let input:ReturnType<typeof chatReactionInput>;
+    try{input=chatReactionInput({action:"toggle_reaction",channelId:selected.id,messageId,emoji,active:!existing,expectedReactionId:existing?.id??null});}
+    catch{showResult({kind:"error",title:pick("Reaction যাচাই করুন","Check reaction"),message:chatFlowCopy("CHAT_REACTION_INPUT",locale)});return;}
+    const channelId=selected.id,epoch=++feedEpoch.current;
+    textState.current.busy=true;setWorking(true);setMessagesLoading(false);
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "toggle_reaction", channelId: selected.id, messageId, emoji }),
-      });
-      if (response.status === 499) return;
-      const payload = (await response.json()) as { active?: boolean; error?: string };
-      if (!response.ok) throw new Error(payload.error ?? pick("প্রতিক্রিয়া হালনাগাদ হয়নি।", "The reaction could not be updated."));
-      await loadMessages(selected.id, true);
-    } catch (error) {
-      setFeedback(error instanceof Error ? error.message : pick("প্রতিক্রিয়া হালনাগাদ হয়নি।", "The reaction could not be updated."));
-    }
+      const outcome=await readChatFlow(async()=>{
+        const response=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(input)});
+        if(response.status===499)return response;
+        return response;
+      },input);
+      if(!chatMounted.current||outcome.kind==="cancelled")return;
+      if(outcome.kind==="unknown"||epoch!==feedEpoch.current||activeChannelIdRef.current!==channelId){textState.current.blocked=true;textState.current.ready=false;setVerifyKind("reaction");setVerifyChannel(channelId);return;}
+      if(outcome.kind==="rejected"){setFeedback(chatFlowCopy(outcome.code??"CHAT_FLOW_REJECTED",locale));return;}
+      setReactions(current=>[...current.filter(r=>!(r.message_id===messageId&&r.emoji===emoji&&r.is_mine)),...(outcome.reaction?[outcome.reaction]:[])]);
+    }finally{textState.current.busy=false;if(chatMounted.current)setWorking(false);}
   }
 
   async function updateNotification(level: ChatChannel["notificationLevel"]) {
@@ -819,7 +829,7 @@ export function FamilyChat() {
     );
   }
 
-  if (verifyChannel) return <main className="mx-auto max-w-3xl p-6"><Card><CardContent className="space-y-4 p-6"><h1 className="text-xl font-bold">{pick("Message-এর ফল যাচাই প্রয়োজন","Message outcome needs verification")}</h1><p>{verifyKind==="attachment-delete"?chatAttachmentDeleteCopy("CHAT_FILE_DELETE_UNKNOWN",locale):verifyKind==="upload"?chatAttachmentCopy("CHAT_FILE_UNKNOWN",locale):chatTextCopy("CHAT_TEXT_UNKNOWN",locale)}</p><Button disabled={messagesLoading || working} onClick={()=>void verifyTextOutcome()}>{pick("তালিকা লোড করে যাচাই করুন","Reload to verify")}</Button></CardContent></Card></main>;
+  if (verifyChannel) return <main className="mx-auto max-w-3xl p-6"><Card><CardContent className="space-y-4 p-6"><h1 className="text-xl font-bold">{pick("Message-এর ফল যাচাই প্রয়োজন","Message outcome needs verification")}</h1><p>{verifyKind==="send"||verifyKind==="reaction"?chatFlowCopy("CHAT_FLOW_UNKNOWN",locale):verifyKind==="attachment-delete"?chatAttachmentDeleteCopy("CHAT_FILE_DELETE_UNKNOWN",locale):verifyKind==="upload"?chatAttachmentCopy("CHAT_FILE_UNKNOWN",locale):chatTextCopy("CHAT_TEXT_UNKNOWN",locale)}</p><Button disabled={messagesLoading || working} onClick={()=>void verifyTextOutcome()}>{pick("তালিকা লোড করে যাচাই করুন","Reload to verify")}</Button></CardContent></Card></main>;
 
   if (!family) return <main className="mx-auto max-w-3xl p-6 md:p-10"><Card className="rounded-3xl border-dashed"><CardContent className="p-8 text-center"><MessageCircle className="mx-auto size-10 text-muted-foreground" /><h1 className="mt-4 text-2xl font-bold">{pick("চ্যাটের তথ্য লোড হয়নি", "Chat data did not load")}</h1><p className="mt-2 text-muted-foreground">{pick("পুরোনো চ্যাট দেখানো হচ্ছে না। আবার চেষ্টা করুন।", "Previous chat data has been cleared. Please try again.")}</p><Button className="mt-5" onClick={() => void loadMetadata()}>{pick("আবার চেষ্টা করুন", "Retry")}</Button></CardContent></Card></main>;
 

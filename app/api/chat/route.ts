@@ -15,7 +15,6 @@ import {
   loadChatMessages,
   type ChatChannelMemberRow,
   type ChatChannelRow,
-  type ChatMessageRow,
 } from "@/lib/family-chat";
 import {
   BackendNotConfiguredError,
@@ -25,6 +24,8 @@ import {
   supabaseRest,
 } from "@/lib/supabase-rest";
 import { readAllSupabaseRows } from "@/lib/supabase-pagination";
+import { noticeObject, noticeUuid } from "@/lib/notice-validation";
+import { ChatFlowError,chatSendInput,chatReactionInput,chatSendWrite,chatReactionWrite,chatFlowResponse,chatFlowCopy } from "@/lib/chat-send-reaction";
 
 type SafeMember = {
   authUserId: string;
@@ -37,10 +38,7 @@ const textValue = (value: unknown, max: number) =>
   typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 
 const uuidValue = (value: unknown) => {
-  const valueText = textValue(value, 50);
-  return valueText && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(valueText)
-    ? valueText
-    : null;
+  return noticeUuid(value) ? value.toLowerCase() : null;
 };
 
 function initials(name: string) {
@@ -231,8 +229,12 @@ export async function POST(request: Request) {
     const membership = await getActiveFamilyMembership(user.userId);
     if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
     rollbackFamilyId = membership.family_id;
-    const body = (await request.json()) as Record<string, unknown>;
+    const parsed:unknown = await request.json().catch(()=>{throw new ChatFlowError("CHAT_FLOW_REJECTED");});
+    if(!noticeObject(parsed))throw new ChatFlowError("CHAT_FLOW_REJECTED");
+    const body=parsed;
     const action = textValue(body.action, 40);
+    const sendInput=action==="send_message"?chatSendInput(body):null;
+    const reactionInput=action==="toggle_reaction"?chatReactionInput(body):null;
 
     if (action === "create_channel") {
       const channelType = textValue(body.channelType, 20);
@@ -338,95 +340,41 @@ export async function POST(request: Request) {
       return Response.json({ channelId: channel.id }, { status: 201 });
     }
 
-    const channelId = uuidValue(body.channelId);
+    const channelId = sendInput?.channelId??reactionInput?.channelId??uuidValue(body.channelId);
     if (!channelId) return Response.json({ error: "Channel নির্বাচন করুন।" }, { status: 400 });
     const channel = await getAccessibleChatChannel(membership, user.userId, channelId);
     if (!channel) return Response.json({ error: "Channel পাওয়া যায়নি।" }, { status: 404 });
 
-    if (action === "send_message") {
-      const messageBody = textValue(body.body, 5000);
-      if (!messageBody) return Response.json({ error: "Message লিখুন।" }, { status: 400 });
-      const replyToId = uuidValue(body.replyToId);
-      if (body.replyToId && !replyToId) return Response.json({ error: "Reply message সঠিক নয়।" }, { status: 400 });
-      if (replyToId) {
-        const replyQuery = new URLSearchParams({
-          select: "id",
-          id: `eq.${replyToId}`,
-          family_id: `eq.${membership.family_id}`,
-          channel_id: `eq.${channel.id}`,
-          limit: "1",
-        });
-        if (!(await supabaseRest<Array<{ id: string }>>(`chat_messages?${replyQuery}`)).length) {
-          return Response.json({ error: "Reply message এই channel-এ নেই।" }, { status: 400 });
-        }
+    if (sendInput) {
+      if(sendInput.replyToId){
+        const query=new URLSearchParams({select:"id",id:`eq.${sendInput.replyToId}`,family_id:`eq.${membership.family_id}`,channel_id:`eq.${channel.id}`,limit:"1"});
+        const replies=await supabaseRest<Array<{id:string}>>(`chat_messages?${query}`);
+        if(replies.length!==1||replies[0].id!==sendInput.replyToId)throw new ChatFlowError("CHAT_SEND_INPUT");
       }
-      const [message] = await supabaseRest<ChatMessageRow[]>("chat_messages", {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify({
-          family_id: membership.family_id,
-          channel_id: channel.id,
-          auth_user_id: user.userId,
-          author_name: await getChatAuthorName(membership.family_id, user),
-          message_type: "text",
-          body: messageBody,
-          reply_to_id: replyToId,
-        }),
-      });
-      await supabaseRest(
-        `chat_channels?id=eq.${channel.id}&family_id=eq.${membership.family_id}`,
-        {
-          method: "PATCH",
-          headers: { Prefer: "return=minimal" },
-          body: JSON.stringify({ updated_at: new Date().toISOString() }),
-        },
-      );
-      return Response.json({ message: { ...message, is_mine: true } }, { status: 201 });
+      const id=sendInput.clientMessageId??crypto.randomUUID(),authorName=await getChatAuthorName(membership.family_id,user);
+      const query=new URLSearchParams({select:"id,family_id,channel_id,auth_user_id,author_name,message_type,body,reply_to_id,edited_at,created_at",id:`eq.${id}`,family_id:`eq.${membership.family_id}`,channel_id:`eq.${channel.id}`,auth_user_id:`eq.${user.userId}`,message_type:"eq.text",limit:"1"});
+      const result=await chatSendWrite({familyId:membership.family_id,channelId:channel.id,actorId:user.userId,id,authorName,input:sendInput,
+        readExisting:()=>supabaseRest(`chat_messages?${query}`),
+        write:()=>supabaseRest("chat_messages",{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify({id,family_id:membership.family_id,channel_id:channel.id,auth_user_id:user.userId,author_name:authorName,message_type:"text",body:sendInput.body,reply_to_id:sendInput.replyToId})}),
+        rejected:e=>e instanceof SupabaseRequestError&&e.status>=400&&e.status<500&&e.status!==408,
+        collision:e=>e instanceof SupabaseRequestError&&e.status===409,
+        sync:()=>supabaseRest(`chat_channels?id=eq.${channel.id}&family_id=eq.${membership.family_id}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({updated_at:new Date().toISOString()})}),
+        audit:()=>supabaseRest("audit_logs",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({family_id:membership.family_id,actor_user_id:user.userId,action:"chat_message_sent",entity_type:"chat_message",entity_id:id,metadata:{channel_id:channel.id}})}),
+      });return chatFlowResponse(result);
     }
 
-    if (action === "toggle_reaction") {
-      const messageId = uuidValue(body.messageId);
-      const emoji = textValue(body.emoji, 16);
-      if (!messageId || !emoji || !["❤️", "👍", "😂", "🤲", "🎉"].includes(emoji)) {
-        return Response.json({ error: "Reaction সঠিক নয়।" }, { status: 400 });
-      }
-      const messageQuery = new URLSearchParams({
-        select: "id",
-        id: `eq.${messageId}`,
-        family_id: `eq.${membership.family_id}`,
-        channel_id: `eq.${channel.id}`,
-        limit: "1",
-      });
-      if (!(await supabaseRest<Array<{ id: string }>>(`chat_messages?${messageQuery}`)).length) {
-        return Response.json({ error: "Message পাওয়া যায়নি।" }, { status: 404 });
-      }
-      const reactionQuery = new URLSearchParams({
-        select: "id",
-        family_id: `eq.${membership.family_id}`,
-        message_id: `eq.${messageId}`,
-        auth_user_id: `eq.${user.userId}`,
-        emoji: `eq.${emoji}`,
-        limit: "1",
-      });
-      const existing = (await supabaseRest<Array<{ id: string }>>(`chat_message_reactions?${reactionQuery}`))[0];
-      if (existing) {
-        await supabaseRest(`chat_message_reactions?id=eq.${existing.id}&family_id=eq.${membership.family_id}`, {
-          method: "DELETE",
-          headers: { Prefer: "return=minimal" },
-        });
-        return Response.json({ active: false });
-      }
-      await supabaseRest("chat_message_reactions", {
-        method: "POST",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({
-          family_id: membership.family_id,
-          message_id: messageId,
-          auth_user_id: user.userId,
-          emoji,
-        }),
-      });
-      return Response.json({ active: true }, { status: 201 });
+    if (reactionInput) {
+      const query=new URLSearchParams({select:"id",id:`eq.${reactionInput.messageId}`,family_id:`eq.${membership.family_id}`,channel_id:`eq.${channel.id}`,limit:"1"});
+      const messages=await supabaseRest<Array<{id:string}>>(`chat_messages?${query}`);
+      if(messages.length!==1||messages[0].id!==reactionInput.messageId)return Response.json({code:"CHAT_FLOW_REJECTED",error:"Message not found."},{status:404});
+      const reactionQuery=new URLSearchParams({select:"id,family_id,message_id,auth_user_id,emoji,created_at",family_id:`eq.${membership.family_id}`,message_id:`eq.${reactionInput.messageId}`,auth_user_id:`eq.${user.userId}`,emoji:`eq.${reactionInput.emoji}`,limit:"2"});
+      const existing=await supabaseRest<unknown>(`chat_message_reactions?${reactionQuery}`),newId=crypto.randomUUID();
+      const result=await chatReactionWrite({familyId:membership.family_id,channelId:channel.id,actorId:user.userId,input:reactionInput,existing,newId,
+        rejected:e=>e instanceof SupabaseRequestError&&e.status>=400&&e.status<500&&e.status!==408,
+        write:row=>row?supabaseRest(`chat_message_reactions?${new URLSearchParams({id:`eq.${row.id}`,family_id:`eq.${membership.family_id}`,message_id:`eq.${reactionInput.messageId}`,auth_user_id:`eq.${user.userId}`,emoji:`eq.${reactionInput.emoji}`,created_at:`eq.${row.created_at}`})}`,{method:"DELETE",headers:{Prefer:"return=representation"}})
+          :supabaseRest("chat_message_reactions",{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify({id:newId,family_id:membership.family_id,message_id:reactionInput.messageId,auth_user_id:user.userId,emoji:reactionInput.emoji})}),
+        audit:()=>supabaseRest("audit_logs",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({family_id:membership.family_id,actor_user_id:user.userId,action:reactionInput.active?"chat_reaction_added":"chat_reaction_removed",entity_type:"chat_reaction",entity_id:reactionInput.expectedReactionId??newId,metadata:{channel_id:channel.id,message_id:reactionInput.messageId,emoji:reactionInput.emoji}})}),
+      });return chatFlowResponse(result);
     }
 
     if (action === "mark_read") {
@@ -495,6 +443,7 @@ export async function POST(request: Request) {
 
     return Response.json({ error: "Unsupported chat action." }, { status: 400 });
   } catch (error) {
+    if(error instanceof ChatFlowError)return Response.json({code:error.code,error:chatFlowCopy(error.code,"en"),...(error.code==="CHAT_FLOW_UNKNOWN"?{outcomeUnknown:true}:{})},{status:error.status});
     if (createdChannelId && rollbackFamilyId) {
       try {
         await supabaseRest(`chat_channels?id=eq.${createdChannelId}&family_id=eq.${rollbackFamilyId}`, {

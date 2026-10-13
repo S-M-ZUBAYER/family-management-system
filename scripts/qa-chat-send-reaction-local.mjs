@@ -1,0 +1,39 @@
+// Opt-in: two new own QA messages/reactions only in retained empty private channel.
+// Removes only these new messages; channel, membership and audit history remain.
+import assert from 'node:assert/strict';import {chatSendInput,chatReactionInput,chatFlowAcknowledged} from '../lib/chat-send-reaction.ts';
+if(!process.argv.includes('--allow-local-qa-writes'))throw Error('Explicit scoped QA write opt-in required.');
+const origin=new URL(process.env.FMS_QA_ORIGIN??'http://localhost:5173');if(!['localhost','127.0.0.1','[::1]'].includes(origin.hostname)||!['http:','https:'].includes(origin.protocol)||origin.username||origin.password)throw Error('Credential-free loopback required.');
+const family='20000000-0000-4000-8000-000000000002',other='10000000-0000-4000-8000-000000000001',channel='9fb84636-dd8f-461b-a7ed-c81bb435decc',prefix='QA Chat Send '+new Date().toISOString().replace(/\D/g,'').slice(0,14);let checks=0;
+const eq=(a,b)=>{assert.deepEqual(a,b);checks++;},ok=x=>{assert.ok(x);checks++;};
+async function call(path,method='GET',body,expected=200,active=family,signed=true){const r=await fetch(new URL(path,origin),{method,headers:{...(signed?{Cookie:'__sites_local_auth=1; fms_active_family='+active}:{}),...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(25000)});const p=await r.json();if(r.status!==expected)console.log(JSON.stringify({path,status:r.status,expected,code:p.code}));eq(r.status,expected);if(path==='/api/chat'&&r.ok&&['send_message','toggle_reaction'].includes(body?.action)){eq(chatFlowAcknowledged(body.action==='send_message'?chatSendInput(body):chatReactionInput(body),r.status,p),true);if(body.action==='send_message')console.log(JSON.stringify({prefix,messageId:p.message.id,phase:p.replayed?'message-replayed':'message-created',status:r.status}));}return p;}
+const before=await call('/api/chat'),otherBefore=await call('/api/chat','GET',undefined,200,other),qa=before.channels.find(c=>c.id===channel);ok(qa);eq(qa.name,'QA Chat Text 20261013033106');eq(qa.visibility,'invite_only');eq(qa.memberIds,[before.viewer.authUserId]);eq(before.migrationRequired,false);
+const feed=()=>call('/api/chat?channelId='+channel),base=await feed();eq(base.channel.created_by_user_id,before.viewer.authUserId);eq(base.channel.status,'active');for(const k of ['messages','reactions','attachments'])eq(base[k],[]);
+const parentId=crypto.randomUUID(),replyId=crypto.randomUUID(),text=prefix+'ক'.repeat(5000-prefix.length),send={action:'send_message',channelId:channel,body:text,replyToId:null,clientMessageId:parentId};
+await call('/api/chat','POST',send,401,family,false);await call('/api/chat','POST',send,404,other);
+for(const patch of [{body:''},{body:'x'.repeat(5001)},{body:true},{replyToId:''},{replyToId:'20000000-0000-4000-8000-000000000099'},{clientMessageId:'bad'},{auth_user_id:'spoof'}])eq((await call('/api/chat','POST',{...send,...patch},400)).code,'CHAT_SEND_INPUT');
+const empty=await feed();for(const k of ['messages','reactions','attachments'])eq(empty[k],[]);
+let parent=(await call('/api/chat','POST',send,201)).message;eq(parent.body.length,5000);eq(parent.id,parentId);eq(parent.is_mine,true);for(const k of ['family_id','auth_user_id'])eq(Object.hasOwn(parent,k),false);
+const repeated=await call('/api/chat','POST',send,202);eq(repeated.replayed,true);eq(repeated.verificationPending,true);eq(repeated.message,parent);eq((await feed()).messages.length,1);
+eq((await call('/api/chat','POST',{...send,body:prefix+' different'},409)).code,'CHAT_FLOW_CHANGED');
+const edited=await call('/api/chat-messages/'+parentId,'PATCH',{expectedBody:parent.body,expectedEditedAt:null,body:prefix+' edited'});eq(edited.message.author_name,parent.author_name);eq(edited.message.created_at,parent.created_at);
+eq((await call('/api/chat','POST',send,409)).code,'CHAT_FLOW_CHANGED');parent=(await call('/api/chat-messages/'+parentId,'PATCH',{expectedBody:edited.message.body,expectedEditedAt:edited.message.edited_at,body:text})).message;
+eq((await call('/api/chat','POST',send,409)).code,'CHAT_FLOW_CHANGED');eq(parent.body,text);ok(parent.edited_at);
+const add={action:'toggle_reaction',channelId:channel,messageId:parentId,emoji:'👍',active:true,expectedReactionId:null};
+for(const patch of [{active:undefined},{active:'true'},{expectedReactionId:undefined},{expectedReactionId:'bad'},{emoji:'🔥'},{auth_user_id:'spoof'}])eq((await call('/api/chat','POST',{...add,...patch},400)).code,'CHAT_REACTION_INPUT');
+await call('/api/chat','POST',{...add,messageId:'20000000-0000-4000-8000-000000000099'},404);
+const first=await call('/api/chat','POST',add,201);eq(first.active,true);eq(first.noChange,false);ok(first.id);eq((await call('/api/chat','POST',add,409)).code,'CHAT_FLOW_CHANGED');
+const stable={...add,expectedReactionId:first.id};const unchanged=await call('/api/chat','POST',stable);eq(unchanged.noChange,true);eq(unchanged.id,first.id);eq((await feed()).reactions.length,1);
+const remove={...stable,active:false};await call('/api/chat','POST',remove,401,family,false);await call('/api/chat','POST',remove,404,other);eq((await call('/api/chat','POST',remove)).active,false);eq((await call('/api/chat','POST',remove,409)).code,'CHAT_FLOW_CHANGED');
+const absent=await call('/api/chat','POST',{...add,active:false});eq(absent.noChange,true);eq(absent.id,null);eq((await feed()).reactions,[]);
+const second=await call('/api/chat','POST',add,201);ok(second.id!==first.id);eq((await call('/api/chat','POST',remove,409)).code,'CHAT_FLOW_CHANGED');eq((await call('/api/chat','POST',{...remove,expectedReactionId:second.id})).active,false);
+const replySend={action:'send_message',channelId:channel,body:prefix+' reply',replyToId:parentId,clientMessageId:replyId},reply=(await call('/api/chat','POST',replySend,201)).message;eq(reply.reply_to_id,parentId);eq((await call('/api/chat','POST',replySend,202)).message,reply);
+const ready=await feed();eq(ready.messages.length,2);eq(ready.reactions,[]);eq(ready.attachments,[]);
+const audit=(await call('/api/admin')).auditLogs;for(const id of [parentId,replyId])eq(audit.filter(a=>a.entity_id===id&&a.action==='chat_message_sent').length,1);for(const id of [first.id,second.id])for(const action of ['chat_reaction_added','chat_reaction_removed'])eq(audit.filter(a=>a.entity_id===id&&a.action===action).length,1);
+console.log(JSON.stringify({prefix,channelId:channel,parentId,replyId,reactionIds:[first.id,second.id],phase:'exact-new-only-cleanup-ready'}));
+// Recheck exact own records and no files before irreversible cleanup.
+const pre=await feed();eq(pre.messages.map(m=>m.id).sort(),[parentId,replyId].sort());eq(pre.messages.find(m=>m.id===parentId),parent);eq(pre.messages.find(m=>m.id===replyId),reply);eq(pre.attachments,[]);eq(pre.reactions,[]);
+for(const m of [reply,parent]){eq(m.is_mine,true);eq((await call('/api/chat-messages/'+m.id,'DELETE',{expectedBody:m.body,expectedEditedAt:m.edited_at})).deleted,true);}
+const final=await feed();for(const k of ['messages','reactions','attachments'])eq(final[k],[]);
+const meta=await call('/api/chat');eq({...meta,channels:meta.channels.filter(c=>c.id!==channel)},{...before,channels:before.channels.filter(c=>c.id!==channel)});eq(await call('/api/chat','GET',undefined,200,other),otherBefore);
+const finalAudit=(await call('/api/admin')).auditLogs;for(const id of [parentId,replyId])eq(finalAudit.filter(a=>a.entity_id===id&&a.action==='chat_message_deleted').length,1);
+console.log(JSON.stringify({prefix,checks,channelId:channel,removedSyntheticMessageIds:[parentId,replyId],reactionIds:[first.id,second.id],captionOrBodyLength:5000,retainedEmptyPrivateChannel:true,retainedAudits:true,unrelatedMetadataUnchanged:true,actualFaultInjection:false,realSeparateUser:false,browser:false,noSqlOrFiles:true}));
