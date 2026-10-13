@@ -12,6 +12,16 @@ Snapshot: 2026-10-13 (Asia/Dhaka). This is the current entry point; older dated 
 
 ## Read before changing code
 
+### Latest continuation boundary — channel lifecycle, source `51be1c6`
+
+Chat → Manage channels (`/chat/channels`) supports authorized custom/admin name/description edit, archive and restore. Private managers still need active explicit channel owner/moderator membership; no family-admin bypass. General/direct/event/qurbani system-managed channels are protected. Archive retains history/files and blocks normal feed/send/export/file authorization until restored. Conditional family/type/audience/status/name/description/version checks, safe confirmed acknowledgement before audit, no-change/no audit, 202 audit-pending and 503 unknown review; no automatic retry/delete/repair. BN/EN confirmation/Cancel/× and safe loading/verification are wired.
+
+**Completed bounded evidence:** 11 deterministic cases, all 75 configured suites, 122 actual local mock-owner API checks; signed management-page HTTP 200. Original retained QA channel **f8627f9c-53a6-45aa-a0ed-5aef8d639362 / QA Chat Setup 20261013080253** name/description/active state restored, version intentionally advanced, exactly two edit + one archive + one restore audits retained. Own membership/preference, empty history/files, unrelated and other-family metadata unchanged. No rows/files deleted, SQL changes, actual fault injection, new browser or real separate-user acceptance. Do not rerun completed lifecycle script blindly: its zero-prior-lifecycle-audit preflight deliberately prevents repeating this batch.
+
+**Next:** channel membership invite/remove/moderator management with owner protection/private access/revocation, then full Chat safe-read/Retry/export acceptance and the remaining matrix gates. Existing independent permission/read/write/audit calls are not transactional against concurrent membership/send/archive changes, and audit recovery is not automated. Real-user/browser/modal/voice/file/delivery/fault/race/physical-export/mobile/theme/language/hydration/hosted acceptance remains pending. Whole product Partial.
+
+Current owner server **localhost:5173** was reused and retained; its PID was not reverified in this batch. Existing Site lookup still NOT_FOUND; no new Site, auth/access changes or deployment. GitHub source checkpoint is not hosted deployment. Older next-edit/archive/PID statements below are historical.
+
 Start with **QA_ACCEPTANCE_2026-10-13.md** for completed comment/member-media slices, retained data, exact completed cleanup and next Chat scope; then read the historical entries below.
 
 1. `README.md` for product requirements, architecture, local setup, and security expectations.
