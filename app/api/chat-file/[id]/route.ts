@@ -5,6 +5,8 @@ import { getActiveFamilyMembership } from "@/lib/family-access";
 import { getAccessibleChatChannel } from "@/lib/family-chat";
 import { noticeUuid } from "@/lib/notice-validation";
 import { chatAttachmentKey, chatAttachmentPublic } from "@/lib/chat-attachment-policy";
+import { noticeObject } from "@/lib/notice-validation";
+import { ChatAttachmentDeleteError,chatAttachmentDeleteInput,chatAttachmentMayDelete,chatAttachmentDeleteMatches,chatAttachmentDeleteWrite,chatAttachmentDeleteResponse,chatAttachmentDeleteCopy } from "@/lib/chat-attachment-deletion";
 import {
   BackendNotConfiguredError,
   SupabaseRequestError,
@@ -63,4 +65,42 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     else console.error("Unable to load chat attachment", error);
     return new Response("Attachment unavailable.", { status: 500 });
   }
+}
+
+export async function DELETE(request:Request,context:{params:Promise<{id:string}>}) {
+  try {
+    const user=await getChatGPTUser();if(!user)return Response.json({code:"CHAT_FILE_DELETE_FORBIDDEN"},{status:401});
+    const membership=await getActiveFamilyMembership(user.userId);if(!membership)throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_FORBIDDEN",403);
+    const {id:rawId}=await context.params;if(!noticeUuid(rawId))throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_INPUT");const id=rawId.toLowerCase();
+    const input=chatAttachmentDeleteInput(await request.json().catch(()=>{throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_INPUT");}));
+    const attachmentSelect="id,family_id,channel_id,message_id,storage_key,file_name,mime_type,file_size,uploaded_by_user_id,created_at";
+    const fileQuery=new URLSearchParams({select:attachmentSelect,id:`eq.${id}`,family_id:`eq.${membership.family_id}`,limit:"1"});
+    const files=await supabaseRest<unknown>(`chat_attachments?${fileQuery}`);
+    if(!Array.isArray(files)||files.length>1)throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_UNKNOWN",503);
+    const file=files[0];if(!file)throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_NOT_FOUND",404);
+    if(!noticeObject(file)||file.id!==id||file.family_id!==membership.family_id||!chatAttachmentPublic(file)||!chatAttachmentKey(file.storage_key,membership.family_id,file.channel_id as string))throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_UNKNOWN",503);
+    const channel=await getAccessibleChatChannel(membership,user.userId,file.channel_id as string);if(!channel)throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_NOT_FOUND",404);
+    const parentQuery=new URLSearchParams({select:"id,family_id,channel_id,auth_user_id,author_name,message_type,body,reply_to_id,edited_at,created_at",id:`eq.${file.message_id}`,family_id:`eq.${membership.family_id}`,channel_id:`eq.${channel.id}`,limit:"1"});
+    const parents=await supabaseRest<unknown>(`chat_messages?${parentQuery}`);
+    if(!Array.isArray(parents)||parents.length!==1||!noticeObject(parents[0]))throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_UNKNOWN",503);
+    const message=parents[0];
+    if(!chatAttachmentMayDelete(message,file,user.userId))throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_FORBIDDEN",403);
+    if(!chatAttachmentDeleteMatches(input,message,file))throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_CHANGED",409);
+    // Upload creates immutable one-file messages. Reject unexpected legacy or
+    // externally modified multi-file links; never guess which object to remove.
+    const siblingQuery=new URLSearchParams({select:attachmentSelect,family_id:`eq.${membership.family_id}`,channel_id:`eq.${channel.id}`,message_id:`eq.${message.id}`,limit:"2"});
+    const siblings=await supabaseRest<unknown>(`chat_attachments?${siblingQuery}`);
+    if(!Array.isArray(siblings))throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_UNKNOWN",503);
+    if(siblings.length!==1)throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_MULTIPLE",409);
+    if(!noticeObject(siblings[0])||Object.keys(file).some(k=>siblings[0][k]!==file[k]))throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_CHANGED",409);
+    const bucket=(env as RuntimeEnv).BUCKET;if(!bucket)throw new ChatAttachmentDeleteError("CHAT_FILE_DELETE_STORAGE",503);
+    const target=new URLSearchParams({id:`eq.${message.id}`,family_id:`eq.${membership.family_id}`,channel_id:`eq.${channel.id}`,auth_user_id:`eq.${user.userId}`,message_type:"eq.attachment",created_at:`eq.${message.created_at}`,edited_at:message.edited_at===null?"is.null":`eq.${message.edited_at}`,body:message.body===null?"is.null":`eq.${message.body}`,reply_to_id:message.reply_to_id===null?"is.null":`eq.${message.reply_to_id}`});
+    const result=await chatAttachmentDeleteWrite({message,file,
+      write:()=>supabaseRest(`chat_messages?${target}`,{method:"DELETE",headers:{Prefer:"return=representation"}}),
+      cleanup:()=>bucket.delete(file.storage_key as string),
+      rejected:e=>e instanceof SupabaseRequestError&&e.status>=400&&e.status<500&&e.status!==408,
+      audit:cleanupPending=>supabaseRest("audit_logs",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({family_id:membership.family_id,actor_user_id:user.userId,action:"chat_attachment_deleted",entity_type:"chat_attachments",entity_id:file.id,metadata:{channel_id:channel.id,message_id:message.id,cleanup_pending:cleanupPending}})}),
+      sync:()=>supabaseRest(`chat_channels?id=eq.${channel.id}&family_id=eq.${membership.family_id}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({updated_at:new Date().toISOString()})}),
+    });return chatAttachmentDeleteResponse(result);
+  }catch(error){const known=error instanceof ChatAttachmentDeleteError;if(!known)console.error("Chat attachment deletion unavailable.");const code=known?error.code:"CHAT_FILE_DELETE_UNKNOWN";return Response.json({code,error:chatAttachmentDeleteCopy(code,"en"),...(code==="CHAT_FILE_DELETE_UNKNOWN"?{outcomeUnknown:true}:{})},{status:known?error.status:503});}
 }

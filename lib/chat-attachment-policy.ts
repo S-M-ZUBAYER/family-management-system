@@ -60,17 +60,18 @@ export function chatAttachmentKey(key: unknown, family: string, channel: string)
   const parts = key.slice(prefix.length).split(".");
   return parts.length === 2 && noticeUuid(parts[0]) && Object.values(extensions).some(values=>values.includes(parts[1]));
 }
-export function chatAttachmentPublic(raw: unknown) {
+export function chatAttachmentPublic(raw: unknown, own?: boolean) {
   if (!noticeObject(raw) || !noticeUuid(raw.id) || !noticeUuid(raw.channel_id) || !noticeUuid(raw.message_id) || typeof raw.created_at !== "string") return null;
   try { if(!noticeTimestamp(raw.created_at))return null; chatAttachmentMetadata({name:raw.file_name as string,type:raw.mime_type as string,size:raw.file_size as number}); } catch { return null; }
-  return {id:raw.id,channel_id:raw.channel_id,message_id:raw.message_id,file_name:raw.file_name as string,mime_type:raw.mime_type as string,file_size:raw.file_size as number,created_at:raw.created_at};
+  if(Object.hasOwn(raw,"is_mine")&&typeof raw.is_mine!=="boolean")return null;
+  return {id:raw.id,channel_id:raw.channel_id,message_id:raw.message_id,file_name:raw.file_name as string,mime_type:raw.mime_type as string,file_size:raw.file_size as number,created_at:raw.created_at,...(own!==undefined?{is_mine:own}:typeof raw.is_mine==="boolean"?{is_mine:raw.is_mine}:{})};
 }
 export function chatAttachmentAcknowledged(input: ReturnType<typeof chatAttachmentInput>, status: number, raw: unknown) {
   if (!noticeObject(raw) || raw.success !== true || raw.outcomeUnknown === true || ![201,202].includes(status)
     || ["auditPending","syncPending"].some(k=>Object.hasOwn(raw,k)&&typeof raw[k]!=="boolean")
     || (status===202)!==(raw.auditPending===true||raw.syncPending===true) || status===202&&raw.code!=="CHAT_FILE_PENDING") return false;
   const message=chatMessagePublic(raw.message), attachment=chatAttachmentPublic(raw.attachment);
-  return !!message && !!attachment && message.is_mine && message.message_type==="attachment" && message.channel_id===input.channelId
+  return !!message && !!attachment && attachment.is_mine===true && message.is_mine && message.message_type==="attachment" && message.channel_id===input.channelId
     && message.body===input.caption && message.reply_to_id===input.replyToId && message.edited_at===null && attachment.message_id===message.id
     && attachment.channel_id===input.channelId && attachment.file_name===input.metadata.name && attachment.mime_type===input.metadata.type && attachment.file_size===input.metadata.size;
 }

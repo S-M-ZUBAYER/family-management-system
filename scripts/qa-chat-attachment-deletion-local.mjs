@@ -1,0 +1,33 @@
+// Deletes only the exact retained synthetic PNG/message after full preflight;
+// creates/removes one QA reply, retaining channel and upload/delete audit history.
+import assert from 'node:assert/strict';
+import {chatAttachmentDeleteAcknowledged} from '../lib/chat-attachment-deletion.ts';
+if(!process.argv.includes('--allow-exact-fixture-deletion'))throw Error('Explicit exact-fixture deletion opt-in required.');
+const origin=new URL(process.env.FMS_QA_ORIGIN??'http://localhost:5173');if(!['localhost','127.0.0.1','[::1]'].includes(origin.hostname)||!['http:','https:'].includes(origin.protocol)||origin.username||origin.password)throw Error('Credential-free loopback required.');
+const family='20000000-0000-4000-8000-000000000002',other='10000000-0000-4000-8000-000000000001',channel='9fb84636-dd8f-461b-a7ed-c81bb435decc',messageId='bb59e6c8-4cad-456b-a89f-ef2298d06f46',fileId='2e21e384-b633-4297-84cc-65a954f06f72',prefix='QA Chat Attachment 20261013045137',path='/api/chat-file/'+fileId;
+const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jlpAAAAAASUVORK5CYII=','base64');let checks=0;
+const eq=(a,b)=>{assert.deepEqual(a,b);checks++;},ok=x=>{assert.ok(x);checks++;};
+async function request(path,method='GET',body,expected=200,active=family,signed=true){const r=await fetch(new URL(path,origin),{method,headers:{...(signed?{Cookie:'__sites_local_auth=1; fms_active_family='+active}:{}),...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(25000)});if(r.status!==expected)console.log(JSON.stringify({path,status:r.status,expected}));eq(r.status,expected);return r;}
+const json=async(path,method='GET',body,expected=200,active=family,signed=true)=>await(await request(path,method,body,expected,active,signed)).json();
+const before=await json('/api/chat'),otherBefore=await json('/api/chat','GET',undefined,200,other),qa=before.channels.find(c=>c.id===channel);ok(qa);eq(qa.name,'QA Chat Text 20261013033106');eq(qa.visibility,'invite_only');eq(qa.memberIds,[before.viewer.authUserId]);
+const feed=()=>json('/api/chat?channelId='+channel),baseline=await feed();eq(baseline.channel.created_by_user_id,before.viewer.authUserId);eq(baseline.channel.status,'active');eq(baseline.messages.length,1);eq(baseline.attachments.length,1);eq(baseline.reactions,[]);
+const message=baseline.messages[0],file=baseline.attachments[0];eq(message.id,messageId);eq(message.message_type,'attachment');eq(message.is_mine,true);eq(message.body,prefix+'ক'.repeat(2000-prefix.length));eq(message.edited_at,null);eq(message.reply_to_id,null);eq(file.id,fileId);eq(file.message_id,messageId);eq(file.channel_id,channel);eq(file.file_name,prefix+'.png');eq(file.mime_type,'image/png');eq(file.file_size,68);eq(file.is_mine,true);
+eq(Buffer.from(await(await request(path)).arrayBuffer()),png);for(const k of ['family_id','storage_key','uploaded_by_user_id'])eq(Object.hasOwn(file,k),false);
+const body={expectedMessageId:message.id,expectedBody:message.body,expectedEditedAt:message.edited_at,expectedCreatedAt:message.created_at,expectedFileCreatedAt:file.created_at};
+await json(path,'DELETE',body,401,family,false);await json(path,'DELETE',body,404,other);await json('/api/chat-file/not-a-uuid','DELETE',body,400);
+for(const input of [null,[],true,{...body,auth_user_id:before.viewer.authUserId},{...body,expectedMessageId:'bad'},{...body,expectedEditedAt:undefined},{...body,expectedFileCreatedAt:'bad'}])eq((await json(path,'DELETE',input,400)).code,'CHAT_FILE_DELETE_INPUT');
+for(const patch of [{expectedMessageId:'20000000-0000-4000-8000-000000000099'},{expectedBody:'stale caption'},{expectedEditedAt:message.created_at},{expectedCreatedAt:'2026-10-01T00:00:00Z'},{expectedFileCreatedAt:'2026-10-01T00:00:00Z'}])eq((await json(path,'DELETE',{...body,...patch},409)).code,'CHAT_FILE_DELETE_CHANGED');
+const unchanged=await feed();eq(unchanged.messages,baseline.messages);eq(unchanged.attachments,baseline.attachments);eq(unchanged.reactions,baseline.reactions);eq(Buffer.from(await(await request(path)).arrayBuffer()),png);
+const reply=(await json('/api/chat','POST',{action:'send_message',channelId:channel,body:prefix+' delete-flow reply',replyToId:messageId},201)).message;
+console.log(JSON.stringify({channelId:channel,retainedMessageId:messageId,retainedAttachmentId:fileId,newReplyId:reply.id,phase:'reply-created-before-delete'}));
+eq(reply.reply_to_id,messageId);eq(reply.is_mine,true);await json('/api/chat','POST',{action:'toggle_reaction',channelId:channel,messageId,emoji:'👍'},201);
+const ready=await feed();eq(ready.messages.length,2);eq(ready.attachments,[file]);eq(ready.reactions.length,1);eq(ready.reactions[0].message_id,messageId);eq(ready.reactions[0].is_mine,true);
+const deleted=await json(path,'DELETE',body);eq(chatAttachmentDeleteAcknowledged(fileId,channel,body,200,deleted),true);console.log(JSON.stringify({phase:'retained-qa-file-message-deleted',messageId,fileId,newReplyId:reply.id}));
+for(const k of ['storage_key','file_name','family_id','auth_user_id'])eq(Object.hasOwn(deleted,k),false);
+await request(path,'GET',undefined,404);eq((await json(path,'DELETE',body,404)).code,'CHAT_FILE_DELETE_NOT_FOUND');
+const after=await feed();eq(after.messages.length,1);eq(after.messages[0].id,reply.id);eq(after.messages[0].reply_to_id,null);eq(after.reactions,[]);eq(after.attachments,[]);
+const r=await json('/api/chat-messages/'+reply.id,'DELETE',{expectedBody:reply.body,expectedEditedAt:reply.edited_at});eq(r.deleted,true);
+const empty=await feed();for(const k of ['messages','reactions','attachments'])eq(empty[k],[]);
+const meta=await json('/api/chat');eq({...meta,channels:meta.channels.filter(c=>c.id!==channel)},{...before,channels:before.channels.filter(c=>c.id!==channel)});eq(await json('/api/chat','GET',undefined,200,other),otherBefore);
+const audit=(await json('/api/admin')).auditLogs;eq(audit.filter(a=>a.entity_id===fileId&&a.action==='chat_attachment_uploaded').length,1);eq(audit.filter(a=>a.entity_id===fileId&&a.action==='chat_attachment_deleted').length,1);eq(audit.filter(a=>a.entity_id===reply.id&&a.action==='chat_message_deleted').length,1);
+console.log(JSON.stringify({checks,channelId:channel,removedSyntheticMessageIds:[messageId,reply.id],removedSyntheticAttachmentId:fileId,bytes:68,retainedEmptyPrivateChannel:true,retainedAuditHistory:true,unrelatedMetadataUnchanged:true,realSeparateUser:false,browser:false,actualFaultInjection:false,physicalStorageAbsenceIndependentlyChecked:false}));

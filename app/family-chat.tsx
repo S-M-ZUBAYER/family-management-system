@@ -5,6 +5,7 @@
 import { useActionFeedback, useActionResult } from "@/components/action-modal-provider";
 import { chatTextRecord, chatTextCopy, readChatTextChange, chatFeedSnapshot, reconcileChatMessages } from "@/lib/chat-text-management";
 import { chatAttachmentInput, chatAttachmentCopy, readChatAttachmentChange } from "@/lib/chat-attachment-policy";
+import { chatAttachmentDeleteInput, readChatAttachmentDeletion, chatAttachmentDeleteCopy } from "@/lib/chat-attachment-deletion";
 import { useLocale } from "@/components/locale-provider";
 
 import {
@@ -125,6 +126,7 @@ type ChatAttachment = {
   mime_type: string;
   file_size: number;
   created_at: string;
+  is_mine?: boolean;
 };
 
 type ChatPayload = {
@@ -196,6 +198,7 @@ export function FamilyChat() {
   const showResult = useActionResult();
   const [textEdit, setTextEdit] = useState<{ original: ChatMessage; body: string } | null>(null);
   const [verifyChannel, setVerifyChannel] = useState<string | null>(null);
+  const [verifyKind,setVerifyKind]=useState<"text"|"upload"|"attachment-delete">("text");
   const textState = useRef({ busy: false, blocked: false, ready: false });
   const feedEpoch = useRef(0);
   const removedText = useRef(new Set<string>());
@@ -326,7 +329,7 @@ export function FamilyChat() {
 
   const applyFeed = useCallback((payload: ChatPayload, channelId: string, notify = false, replace = false) => {
     if (activeChannelIdRef.current !== channelId || textState.current.busy || textState.current.blocked) return;
-    const incomingMessages = payload.messages ?? [];
+    const incomingMessages = (payload.messages ?? []).filter(message=>replace||!removedText.current.has(message.id));
     setMessages(current => reconcileChatMessages(current, incomingMessages, removedText.current, replace));
     if (replace) {
       setTextEdit(current => { if (!current) return null; const row=incomingMessages.find(r=>r.id===current.original.id);return row?.is_mine && row.body===current.original.body && row.edited_at===current.original.edited_at ? current : null; });
@@ -334,12 +337,12 @@ export function FamilyChat() {
     }
     const refreshedMessageIds = new Set(incomingMessages.map((message) => message.id));
     setReactions((current) => mergeById(
-      replace ? [] : current.filter((reaction) => !refreshedMessageIds.has(reaction.message_id)),
-      payload.reactions ?? [],
+      replace ? [] : current.filter((reaction) => !removedText.current.has(reaction.message_id) && !refreshedMessageIds.has(reaction.message_id)),
+      (payload.reactions ?? []).filter(reaction=>refreshedMessageIds.has(reaction.message_id)),
     ));
     setAttachments((current) => mergeById(
-      replace ? [] : current.filter((attachment) => !refreshedMessageIds.has(attachment.message_id)),
-      payload.attachments ?? [],
+      replace ? [] : current.filter((attachment) => !removedText.current.has(attachment.message_id) && !refreshedMessageIds.has(attachment.message_id)),
+      (payload.attachments ?? []).filter(attachment=>refreshedMessageIds.has(attachment.message_id)),
     ));
     const newestIncoming = incomingMessages[incomingMessages.length - 1];
     if (newestIncoming && lastReadMessageIdRef.current.get(channelId) !== newestIncoming.id) {
@@ -512,7 +515,7 @@ export function FamilyChat() {
         },input);
         if(!chatMounted.current)return;
         if(outcome.kind==="cancelled")return;
-        if(outcome.kind==="unknown"||epoch!==feedEpoch.current||activeChannelIdRef.current!==channelId){textState.current.blocked=true;textState.current.ready=false;setVerifyChannel(channelId);return;}
+        if(outcome.kind==="unknown"||epoch!==feedEpoch.current||activeChannelIdRef.current!==channelId){textState.current.blocked=true;textState.current.ready=false;setVerifyKind("upload");setVerifyChannel(channelId);return;}
         if(outcome.kind==="rejected"){setFeedback(chatAttachmentCopy(outcome.code,locale));return;}
         setMessages(current=>mergeById(current,[outcome.message]));
         setAttachments(current=>mergeById(current,[outcome.attachment]));
@@ -564,6 +567,7 @@ export function FamilyChat() {
       },method,message.id,channelId,body);
       if(!chatMounted.current || outcome.kind==="cancelled")return;
       if(outcome.kind==="unknown" || epoch!==feedEpoch.current || activeChannelIdRef.current!==channelId) {
+        setVerifyKind("text");
         textState.current.blocked=true;setVerifyChannel(channelId);
         showResult({kind:"info",title:pick("Message-এর অবস্থা যাচাই করুন","Review message state"),message:chatTextCopy("CHAT_TEXT_UNKNOWN",locale)!});return;
       }
@@ -581,7 +585,31 @@ export function FamilyChat() {
   }
   async function verifyTextOutcome() {
     if(!verifyChannel || textState.current.busy)return;
-    if(await loadMessages(verifyChannel,false,true)) {setVerifyChannel(null);showResult({kind:"info",title:pick("Channel পুনরায় লোড হয়েছে","Channel reloaded"),message:pick("Message-এর অবস্থা মিলিয়ে দেখুন। Reload audit ঠিক করে না এবং কোনো পরিবর্তন আবার পাঠায় না।","Review the message state. Reload does not repair audits or resubmit changes.")});}
+    if(await loadMessages(verifyChannel,false,true)) {setVerifyChannel(null);showResult({kind:"info",title:pick("Channel পুনরায় লোড হয়েছে","Channel reloaded"),message:pick("Message ও file-এর অবস্থা মিলিয়ে দেখুন। Reload অসম্পূর্ণ record, file cleanup বা audit ঠিক করে না এবং কোনো পরিবর্তন আবার পাঠায় না।","Review the message and file state. Reload does not repair incomplete records, file cleanup or audits, or resubmit changes.")});}
+  }
+  async function deleteAttachment(message:ChatMessage,file:ChatAttachment) {
+    if(working||messagesLoading||textState.current.busy||textState.current.blocked||!textState.current.ready||!selected||message.channel_id!==selected.id||!message.is_mine||message.message_type!=="attachment"||file.is_mine!==true||file.message_id!==message.id||attachments.filter(a=>a.message_id===message.id).length!==1)return;
+    let body:ReturnType<typeof chatAttachmentDeleteInput>;
+    try{body=chatAttachmentDeleteInput({expectedMessageId:message.id,expectedBody:message.body,expectedEditedAt:message.edited_at,expectedCreatedAt:message.created_at,expectedFileCreatedAt:file.created_at});}
+    catch{showResult({kind:"error",title:pick("File message যাচাই করুন","Check file message"),message:chatAttachmentDeleteCopy("CHAT_FILE_DELETE_INPUT",locale)});return;}
+    const channelId=selected.id,epoch=++feedEpoch.current;
+    textState.current.busy=true;setWorking(true);setMessagesLoading(false);
+    try {
+      const outcome=await readChatAttachmentDeletion(async()=>{
+        const response=await fetch(`/api/chat-file/${file.id}`,{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+        if(response.status===499)return response;
+        return response;
+      },file.id,channelId,body);
+      if(!chatMounted.current||outcome.kind==="cancelled")return;
+      if(outcome.kind==="unknown"||epoch!==feedEpoch.current||activeChannelIdRef.current!==channelId){textState.current.blocked=true;textState.current.ready=false;setVerifyKind("attachment-delete");setVerifyChannel(channelId);return;}
+      if(outcome.kind==="rejected"){setFeedback(chatAttachmentDeleteCopy(outcome.code,locale));return;}
+      removedText.current.add(message.id);
+      setMessages(current=>current.filter(r=>r.id!==message.id).map(r=>r.reply_to_id===message.id?{...r,reply_to_id:null}:r));
+      setAttachments(current=>current.filter(r=>r.message_id!==message.id));
+      setReactions(current=>current.filter(r=>r.message_id!==message.id));
+      setReplyingTo(current=>current?.id===message.id?null:current);
+      setTextEdit(current=>current?.original.id===message.id?null:current);
+    }finally{textState.current.busy=false;if(chatMounted.current)setWorking(false);}
   }
 
   async function toggleReaction(messageId: string, emoji: string) {
@@ -791,7 +819,7 @@ export function FamilyChat() {
     );
   }
 
-  if (verifyChannel) return <main className="mx-auto max-w-3xl p-6"><Card><CardContent className="space-y-4 p-6"><h1 className="text-xl font-bold">{pick("Message-এর ফল যাচাই প্রয়োজন","Message outcome needs verification")}</h1><p>{chatTextCopy("CHAT_TEXT_UNKNOWN",locale)}</p><Button disabled={messagesLoading || working} onClick={()=>void verifyTextOutcome()}>{pick("তালিকা লোড করে যাচাই করুন","Reload to verify")}</Button></CardContent></Card></main>;
+  if (verifyChannel) return <main className="mx-auto max-w-3xl p-6"><Card><CardContent className="space-y-4 p-6"><h1 className="text-xl font-bold">{pick("Message-এর ফল যাচাই প্রয়োজন","Message outcome needs verification")}</h1><p>{verifyKind==="attachment-delete"?chatAttachmentDeleteCopy("CHAT_FILE_DELETE_UNKNOWN",locale):verifyKind==="upload"?chatAttachmentCopy("CHAT_FILE_UNKNOWN",locale):chatTextCopy("CHAT_TEXT_UNKNOWN",locale)}</p><Button disabled={messagesLoading || working} onClick={()=>void verifyTextOutcome()}>{pick("তালিকা লোড করে যাচাই করুন","Reload to verify")}</Button></CardContent></Card></main>;
 
   if (!family) return <main className="mx-auto max-w-3xl p-6 md:p-10"><Card className="rounded-3xl border-dashed"><CardContent className="p-8 text-center"><MessageCircle className="mx-auto size-10 text-muted-foreground" /><h1 className="mt-4 text-2xl font-bold">{pick("চ্যাটের তথ্য লোড হয়নি", "Chat data did not load")}</h1><p className="mt-2 text-muted-foreground">{pick("পুরোনো চ্যাট দেখানো হচ্ছে না। আবার চেষ্টা করুন।", "Previous chat data has been cleared. Please try again.")}</p><Button className="mt-5" onClick={() => void loadMetadata()}>{pick("আবার চেষ্টা করুন", "Retry")}</Button></CardContent></Card></main>;
 
@@ -1019,6 +1047,7 @@ export function FamilyChat() {
                                 </DropdownMenu>
                                 <Button size="icon-xs" variant="ghost" className="opacity-50 transition group-hover:opacity-100" onClick={() => setReplyingTo(message)}><Reply /></Button>
                                 {message.is_mine && message.message_type==="text" && !messageAttachments.length ? <><Button size="icon-xs" variant="ghost" disabled={messagesLoading} aria-label={pick("নিজের message edit করুন","Edit your message")} onClick={()=>openTextEditor(message)}><Pencil /></Button><Button size="icon-xs" variant="ghost" disabled={messagesLoading} aria-label={pick("নিজের message মুছুন","Delete your message")} onClick={()=>void changeText("DELETE",message)}><Trash2 /></Button></> : null}
+                                {message.is_mine && message.message_type==="attachment" && messageAttachments.length===1 && messageAttachments[0].is_mine===true ? <Button size="icon-xs" variant="ghost" disabled={messagesLoading} aria-label={pick("নিজের file message মুছুন","Delete your file message")} onClick={()=>void deleteAttachment(message,messageAttachments[0])}><Trash2 /></Button> : null}
                                 {message.is_mine ? <CheckCheck className="ml-1 size-3.5 text-primary" /> : null}
                               </div>
                             </div>

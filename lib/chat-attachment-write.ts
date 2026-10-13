@@ -27,7 +27,7 @@ export async function chatAttachmentWrite(o: {
   }
   let attachment:NonNullable<ReturnType<typeof chatAttachmentPublic>>;
   try{
-    const rows=await o.createAttachment(),row=Array.isArray(rows)&&rows.length===1?rows[0]:null, projected=chatAttachmentPublic(row);
+    const rows=await o.createAttachment(),row=Array.isArray(rows)&&rows.length===1?rows[0]:null, projected=chatAttachmentPublic(row,true);
     if(!noticeObject(row)||!projected||row.id!==o.attachmentId||row.family_id!==o.familyId||row.channel_id!==o.channelId||row.message_id!==o.messageId
       ||row.uploaded_by_user_id!==o.actorId||row.storage_key!==o.key||projected.file_name!==o.file.name||projected.mime_type!==o.file.type||projected.file_size!==o.file.size)
       throw new ChatAttachmentError("CHAT_FILE_UNKNOWN",503);

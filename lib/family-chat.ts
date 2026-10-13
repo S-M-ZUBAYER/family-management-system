@@ -64,6 +64,7 @@ export type ChatAttachmentRow = {
   file_size: number;
   created_at: string;
 };
+type ChatAttachmentOwnerRow = ChatAttachmentRow & { uploaded_by_user_id: string };
 
 export type ChatReactionRow = {
   id: string;
@@ -160,14 +161,14 @@ export async function loadChatMessages(
     order: "created_at.asc",
   });
   const attachmentQuery = new URLSearchParams({
-    select: "id,channel_id,message_id,file_name,mime_type,file_size,created_at",
+    select: "id,channel_id,message_id,file_name,mime_type,file_size,created_at,uploaded_by_user_id",
     family_id: `eq.${membership.family_id}`,
     message_id: `in.(${messageIds})`,
     order: "created_at.asc",
   });
   const [reactionRows, attachments] = await Promise.all([
     supabaseRest<ChatReactionRow[]>(`chat_message_reactions?${reactionQuery}`),
-    supabaseRest<ChatAttachmentRow[]>(`chat_attachments?${attachmentQuery}`),
+    supabaseRest<ChatAttachmentOwnerRow[]>(`chat_attachments?${attachmentQuery}`),
   ]);
   return {
     messages: messages.map(({ auth_user_id, ...message }) => ({
@@ -178,7 +179,7 @@ export async function loadChatMessages(
       ...reaction,
       is_mine: auth_user_id === user.userId,
     })),
-    attachments,
+    attachments: attachments.map(({uploaded_by_user_id,...attachment})=>({...attachment,is_mine:uploaded_by_user_id===user.userId})),
   };
 }
 
@@ -194,8 +195,8 @@ export async function loadChatExport(
     channel_id: `eq.${channelId}`,
     order: "created_at.asc,id.asc",
   }));
-  const attachments = await readAllSupabaseRows<ChatAttachmentRow>("chat_attachments", new URLSearchParams({
-    select: "id,channel_id,message_id,file_name,mime_type,file_size,created_at",
+  const attachments = await readAllSupabaseRows<ChatAttachmentOwnerRow>("chat_attachments", new URLSearchParams({
+    select: "id,channel_id,message_id,file_name,mime_type,file_size,created_at,uploaded_by_user_id",
     family_id: familyFilter,
     channel_id: `eq.${channelId}`,
     order: "created_at.asc,id.asc",
@@ -217,7 +218,7 @@ export async function loadChatExport(
   return {
     messages: messages.map(({ auth_user_id, ...message }) => ({ ...message, is_mine: auth_user_id === user.userId })),
     reactions: reactions.map(({ auth_user_id, ...reaction }) => ({ ...reaction, is_mine: auth_user_id === user.userId })),
-    attachments,
+    attachments: attachments.map(({uploaded_by_user_id,...attachment})=>({...attachment,is_mine:uploaded_by_user_id===user.userId})),
   };
 }
 

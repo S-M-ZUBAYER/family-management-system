@@ -66,6 +66,7 @@
     "test:chat-access": "node scripts/test-chat-access-policy.mjs",
     "test:chat-text": "node scripts/test-chat-text-management.mjs",
     "test:chat-attachments": "node scripts/test-chat-attachment-workflow.mjs",
+    "test:chat-attachment-deletion": "node scripts/test-chat-attachment-deletion.mjs",
     "test:admin-audit": "node scripts/test-admin-audit-visibility.mjs",
     "test:archive-access": "node scripts/test-archive-access.mjs",
     "test:event-media-access": "node scripts/test-event-media-access.mjs",

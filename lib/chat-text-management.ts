@@ -34,10 +34,11 @@ export function chatFeedSnapshot(raw: unknown, channelId: string, maxMessages = 
     if (!noticeObject(r) || !noticeUuid(r.id) || seenReactions.has(r.id) || typeof r.message_id !== "string" || !ids.has(r.message_id) || !["❤️","👍","😂","🤲","🎉"].includes(r.emoji as string) || !stamp(r.created_at) || typeof r.is_mine !== "boolean") return null;
     seenReactions.add(r.id); reactions.push({id:r.id,message_id:r.message_id,emoji:r.emoji as string,created_at:r.created_at as string,is_mine:r.is_mine});
   }
-  const attachments: Array<{id:string;channel_id:string;message_id:string;file_name:string;mime_type:string;file_size:number;created_at:string}> = [], seenFiles = new Set<string>();
+  const attachments: Array<{id:string;channel_id:string;message_id:string;file_name:string;mime_type:string;file_size:number;created_at:string;is_mine?:boolean}> = [], seenFiles = new Set<string>();
   for (const r of raw.attachments) {
     if (!noticeObject(r) || !noticeUuid(r.id) || seenFiles.has(r.id) || r.channel_id !== channelId || typeof r.message_id !== "string" || !ids.has(r.message_id) || typeof r.file_name !== "string" || !r.file_name || r.file_name.length>500 || typeof r.mime_type!=="string" || !r.mime_type || typeof r.file_size!=="number" || !Number.isSafeInteger(r.file_size) || r.file_size<1 || !stamp(r.created_at)) return null;
-    seenFiles.add(r.id); attachments.push({id:r.id,channel_id:channelId,message_id:r.message_id,file_name:r.file_name,mime_type:r.mime_type,file_size:r.file_size,created_at:r.created_at as string});
+    if(Object.hasOwn(r,"is_mine")&&typeof r.is_mine!=="boolean")return null;
+    seenFiles.add(r.id); attachments.push({id:r.id,channel_id:channelId,message_id:r.message_id,file_name:r.file_name,mime_type:r.mime_type,file_size:r.file_size,created_at:r.created_at as string,...(typeof r.is_mine==="boolean"?{is_mine:r.is_mine}:{})});
   }
   return {messages,reactions,attachments};
 }
