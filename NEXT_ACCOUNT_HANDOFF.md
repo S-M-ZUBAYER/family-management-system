@@ -12,7 +12,19 @@ Snapshot: 2026-10-13 (Asia/Dhaka). This is the current entry point; older dated 
 
 ## Read before changing code
 
-### Latest continuation boundary — private group membership, source `1486c6a`
+### Latest continuation boundary — Chat safe reads and UTC XLSX, source `7bc9690`
+
+Chat metadata/feed now use complete validation, abort/generation guards and a deadline covering fetch plus deferred JSON. Stale state hidden during reads/failures; scope/role/UUID/version/arrays validated, mutation/export readiness guarded, explicit Retry and typed closeable error provided. Successful full snapshot re-enables normal feed; uncertain-write verification remains explicit. Locale changes do not recreate these callbacks or clear drafts/files; repeated background read errors are deduplicated until successful read. Live batches are not applied before a valid feed, and periodic snapshot/busy/read overlap still needs two-client acceptance.
+
+GET selected-channel responses now have **safe snake-case public channel descriptor plus `scope: {familyId,actorId}`**, not raw creator/family/direct-key fields. Old completed QA scripts that asserted those raw fields are historical and will stop at preflight; do not weaken privacy or rerun completed mutations/cleanup to make them pass. Full-history export returns freshly authorized name/family-role participants, with a final fresh membership/channel access check; private owner roster GET also reauthorizes before returning. These separate queries are not a database-transaction snapshot.
+
+Chat history XLSX: **Messages, Members, Reactions, Attachments, Context** (BN equivalents), explicit empty headers, numeric UTC Excel dates/byte counts, literal user text/no active formulas/hyperlinks, no account/storage secrets, <=20,000 rows per section. Member page adds **Memberships + Context** export from a fresh owner-authorized read, not its cached roster. Context/generation guards stop obsolete downloads; filenames do not grant file access. Date cells support 1900–9999; export refuses unsupported/malformed/orphan/out-of-scope data instead of clipping. Above-cap paged export still pending.
+
+**Evidence:** ten new deterministic simulated/source/workbook cases, all **77** suites, final affected rerun/types/warning-free lint/security/**70** cancellation/**2,936** literal BN/EN pairs/build. **1,075 actual read-only checks**, five authorized channels/two families, **12 BN/EN in-memory workbook roundtrips**, one actual nonempty history; signed Chat/member page HTTP 200 only. Metadata, feeds and owner roster remained equal; no mutation/read receipt, file creation/deletion, SQL or cleanup. Both QA channels and audits/user-kept records retained.
+
+**Next safe source: Health safe loading/Retry**, based on the remaining matrix. Chat still needs positive membership with a genuine second approved login account, real other-author/role/SSE/reconnect/burst/revocation/browser/modal/voice/file/delivery/fault/race/mobile/hydration and physical Excel-download acceptance. Unit/20,000-row buffer tests are not live or browser fault/high-volume proof. No new browser was used, owner 5173 retained/PID not reverified, Site NOT_FOUND/no deploy/access/auth/binding/secret change. Whole system Partial; source push is not hosted deployment.
+
+### Previous checkpoint — private group membership, source `1486c6a`
 
 Chat → Manage channels → Manage members (`/chat/channels/[id]/members`) implements private custom group invite/remove/promote/demote/reinvite. Require an active family management role **and** active explicit group owner; no admin invitation bypass. Owner/self cannot be removed or changed, no owner promotion/transfer. Family/admin/direct/event/qurbani memberships are not changed here. Only approved active family accounts may be invited/promoted/demoted; inactive former accounts can still have private-group access removed. A profile without a login account is not eligible. Reinvite uses the same row as member role, preserving notification preference and creation/history; remove means status left, not hard delete.
 
