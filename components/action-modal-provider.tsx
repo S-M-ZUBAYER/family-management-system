@@ -35,6 +35,7 @@ import { eventWriteFeedback } from "@/lib/event-write-outcome";
 import { eventMediaFeedback } from "@/lib/event-media-workflow";
 import { eventParticipationFeedback } from "@/lib/event-participation";
 import { eventCommentChangeFeedback } from "@/lib/event-comment-management";
+import { chatTextActionCopy, chatTextFeedback } from "@/lib/chat-text-management";
 import { magazineActionCopy } from "@/lib/magazine-action-copy";
 import { magazineErrorCopy } from "@/lib/magazine-validation";
 import { magazineWriteFeedback } from "@/lib/magazine-cover-write";
@@ -271,7 +272,9 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
     const noticeCopy = noticeActionCopy(pathname, method, body, locale);
     if (noticeCopy) return noticeCopy;
   }
-  if (pathname === "/api/events" || pathname.startsWith("/api/events/") || pathname.startsWith("/api/event-media/")) {
+  const chatTextCopy = chatTextActionCopy(pathname, method, locale);
+  if (chatTextCopy) return chatTextCopy;
+  if (pathname === "/api/events" || pathname.startsWith("/api/events/") || pathname.startsWith("/api/event-media/") || pathname.startsWith("/api/event-comments/")) {
     const eventCopy = eventActionCopy(pathname, method, body, locale);
     if (eventCopy) return eventCopy;
   }
@@ -476,6 +479,9 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
           const commentChangePayload = /^\/api\/event-comments\/[^/]+$/.test(url.pathname)
             ? await response.clone().json().then((value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}).catch(() => ({})) : null;
           const commentChangeResult = commentChangePayload ? eventCommentChangeFeedback(url.pathname, response.status, commentChangePayload, locale, method, parseBody(init?.body)) : null;
+          const chatTextPayload = /^\/api\/chat-messages\/[^/]+$/.test(url.pathname)
+            ? await response.clone().json().then((value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}).catch(() => ({})) : null;
+          const chatTextResult = chatTextPayload ? chatTextFeedback(url.pathname, response.status, chatTextPayload, locale, method, parseBody(init?.body)) : null;
           const mediaPayload = /^\/api\/events\/[^/]+\/media$|^\/api\/event-media\/[^/]+$/.test(url.pathname)
             ? await response.clone().json().then((value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}).catch(() => ({})) : null;
           const mediaResult = mediaPayload ? eventMediaFeedback(url.pathname, response.status, mediaPayload, locale, method, init?.body) : null;
@@ -483,7 +489,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
             ? copy.successMessage
             : response.ok && ["/api/finance/records", "/api/finance/status", "/api/health/records"].includes(url.pathname) ? copy.successMessage
             : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."), locale);
-          const nextResult = noticeResult ?? eventResult ?? participationResult ?? commentChangeResult ?? mediaResult ?? magazineResult ?? welfareResult ?? (memberResult?.noChange
+          const nextResult = noticeResult ?? eventResult ?? participationResult ?? commentChangeResult ?? chatTextResult ?? mediaResult ?? magazineResult ?? welfareResult ?? (memberResult?.noChange
             ? { kind: "info" as const, title: locale === "bn" ? "পরিবর্তন প্রয়োজন নেই" : "No change needed", message }
             : mutationResponseResult(memberResult?.status ?? response.status, message, locale));
           lastMutationResult.current = { kind: nextResult.kind, message: nextResult.message, at: Date.now() };
@@ -500,10 +506,11 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
         const eventFailure = eventWriteFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
         const participationFailure = eventParticipationFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
         const commentChangeFailure = eventCommentChangeFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
+        const chatTextFailure = chatTextFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
         const mediaFailure = eventMediaFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
-        const propagatedError = commentChangeFailure ? new Error(commentChangeFailure.message) : mediaFailure ? new Error(mediaFailure.message) : participationFailure ? new Error(participationFailure.message) : eventFailure ? new Error(eventFailure.message) : noticeFailure ? new Error(noticeFailure.message) : magazineFailure ? new Error(magazineFailure.message) : welfareFailure ? new Error(welfareFailure.message) : error;
+        const propagatedError = chatTextFailure ? new Error(chatTextFailure.message) : commentChangeFailure ? new Error(commentChangeFailure.message) : mediaFailure ? new Error(mediaFailure.message) : participationFailure ? new Error(participationFailure.message) : eventFailure ? new Error(eventFailure.message) : noticeFailure ? new Error(noticeFailure.message) : magazineFailure ? new Error(magazineFailure.message) : welfareFailure ? new Error(welfareFailure.message) : error;
         if (mounted.current) {
-          const nextResult: ResultState = noticeFailure ?? eventFailure ?? participationFailure ?? commentChangeFailure ?? mediaFailure ?? magazineFailure ?? welfareFailure ?? {
+          const nextResult: ResultState = chatTextFailure ?? noticeFailure ?? eventFailure ?? participationFailure ?? commentChangeFailure ?? mediaFailure ?? magazineFailure ?? welfareFailure ?? {
             kind: "error",
             title: locale === "bn" ? "সংযোগজনিত error" : "Connection error",
             message: error instanceof Error ? error.message : (locale === "bn" ? "Server-এর সাথে যোগাযোগ করা যায়নি। আবার চেষ্টা করুন।" : "Could not contact the server. Please try again."),

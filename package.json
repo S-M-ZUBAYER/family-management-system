@@ -64,6 +64,7 @@
     "test:chat-unread": "node scripts/test-chat-unread-counts.mjs",
     "test:chat-cursor": "node scripts/test-chat-cursor.mjs",
     "test:chat-access": "node scripts/test-chat-access-policy.mjs",
+    "test:chat-text": "node scripts/test-chat-text-management.mjs",
     "test:admin-audit": "node scripts/test-admin-audit-visibility.mjs",
     "test:archive-access": "node scripts/test-archive-access.mjs",
     "test:event-media-access": "node scripts/test-event-media-access.mjs",
