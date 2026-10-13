@@ -2,6 +2,7 @@ import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageHealth, getActiveFamilyMembership } from "@/lib/family-access";
 import { getChatAuthorName } from "@/lib/family-chat";
 import { publicHealthSosRecord } from "@/lib/health-sos-workflow";
+import { healthReadSnapshot } from "@/lib/health-read";
 import { visibleEmergencyDirectory, type EmergencyDirectoryRow } from "@/lib/health-directory-visibility";
 import type {
   EmergencyHealthProfile,
@@ -143,8 +144,11 @@ export async function GET() {
       else throw error;
     }
 
-    return Response.json({
+    const currentMembership=await getActiveFamilyMembership(user.userId);
+    if(!currentMembership||currentMembership.family_id!==membership.family_id||currentMembership.role!==membership.role)return Response.json({code:"HEALTH_READ_CONTEXT"},{status:409});
+    const snapshot = {
       family,
+      scope:{familyId:membership.family_id,actorId:user.userId},
       viewer: {
         displayName: await getChatAuthorName(membership.family_id, user),
         role: membership.role,
@@ -162,7 +166,9 @@ export async function GET() {
       })),
       permissions: { canManageSos: canManageHealth(membership.role) },
       migrationRequired,
-    });
+    };
+    if(!healthReadSnapshot(snapshot))return Response.json({code:"HEALTH_READ_INVALID"},{status:502});
+    return Response.json(snapshot,{headers:{"Cache-Control":"no-store"}});
   } catch (error) {
     return healthErrorResponse(error, "Unable to load health workspace");
   }

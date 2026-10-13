@@ -2,7 +2,8 @@
 import { healthWorksheet, type HealthExportSheet } from "@/lib/health-export";
 import { healthReminderPlan, healthMedicationInCourse } from "@/lib/health-reminders";
 
-import { useActionFeedback } from "@/components/action-modal-provider";
+import { useActionFeedback,useActionResult } from "@/components/action-modal-provider";
+import { HealthReadGate,HealthReadError,healthReadCopy,readHealth,type HealthSnapshot } from "@/lib/health-read";
 import { useLocale, type AppLocale } from "@/components/locale-provider";
 import { useCurrentTime } from "@/components/use-current-time";
 import { healthLocalInputToIso } from "@/lib/health-validation";
@@ -177,11 +178,17 @@ export function HealthCenter() {
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [setupRequired, setSetupRequired] = useState(false);
   const [feedback, setFeedback] = useActionFeedback();
+  const showResult=useActionResult();
+  const healthReads=useRef(new HealthReadGate()),healthMounted=useRef(false),readPending=useRef(false),readErrorShown=useRef(false);
+  const healthWork=useRef({ready:false,busy:false,exporting:false}),snapshotRef=useRef<HealthSnapshot|null>(null),acceptedScope=useRef<HealthSnapshot["scope"]|null>(null),readLocale=useRef(locale),editorOpen=useRef(false);
+  useEffect(()=>{readLocale.current=locale;},[locale]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileForm, setProfileForm] = useState<FormState>({});
   const [donorAvailable, setDonorAvailable] = useState(false);
   const [recordKind, setRecordKind] = useState<RecordKind | null>(null);
   const [editingRecord, setEditingRecord] = useState<{ id: string; kind: RecordKind } | null>(null);
+  const editingRecordRef=useRef<typeof editingRecord>(null);
+  useEffect(()=>{editingRecordRef.current=editingRecord;},[editingRecord]);
   const [recordForm, setRecordForm] = useState<FormState>({});
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadForm, setUploadForm] = useState<FormState>({ category: "prescription", documentDate: today() });
@@ -191,74 +198,61 @@ export function HealthCenter() {
   const [sosForm, setSosForm] = useState<FormState>({ alertType: "medical" });
   const [location, setLocation] = useState<LocationState>(null);
   const [locating, setLocating] = useState(false);
+  const locationRequest=useRef(0);
   const [responseTarget, setResponseTarget] = useState<HealthSosAlert | null>(null);
   const [responseType, setResponseType] = useState("acknowledged");
   const [responseNote, setResponseNote] = useState("");
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("default");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  useEffect(()=>{editorOpen.current=profileOpen||!!recordKind||uploadOpen||sosOpen||!!responseTarget;},[profileOpen,recordKind,uploadOpen,sosOpen,responseTarget]);
+  function beginHealthAction(){
+    if(!healthWork.current.ready||healthWork.current.busy||healthWork.current.exporting)return false;
+    healthWork.current.busy=true;healthReads.current.invalidate();loadSequence.current++;locationRequest.current++;setLocating(false);setSaving(true);return true;
+  }
+  function finishHealthAction(){healthWork.current.busy=false;if(healthMounted.current)setSaving(false);}
 
-  const loadHealth = useCallback(async () => {
-    const sequence = ++loadSequence.current;
-    try {
-      const response = await fetch("/api/health", { cache: "no-store" });
-      const payload = (await response.json()) as HealthPayload;
-      if (sequence !== loadSequence.current) return;
-      if (payload.code === "FAMILY_SETUP_REQUIRED") {
-        setSetupRequired(true);
-        setFamily(undefined);
-        setProfile(null);
-        setMedications([]);
-        setAppointments([]);
-        setMeasurements([]);
-        setDocuments([]);
-        setDirectory([]);
-        setAlerts([]);
-        setResponses([]);
-        setCanManageSos(false);
-        setLoadError(false);
-        return;
+  const loadHealth = useCallback(async (background = false) => {
+    if(background&&(healthWork.current.busy||healthWork.current.exporting||editorOpen.current||readPending.current))return false;
+    const ticket=healthReads.current.begin(),sequence=++loadSequence.current;
+    locationRequest.current++;setLocating(false);
+    readPending.current=true;healthWork.current.ready=false;snapshotRef.current=null;
+    setLoading(true);setLoadError(false);setFamily(undefined);setProfile(null);
+    setMedications([]);setAppointments([]);setMeasurements([]);setDocuments([]);
+    setDirectory([]);setAlerts([]);setResponses([]);setCanManageSos(false);setMigrationRequired(false);
+    try{
+      const p=await readHealth(init=>fetch("/api/health",init),ticket.controller.signal);
+      if(!healthMounted.current||sequence!==loadSequence.current||!healthReads.current.current(ticket))return false;
+      const changed=acceptedScope.current&&(acceptedScope.current.familyId!==p.scope.familyId||acceptedScope.current.actorId!==p.scope.actorId);
+      if(changed){setProfileOpen(false);setProfileForm({});setRecordKind(null);setEditingRecord(null);setRecordForm({});setUploadOpen(false);setUploadFile(null);setUploadForm({category:"prescription"});setSosOpen(false);setSosForm({alertType:"medical"});setLocation(null);setResponseTarget(null);setResponseNote("");deliveredReminders.current.clear();}
+      else{
+        const edit=editingRecordRef.current;
+        if(edit){const rows=edit.kind==="medication"?p.medications:edit.kind==="appointment"?p.appointments:p.measurements;if(!rows.some(r=>r.id===edit.id)){setEditingRecord(null);setRecordKind(null);}}
+        setResponseTarget(current=>current?p.sosAlerts.find(a=>a.id===current.id&&["active","acknowledged"].includes(a.status))??null:null);
       }
-      if (!response.ok) throw new Error(payload.error ?? pick("স্বাস্থ্য কর্মক্ষেত্র পাওয়া যায়নি।", "Health workspace could not be loaded."));
-      setFamily(payload.family);
-      setProfile(payload.profile ?? null);
-      setMedications(payload.medications ?? []);
-      setAppointments(payload.appointments ?? []);
-      setMeasurements(payload.measurements ?? []);
-      setDocuments(payload.documents ?? []);
-      setDirectory(payload.emergencyDirectory ?? []);
-      setAlerts(payload.sosAlerts ?? []);
-      setResponses(payload.sosResponses ?? []);
-      setCanManageSos(Boolean(payload.permissions?.canManageSos));
-      setMigrationRequired(Boolean(payload.migrationRequired));
-      setSetupRequired(false);
-      setLoadError(false);
-    } catch (error) {
-      if (sequence !== loadSequence.current) return;
-      setFamily(undefined);
-      setProfile(null);
-      setMedications([]);
-      setAppointments([]);
-      setMeasurements([]);
-      setDocuments([]);
-      setDirectory([]);
-      setAlerts([]);
-      setResponses([]);
-      setCanManageSos(false);
-      setLoadError(true);
-      setFeedback(pick("স্বাস্থ্য কর্মক্ষেত্র লোড হয়নি।", "Health workspace could not be loaded.") + (error instanceof Error ? ` ${error.message}` : ""));
-    } finally {
-      if (sequence === loadSequence.current) setLoading(false);
-    }
-  }, [pick, setFeedback]);
+      acceptedScope.current=p.scope;snapshotRef.current=p;healthWork.current.ready=!p.migrationRequired;readErrorShown.current=false;
+      setFamily(p.family);setProfile(p.profile);setMedications(p.medications);setAppointments(p.appointments);
+      setMeasurements(p.measurements);setDocuments(p.documents);setDirectory(p.emergencyDirectory);
+      setAlerts(p.sosAlerts);setResponses(p.sosResponses);setCanManageSos(p.permissions.canManageSos);
+      setMigrationRequired(p.migrationRequired);setSetupRequired(false);setLoadError(false);
+      return !p.migrationRequired;
+    }catch(e){
+      if(healthMounted.current&&sequence===loadSequence.current&&healthReads.current.current(ticket)){
+        const code=e instanceof HealthReadError?e.code:"HEALTH_READ_FAILED";
+        setSetupRequired(code==="HEALTH_READ_SETUP");setLoadError(code!=="HEALTH_READ_SETUP");
+        if(!background||!readErrorShown.current)showResult({kind:"error",title:"Error",message:healthReadCopy(code,readLocale.current)});
+        readErrorShown.current=true;
+      }
+      return false;
+    }finally{if(healthMounted.current&&sequence===loadSequence.current&&healthReads.current.current(ticket)){readPending.current=false;setLoading(false);}}
+  },[showResult]);
 
-  useEffect(() => {
-    queueMicrotask(() => {
-      setNotificationPermission(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
-      void loadHealth();
-    });
-    const timer = window.setInterval(() => void loadHealth(), 30000);
-    return () => { window.clearInterval(timer); loadSequence.current += 1; };
-  }, [loadHealth]);
+  useEffect(()=>{
+    const gate=healthReads.current,sequence=loadSequence,life=healthMounted;
+    life.current=true;
+    queueMicrotask(()=>{if(!life.current)return;setNotificationPermission(typeof Notification==="undefined"?"unsupported":Notification.permission);void loadHealth();});
+    const timer=window.setInterval(()=>void loadHealth(true),30000);
+    return()=>{life.current=false;window.clearInterval(timer);sequence.current++;gate.invalidate();};
+  },[loadHealth]);
 
   const activeAlerts = useMemo(() => alerts.filter((alert) => ["active", "acknowledged"].includes(alert.status)), [alerts]);
   const activeMedications = useMemo(() => now === null ? [] : medications.filter(item => healthMedicationInCourse(item, now)), [medications, now]);
@@ -268,12 +262,13 @@ export function HealthCenter() {
   const nextAppointment = upcomingAppointments[0];
 
   useEffect(() => {
-    if (notificationPermission !== "granted" || typeof Notification === "undefined") return;
+    if (loading || loadError || migrationRequired || !healthWork.current.ready || notificationPermission !== "granted" || typeof Notification === "undefined") return;
     const current = Date.now();
+    const reminderScope=snapshotRef.current?.scope,reminderSequence=loadSequence.current;
     const plan = healthReminderPlan(medications, appointments, current);
     const timers = plan.filter(item => !deliveredReminders.current.has(`${family?.id}:${item.key}`)).map(item => window.setTimeout(() => {
       const key = `${family?.id}:${item.key}`;
-      if (deliveredReminders.current.has(key) || Notification.permission !== "granted") return;
+      if (!healthWork.current.ready || loadSequence.current!==reminderSequence || snapshotRef.current?.scope.familyId!==reminderScope?.familyId || snapshotRef.current?.scope.actorId!==reminderScope?.actorId || deliveredReminders.current.has(key) || Notification.permission !== "granted") return;
       deliveredReminders.current.add(key);
       try {
         if (item.kind === "medication") {
@@ -288,7 +283,7 @@ export function HealthCenter() {
       }
     }, Math.max(0, item.at-current)));
     return () => timers.forEach(timer => window.clearTimeout(timer));
-  }, [medications, appointments, family?.id, dateTime, notificationPermission, now, pick, setFeedback]);
+  }, [medications, appointments, family?.id, dateTime, notificationPermission, now, pick, setFeedback,loading,loadError,migrationRequired]);
 
   function openProfile() {
     setProfileForm({
@@ -323,19 +318,19 @@ export function HealthCenter() {
   }
 
   async function saveProfile() {
-    setSaving(true);
+    if(!beginHealthAction())return;
     try {
       if (!(await postAction("save_profile", { ...profileForm, donorAvailable }))) return;
       setProfileOpen(false);
       await loadHealth();
     } finally {
-      setSaving(false);
+      finishHealthAction();
     }
   }
 
   async function saveRecord() {
     if (!recordKind) return;
-    setSaving(true);
+    if(!beginHealthAction())return;
     try {
       const data: Record<string, unknown> = { ...recordForm };
       if (recordKind === "appointment") data.scheduledAt = healthLocalInputToIso(recordForm.scheduledAt ?? "");
@@ -354,7 +349,7 @@ export function HealthCenter() {
       setEditingRecord(null);
       await loadHealth();
     } finally {
-      setSaving(false);
+      finishHealthAction();
     }
   }
 
@@ -380,40 +375,40 @@ export function HealthCenter() {
   }
 
   async function deleteRecord(kind: RecordKind, recordId: string) {
-    setSaving(true);
+    if(!beginHealthAction())return;
     try {
       const response = await fetch("/api/health/records", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, recordId }) });
       if (response.status === 499) return;
       const payload = await response.json() as { message?: string; error?: string };
       if (!response.ok) throw new Error(payload.error ?? pick("স্বাস্থ্য রেকর্ড মোছা যায়নি।", "Health record could not be deleted."));
       await loadHealth();
-    } finally { setSaving(false); }
+    } finally { finishHealthAction(); }
   }
 
   async function deleteDocument(id: string) {
-    setSaving(true);
+    if(!beginHealthAction())return;
     try {
       const response = await fetch(`/api/health-document/${id}`, { method: "DELETE" });
       if (response.status === 499) return;
       const payload = await response.json() as { message?: string; error?: string };
       if (!response.ok) throw new Error(payload.error ?? pick("নথি মোছা যায়নি।", "Document could not be deleted."));
       await loadHealth();
-    } finally { setSaving(false); }
+    } finally { finishHealthAction(); }
   }
 
   async function updateStatus(entity: "medication" | "appointment", id: string, status: string) {
-    setSaving(true);
+    if(!beginHealthAction())return;
     try {
       if (!(await postAction("update_status", { entity, id, status }))) return;
       await loadHealth();
     } finally {
-      setSaving(false);
+      finishHealthAction();
     }
   }
 
   async function uploadDocument() {
     if (!uploadFile) return;
-    setSaving(true);
+    if(!beginHealthAction())return;
     try {
       const formData = new FormData();
       formData.set("file", uploadFile);
@@ -428,11 +423,14 @@ export function HealthCenter() {
       if (fileInputRef.current) fileInputRef.current.value = "";
       await loadHealth();
     } finally {
-      setSaving(false);
+      finishHealthAction();
     }
   }
 
   function requestLocation() {
+    if(!healthWork.current.ready||healthWork.current.busy||healthWork.current.exporting)return;
+    const request=++locationRequest.current,sequence=loadSequence.current,scope=snapshotRef.current?.scope;
+    const current=()=>healthMounted.current&&request===locationRequest.current&&sequence===loadSequence.current&&healthWork.current.ready&&snapshotRef.current?.scope.familyId===scope?.familyId&&snapshotRef.current?.scope.actorId===scope?.actorId;
     if (!navigator.geolocation) {
       setFeedback(pick("এই ব্রাউজারে অবস্থান পাওয়া যাচ্ছে না। অবস্থান ছাড়াও SOS পাঠাতে পারবেন।", "Location is unavailable in this browser. You can send SOS without it."));
       return;
@@ -440,10 +438,12 @@ export function HealthCenter() {
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        if(!current())return;
         setLocation({ latitude: Number(position.coords.latitude.toFixed(7)), longitude: Number(position.coords.longitude.toFixed(7)), accuracy: Number(position.coords.accuracy.toFixed(2)) });
         setLocating(false);
       },
       () => {
+        if(!current())return;
         setLocation(null);
         setLocating(false);
         setFeedback(pick("অবস্থানের অনুমতি পাওয়া যায়নি। অবস্থান ছাড়া SOS পাঠানো যাবে।", "Location permission was not granted. SOS can be sent without it."));
@@ -453,7 +453,7 @@ export function HealthCenter() {
   }
 
   async function createSos() {
-    setSaving(true);
+    if(!beginHealthAction())return;
     try {
       if (!(await postAction("create_sos", {
         ...sosForm,
@@ -466,30 +466,30 @@ export function HealthCenter() {
       setLocation(null);
       await loadHealth();
     } finally {
-      setSaving(false);
+      finishHealthAction();
     }
   }
 
   async function respondToSos() {
     if (!responseTarget) return;
-    setSaving(true);
+    if(!beginHealthAction())return;
     try {
       if (!(await postAction("respond_sos", { alertId: responseTarget.id, responseType, note: responseNote }))) return;
       setResponseTarget(null);
       setResponseNote("");
       await loadHealth();
     } finally {
-      setSaving(false);
+      finishHealthAction();
     }
   }
 
   async function closeSos(alert: HealthSosAlert, status: "resolved" | "cancelled") {
-    setSaving(true);
+    if(!beginHealthAction())return;
     try {
       if (!(await postAction("update_sos", { alertId: alert.id, status, note: status === "resolved" ? pick("পরিবারের পক্ষ থেকে সমাধান হয়েছে", "Resolved by the family") : pick("SOS বাতিল করা হয়েছে", "SOS cancelled") }))) return;
       await loadHealth();
     } finally {
-      setSaving(false);
+      finishHealthAction();
     }
   }
 
@@ -504,10 +504,18 @@ export function HealthCenter() {
   }
 
   async function exportXlsx() {
-    if (loading || loadError || migrationRequired) return;
+    if(!snapshotRef.current||!healthWork.current.ready||healthWork.current.busy||healthWork.current.exporting)return;
+    const captured=snapshotRef.current,sequence=loadSequence.current;
+    healthWork.current.exporting=true;
+    const current=()=>healthMounted.current&&sequence===loadSequence.current&&snapshotRef.current===captured&&!healthWork.current.busy;
     setExporting(true);
     try {
+      const snapshot=await readHealth(init=>fetch("/api/health",init));
+      if(snapshot.migrationRequired||snapshot.scope.familyId!==captured.scope.familyId||snapshot.scope.actorId!==captured.scope.actorId)throw new HealthReadError("HEALTH_READ_CONTEXT");
+      if(!current())throw new HealthReadError("HEALTH_READ_SUPERSEDED");
+      const {family,profile,medications,appointments,measurements,documents,emergencyDirectory:directory,sosAlerts:alerts,sosResponses:responses}=snapshot;
       const XLSX = await import("xlsx");
+      if(!current())throw new HealthReadError("HEALTH_READ_SUPERSEDED");
       const workbook = XLSX.utils.book_new();
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const names: Record<HealthExportSheet, string> = { Profile: pick("আমার প্রোফাইল", "My Profile"), Medications: pick("ওষুধ", "Medications"), Appointments: pick("অ্যাপয়েন্টমেন্ট", "Appointments"), Measurements: pick("পরিমাপ", "Measurements"), Documents: pick("নথি", "Documents"), Directory: pick("রক্ত নির্দেশিকা", "Blood Directory"), Alerts: pick("SOS ইতিহাস", "SOS History"), Responses: pick("SOS সাড়া", "SOS Responses") };
@@ -520,17 +528,23 @@ export function HealthCenter() {
       add("Directory", directory.map((item) => ({ [pick("সদস্য", "Member")]: item.member_name, [pick("রক্তের গ্রুপ", "Blood group")]: item.blood_group ?? "", [pick("রক্তদাতা", "Donor")]: item.donor_available ? pick("হ্যাঁ", "Yes") : pick("না", "No"), [pick("সর্বশেষ দান", "Last donation")]: item.last_donation_date ?? "", [pick("অ্যালার্জি", "Allergies")]: item.allergies ?? "", [pick("রোগাবস্থা", "Conditions")]: item.conditions ?? "", [pick("জরুরি যোগাযোগ", "Emergency contact")]: item.emergency_contact_name ?? "", [pick("ফোন", "Phone")]: item.emergency_contact_phone ?? "" })));
       add("Alerts", alerts.map((item) => ({ [pick("SOS পরিচয়", "SOS ID")]: item.id, [pick("পছন্দের যোগাযোগ", "Preferred contact")]: item.preferred_contact ?? "", [pick("স্বীকৃতির সময়", "Acknowledged at")]: item.acknowledged_at ?? "", [pick("সমাধানের নোট", "Resolution note")]: item.resolution_note ?? "", [pick("সময়", "Time")]: item.created_at, [pick("প্রতিবেদক", "Reporter")]: item.reporter_name, [pick("ধরন", "Type")]: sosLabels[item.alert_type], [pick("বার্তা", "Message")]: item.message, [pick("স্ট্যাটাস", "Status")]: healthStatusLabel(item.status, locale), [pick("স্থান", "Location")]: item.location_label ?? (item.latitude !== null && item.longitude !== null ? `${item.latitude}, ${item.longitude}` : ""), [pick("স্বীকৃতি", "Acknowledged")]: item.acknowledged_by_name ?? "", [pick("সমাধান", "Resolved")]: item.resolved_at ?? "" })));
       add("Responses", responses.map((item) => ({ [pick("SOS পরিচয়", "SOS ID")]: item.alert_id, [pick("সাড়াদাতা", "Responder")]: item.responder_name, [pick("ধরন", "Type")]: healthStatusLabel(item.response_type, locale), [pick("নোট", "Notes")]: item.note ?? "", [pick("সময়", "Time")]: item.created_at })));
+      if(!current())throw new HealthReadError("HEALTH_READ_SUPERSEDED");
       XLSX.writeFile(workbook, `${family?.name_en?.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "family"}-health-sos.xlsx`);
-      setFeedback(pick("স্বাস্থ্য তথ্যের XLSX তৈরি হয়েছে।", "Health XLSX was created."));
+      showResult({kind:"success",title:pick("XLSX তৈরি হয়েছে","XLSX created"),message:pick("নতুন করে অনুমতি যাচাই করা Health XLSX তৈরি হয়েছে।","The freshly authorized Health XLSX was created.")});
     } catch (error) {
-      setFeedback(pick("স্বাস্থ্য তথ্যের XLSX তৈরি হয়নি।", "Health XLSX could not be created.") + (error instanceof Error ? ` ${error.message}` : ""));
+      if(healthMounted.current){
+        snapshotRef.current=null;healthWork.current.ready=false;
+        setFamily(undefined);setProfile(null);setMedications([]);setAppointments([]);setMeasurements([]);setDocuments([]);setDirectory([]);setAlerts([]);setResponses([]);setCanManageSos(false);setLoadError(true);
+        showResult({kind:"error",title:"Error",message:healthReadCopy(error instanceof HealthReadError?error.code:"HEALTH_READ_FAILED",readLocale.current)});
+      }
     } finally {
-      setExporting(false);
+      healthWork.current.exporting=false;if(healthMounted.current)setExporting(false);
     }
   }
 
   useEffect(() => {
     const modelContext = (document as Document & { modelContext?: { registerTool: (tool: Record<string, unknown>, options?: { signal?: AbortSignal }) => void | Promise<void> } }).modelContext;
+    const registrationScope=snapshotRef.current?.scope,registrationSequence=loadSequence.current;
     if (!modelContext?.registerTool) return;
     const lifecycle = new AbortController();
     void Promise.resolve(modelContext.registerTool({
@@ -540,6 +554,7 @@ export function HealthCenter() {
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       execute(input: unknown) {
+        if(!healthWork.current.ready||healthWork.current.busy||healthWork.current.exporting||loadSequence.current!==registrationSequence||snapshotRef.current?.scope.familyId!==registrationScope?.familyId||snapshotRef.current?.scope.actorId!==registrationScope?.actorId)throw new Error("Health workspace is not ready.");
         if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input as object).length) throw new Error("No input fields are accepted.");
         return {
           activeAlerts: activeAlerts.map((item) => ({ id: item.id, type: item.alert_type, reporter: item.reporter_name, message: item.message, status: item.status, createdAt: item.created_at })),
@@ -550,7 +565,7 @@ export function HealthCenter() {
       },
     }, { signal: lifecycle.signal })).catch(() => undefined);
     return () => lifecycle.abort();
-  }, [activeAlerts, activeMedications.length, donors, nextAppointment]);
+  }, [activeAlerts, activeMedications.length, donors, nextAppointment,saving,exporting]);
 
   if (loading) return <main className="grid min-h-[calc(100vh-4rem)] place-items-center"><div className="text-center"><LoaderCircle className="mx-auto size-7 animate-spin text-primary" /><p className="mt-3 text-sm text-muted-foreground">{pick("স্বাস্থ্য কর্মক্ষেত্র প্রস্তুত হচ্ছে…", "Preparing health workspace…")}</p></div></main>;
   if (loadError) return <main className="mx-auto max-w-3xl p-6 md:p-10"><StateCard icon={<ShieldCheck />} title={pick("স্বাস্থ্য তথ্য লোড হয়নি", "Health data could not be loaded")} text={pick("অসম্পূর্ণ বা শূন্য স্বাস্থ্য তথ্য দেখানো বা রপ্তানি করা হয়নি। আবার চেষ্টা করুন।", "No incomplete or empty health data was shown or exported. Please retry.")} action={<Button className="rounded-xl" onClick={() => { setLoading(true); void loadHealth(); }}>{pick("আবার চেষ্টা করুন", "Retry")}</Button>} /></main>;
@@ -567,7 +582,8 @@ export function HealthCenter() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" className="rounded-xl" onClick={() => void enableNotifications()}><Bell className="size-4" /> {pick("রিমাইন্ডার চালু", "Enable reminders")}</Button>
-            <Button variant="secondary" className="rounded-xl" onClick={() => void exportXlsx()} disabled={exporting}>{exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} {pick("XLSX রপ্তানি", "Export XLSX")}</Button>
+            <Button variant="outline" className="rounded-xl" onClick={()=>void loadHealth()} disabled={saving || exporting}>{pick("Health আবার লোড করুন","Reload Health")}</Button>
+            <Button variant="secondary" className="rounded-xl" onClick={() => void exportXlsx()} disabled={exporting || saving || migrationRequired}>{exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} {pick("XLSX রপ্তানি", "Export XLSX")}</Button>
             <Button className="rounded-xl bg-rose-500 text-white hover:bg-rose-600" onClick={() => setSosOpen(true)} disabled={migrationRequired}><Siren className="size-4" /> {pick("জরুরি SOS", "Emergency SOS")}</Button>
           </div>
         </div>
@@ -655,15 +671,15 @@ export function HealthCenter() {
 
       <p className="pb-3 text-center text-xs text-muted-foreground">{pick("এই মডিউল রেকর্ড ও রিমাইন্ডারের জন্য; এটি চিকিৎসা নির্ণয়, চিকিৎসা পরামর্শ বা জরুরি সেবার বিকল্প নয়।", "This module is for records and reminders; it is not a substitute for diagnosis, medical advice, or emergency services.")}</p>
 
-      <Dialog open={profileOpen} onOpenChange={setProfileOpen}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-3xl"><DialogHeader><DialogTitle>{pick("ব্যক্তিগত স্বাস্থ্য প্রোফাইল", "Private health profile")}</DialogTitle><DialogDescription>{pick("ডিফল্টভাবে ব্যক্তিগত। শেয়ারিং সেটিংস আপনি নিজে নিয়ন্ত্রণ করবেন।", "Private by default. You control the sharing settings.")}</DialogDescription></DialogHeader><ProfileForm form={profileForm} setForm={setProfileForm} donorAvailable={donorAvailable} setDonorAvailable={setDonorAvailable} /><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setProfileOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving} onClick={() => void saveProfile().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("সংরক্ষণ হয়নি।", "Could not save.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />} {pick("সংরক্ষণ", "Save")}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={profileOpen} onOpenChange={setProfileOpen}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-3xl"><fieldset disabled={saving || exporting || migrationRequired || loading || loadError} className="contents"><DialogHeader><DialogTitle>{pick("ব্যক্তিগত স্বাস্থ্য প্রোফাইল", "Private health profile")}</DialogTitle><DialogDescription>{pick("ডিফল্টভাবে ব্যক্তিগত। শেয়ারিং সেটিংস আপনি নিজে নিয়ন্ত্রণ করবেন।", "Private by default. You control the sharing settings.")}</DialogDescription></DialogHeader><ProfileForm form={profileForm} setForm={setProfileForm} donorAvailable={donorAvailable} setDonorAvailable={setDonorAvailable} /><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setProfileOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving} onClick={() => void saveProfile().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("সংরক্ষণ হয়নি।", "Could not save.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />} {pick("সংরক্ষণ", "Save")}</Button></DialogFooter></fieldset></DialogContent></Dialog>
 
-      <Dialog open={Boolean(recordKind)} onOpenChange={(open) => { if (!open) { setRecordKind(null); setEditingRecord(null); } }}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-2xl"><DialogHeader><DialogTitle>{recordKind === "medication" ? pick("ওষুধ", "Medicine") : recordKind === "appointment" ? pick("অ্যাপয়েন্টমেন্ট", "Appointment") : pick("স্বাস্থ্য পরিমাপ", "Health measurement")} {editingRecord ? pick("সম্পাদনা", "edit") : pick("যোগ করুন", "add")}</DialogTitle><DialogDescription>{pick("এই তথ্য আপনার ব্যক্তিগত স্বাস্থ্য কর্মক্ষেত্রে থাকবে।", "This information stays in your private health workspace.")}</DialogDescription></DialogHeader>{recordKind ? <RecordForm kind={recordKind} form={recordForm} setForm={setRecordForm} /> : null}<DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => { setRecordKind(null); setEditingRecord(null); }}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving} onClick={() => void saveRecord().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("সংরক্ষণ হয়নি।", "Could not save.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingRecord ? <Pencil className="size-4" /> : <Plus className="size-4" />} {editingRecord ? pick("হালনাগাদ", "Update") : pick("সংরক্ষণ", "Save")}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={Boolean(recordKind)} onOpenChange={(open) => { if (!open) { setRecordKind(null); setEditingRecord(null); } }}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-2xl"><fieldset disabled={saving || exporting || migrationRequired || loading || loadError} className="contents"><DialogHeader><DialogTitle>{recordKind === "medication" ? pick("ওষুধ", "Medicine") : recordKind === "appointment" ? pick("অ্যাপয়েন্টমেন্ট", "Appointment") : pick("স্বাস্থ্য পরিমাপ", "Health measurement")} {editingRecord ? pick("সম্পাদনা", "edit") : pick("যোগ করুন", "add")}</DialogTitle><DialogDescription>{pick("এই তথ্য আপনার ব্যক্তিগত স্বাস্থ্য কর্মক্ষেত্রে থাকবে।", "This information stays in your private health workspace.")}</DialogDescription></DialogHeader>{recordKind ? <RecordForm kind={recordKind} form={recordForm} setForm={setRecordForm} /> : null}<DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => { setRecordKind(null); setEditingRecord(null); }}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving} onClick={() => void saveRecord().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("সংরক্ষণ হয়নি।", "Could not save.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingRecord ? <Pencil className="size-4" /> : <Plus className="size-4" />} {editingRecord ? pick("হালনাগাদ", "Update") : pick("সংরক্ষণ", "Save")}</Button></DialogFooter></fieldset></DialogContent></Dialog>
 
-      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}><DialogContent className="rounded-3xl sm:max-w-xl"><DialogHeader><DialogTitle>{pick("চিকিৎসা নথি আপলোড", "Medical document upload")}</DialogTitle><DialogDescription>{pick("শুধু আপনি এই ব্যক্তিগত ফাইল দেখতে পারবেন। সর্বোচ্চ ১২ MB।", "Only you can view this private file. Maximum 12 MB.")}</DialogDescription></DialogHeader><div className="space-y-4"><Field label="Title" id="health-doc-title"><Input id="health-doc-title" value={uploadForm.title ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, title: event.target.value })} /></Field><div className="grid gap-4 sm:grid-cols-2"><Field label="Category" id="health-doc-category"><Select value={uploadForm.category} onValueChange={(value) => setUploadForm({ ...uploadForm, category: value })}><SelectTrigger id="health-doc-category"><SelectValue /></SelectTrigger><SelectContent>{[["prescription", pick("প্রেসক্রিপশন", "Prescription")], ["lab_report", pick("ল্যাব রিপোর্ট", "Lab report")], ["imaging", pick("ইমেজিং", "Imaging")], ["vaccine", pick("টিকা", "Vaccine")], ["insurance", pick("বীমা", "Insurance")], ["other", pick("অন্যান্য", "Other")]].map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field><Field label="Document date" id="health-doc-date"><Input id="health-doc-date" type="date" value={uploadForm.documentDate ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, documentDate: event.target.value })} /></Field></div><Field label="File" id="health-doc-file"><Input ref={fileInputRef} id="health-doc-file" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.doc,.docx" onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} /></Field><Field label="Notes" id="health-doc-notes"><Textarea id="health-doc-notes" value={uploadForm.notes ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, notes: event.target.value })} /></Field></div><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setUploadOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving || !uploadFile} onClick={() => void uploadDocument().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("আপলোড হয়নি।", "Could not upload.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Upload className="size-4" />} {pick("আপলোড", "Upload")}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}><DialogContent className="rounded-3xl sm:max-w-xl"><fieldset disabled={saving || exporting || migrationRequired || loading || loadError} className="contents"><DialogHeader><DialogTitle>{pick("চিকিৎসা নথি আপলোড", "Medical document upload")}</DialogTitle><DialogDescription>{pick("শুধু আপনি এই ব্যক্তিগত ফাইল দেখতে পারবেন। সর্বোচ্চ ১২ MB।", "Only you can view this private file. Maximum 12 MB.")}</DialogDescription></DialogHeader><div className="space-y-4"><Field label="Title" id="health-doc-title"><Input id="health-doc-title" value={uploadForm.title ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, title: event.target.value })} /></Field><div className="grid gap-4 sm:grid-cols-2"><Field label="Category" id="health-doc-category"><Select value={uploadForm.category} onValueChange={(value) => setUploadForm({ ...uploadForm, category: value })}><SelectTrigger id="health-doc-category"><SelectValue /></SelectTrigger><SelectContent>{[["prescription", pick("প্রেসক্রিপশন", "Prescription")], ["lab_report", pick("ল্যাব রিপোর্ট", "Lab report")], ["imaging", pick("ইমেজিং", "Imaging")], ["vaccine", pick("টিকা", "Vaccine")], ["insurance", pick("বীমা", "Insurance")], ["other", pick("অন্যান্য", "Other")]].map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field><Field label="Document date" id="health-doc-date"><Input id="health-doc-date" type="date" value={uploadForm.documentDate ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, documentDate: event.target.value })} /></Field></div><Field label="File" id="health-doc-file"><Input ref={fileInputRef} id="health-doc-file" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.doc,.docx" onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} /></Field><Field label="Notes" id="health-doc-notes"><Textarea id="health-doc-notes" value={uploadForm.notes ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, notes: event.target.value })} /></Field></div><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setUploadOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving || !uploadFile} onClick={() => void uploadDocument().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("আপলোড হয়নি।", "Could not upload.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Upload className="size-4" />} {pick("আপলোড", "Upload")}</Button></DialogFooter></fieldset></DialogContent></Dialog>
 
-      <Dialog open={sosOpen} onOpenChange={setSosOpen}><DialogContent className="rounded-3xl sm:max-w-xl"><DialogHeader><DialogTitle className="flex items-center gap-2 text-rose-600"><Siren /> {pick("জরুরি SOS পাঠান", "Send emergency SOS")}</DialogTitle><DialogDescription>{pick("এটি পরিবারের SOS পাতায় প্রকাশ হয়; SMS, ইমেইল বা জরুরি সেবায় স্বয়ংক্রিয়ভাবে পাঠায় না। জীবন-ঝুঁকিতে জরুরি সেবায় সরাসরি কল করুন।", "This appears on the family SOS page; it does not automatically send SMS, email or call emergency services. Call emergency services directly for life-threatening emergencies.")}</DialogDescription></DialogHeader><div className="space-y-4"><Field label="Emergency type" id="sos-type"><Select value={sosForm.alertType} onValueChange={(value) => setSosForm({ ...sosForm, alertType: value })}><SelectTrigger id="sos-type"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(locale === "bn" ? sosLabelsBn : sosLabelsEn).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field><Field label={pick("কী হয়েছে?", "What happened?")} id="sos-message"><Textarea id="sos-message" rows={4} value={sosForm.message ?? ""} onChange={(event) => setSosForm({ ...sosForm, message: event.target.value })} placeholder={pick("পরিবার যেন দ্রুত বুঝতে পারে এমন সংক্ষিপ্ত তথ্য", "Brief information the family can understand quickly")} /></Field><div className="grid gap-4 sm:grid-cols-2"><Field label={pick("যোগাযোগ নম্বর", "Contact number")} id="sos-contact"><Input id="sos-contact" value={sosForm.preferredContact ?? ""} onChange={(event) => setSosForm({ ...sosForm, preferredContact: event.target.value })} /></Field><Field label="Location label" id="sos-location-label"><Input id="sos-location-label" value={sosForm.locationLabel ?? ""} onChange={(event) => setSosForm({ ...sosForm, locationLabel: event.target.value })} placeholder={pick("যেমন: বাসা, ৩য় তলা", "For example: home, third floor")} /></Field></div><div className="rounded-2xl border p-4"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-semibold">{pick("বর্তমান অবস্থান (ঐচ্ছিক)", "Current location (optional)")}</p><p className="text-xs text-muted-foreground">{pick("শুধু অনুমোদিত ফ্যামিলি সদস্যরা এই SOS-এর সাথে অবস্থানটি দেখবে।", "Only approved family members can see it with this SOS.")}</p></div><Button variant="outline" className="rounded-xl" onClick={requestLocation} disabled={locating}>{locating ? <LoaderCircle className="size-4 animate-spin" /> : <Navigation className="size-4" />} {location ? pick("হালনাগাদ", "Update") : pick("অবস্থান যোগ করুন", "Add location")}</Button></div>{location ? <p className="mt-3 flex items-center gap-2 text-xs text-emerald-600"><CheckCircle2 className="size-4" /> {pick("অবস্থান প্রস্তুত", "Location ready")} · {pick("নির্ভুলতা প্রায়", "accuracy about")} {Math.round(location.accuracy)}m <button type="button" className="underline" onClick={() => setLocation(null)}>{pick("সরান", "Remove")}</button></p> : null}</div></div><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setSosOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl bg-rose-600 text-white hover:bg-rose-700" disabled={saving || (sosForm.message?.trim().length ?? 0) < 3} onClick={() => void createSos().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("SOS পাঠানো যায়নি।", "Could not send SOS.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Siren className="size-4" />} {pick("ফ্যামিলি SOS পাঠান", "Send family SOS")}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={sosOpen} onOpenChange={setSosOpen}><DialogContent className="rounded-3xl sm:max-w-xl"><fieldset disabled={saving || exporting || migrationRequired || loading || loadError} className="contents"><DialogHeader><DialogTitle className="flex items-center gap-2 text-rose-600"><Siren /> {pick("জরুরি SOS পাঠান", "Send emergency SOS")}</DialogTitle><DialogDescription>{pick("এটি পরিবারের SOS পাতায় প্রকাশ হয়; SMS, ইমেইল বা জরুরি সেবায় স্বয়ংক্রিয়ভাবে পাঠায় না। জীবন-ঝুঁকিতে জরুরি সেবায় সরাসরি কল করুন।", "This appears on the family SOS page; it does not automatically send SMS, email or call emergency services. Call emergency services directly for life-threatening emergencies.")}</DialogDescription></DialogHeader><div className="space-y-4"><Field label="Emergency type" id="sos-type"><Select value={sosForm.alertType} onValueChange={(value) => setSosForm({ ...sosForm, alertType: value })}><SelectTrigger id="sos-type"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(locale === "bn" ? sosLabelsBn : sosLabelsEn).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field><Field label={pick("কী হয়েছে?", "What happened?")} id="sos-message"><Textarea id="sos-message" rows={4} value={sosForm.message ?? ""} onChange={(event) => setSosForm({ ...sosForm, message: event.target.value })} placeholder={pick("পরিবার যেন দ্রুত বুঝতে পারে এমন সংক্ষিপ্ত তথ্য", "Brief information the family can understand quickly")} /></Field><div className="grid gap-4 sm:grid-cols-2"><Field label={pick("যোগাযোগ নম্বর", "Contact number")} id="sos-contact"><Input id="sos-contact" value={sosForm.preferredContact ?? ""} onChange={(event) => setSosForm({ ...sosForm, preferredContact: event.target.value })} /></Field><Field label="Location label" id="sos-location-label"><Input id="sos-location-label" value={sosForm.locationLabel ?? ""} onChange={(event) => setSosForm({ ...sosForm, locationLabel: event.target.value })} placeholder={pick("যেমন: বাসা, ৩য় তলা", "For example: home, third floor")} /></Field></div><div className="rounded-2xl border p-4"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-semibold">{pick("বর্তমান অবস্থান (ঐচ্ছিক)", "Current location (optional)")}</p><p className="text-xs text-muted-foreground">{pick("শুধু অনুমোদিত ফ্যামিলি সদস্যরা এই SOS-এর সাথে অবস্থানটি দেখবে।", "Only approved family members can see it with this SOS.")}</p></div><Button variant="outline" className="rounded-xl" onClick={requestLocation} disabled={locating}>{locating ? <LoaderCircle className="size-4 animate-spin" /> : <Navigation className="size-4" />} {location ? pick("হালনাগাদ", "Update") : pick("অবস্থান যোগ করুন", "Add location")}</Button></div>{location ? <p className="mt-3 flex items-center gap-2 text-xs text-emerald-600"><CheckCircle2 className="size-4" /> {pick("অবস্থান প্রস্তুত", "Location ready")} · {pick("নির্ভুলতা প্রায়", "accuracy about")} {Math.round(location.accuracy)}m <button type="button" className="underline" onClick={() => setLocation(null)}>{pick("সরান", "Remove")}</button></p> : null}</div></div><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setSosOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl bg-rose-600 text-white hover:bg-rose-700" disabled={saving || (sosForm.message?.trim().length ?? 0) < 3} onClick={() => void createSos().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("SOS পাঠানো যায়নি।", "Could not send SOS.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Siren className="size-4" />} {pick("ফ্যামিলি SOS পাঠান", "Send family SOS")}</Button></DialogFooter></fieldset></DialogContent></Dialog>
 
-      <Dialog open={Boolean(responseTarget)} onOpenChange={(open) => !open && setResponseTarget(null)}><DialogContent className="rounded-3xl sm:max-w-md"><DialogHeader><DialogTitle>{pick("SOS সাড়া", "SOS response")}</DialogTitle><DialogDescription>{responseTarget?.reporter_name} · {responseTarget?.message}</DialogDescription></DialogHeader><div className="space-y-4"><Field label="Response" id="sos-response-type"><Select value={responseType} onValueChange={setResponseType}><SelectTrigger id="sos-response-type"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="acknowledged">{pick("দেখেছি / যোগাযোগ করছি", "Seen / contacting now")}</SelectItem><SelectItem value="on_the_way">{pick("আমি আসছি", "I'm on the way")}</SelectItem><SelectItem value="called_emergency">{pick("জরুরি সেবায় কল করেছি", "Called emergency services")}</SelectItem><SelectItem value="update">{pick("হালনাগাদ দিচ্ছি", "Providing an update")}</SelectItem></SelectContent></Select></Field><Field label="Note" id="sos-response-note"><Textarea id="sos-response-note" value={responseNote} onChange={(event) => setResponseNote(event.target.value)} placeholder={pick("ঐচ্ছিক হালনাগাদ", "Optional update")} /></Field></div><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setResponseTarget(null)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving} onClick={() => void respondToSos().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("সাড়া পাঠানো হয়নি।", "Could not send response.")))}>{pick("সাড়া পাঠান", "Send response")}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={Boolean(responseTarget)} onOpenChange={(open) => !open && setResponseTarget(null)}><DialogContent className="rounded-3xl sm:max-w-md"><fieldset disabled={saving || exporting || migrationRequired || loading || loadError} className="contents"><DialogHeader><DialogTitle>{pick("SOS সাড়া", "SOS response")}</DialogTitle><DialogDescription>{responseTarget?.reporter_name} · {responseTarget?.message}</DialogDescription></DialogHeader><div className="space-y-4"><Field label="Response" id="sos-response-type"><Select value={responseType} onValueChange={setResponseType}><SelectTrigger id="sos-response-type"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="acknowledged">{pick("দেখেছি / যোগাযোগ করছি", "Seen / contacting now")}</SelectItem><SelectItem value="on_the_way">{pick("আমি আসছি", "I'm on the way")}</SelectItem><SelectItem value="called_emergency">{pick("জরুরি সেবায় কল করেছি", "Called emergency services")}</SelectItem><SelectItem value="update">{pick("হালনাগাদ দিচ্ছি", "Providing an update")}</SelectItem></SelectContent></Select></Field><Field label="Note" id="sos-response-note"><Textarea id="sos-response-note" value={responseNote} onChange={(event) => setResponseNote(event.target.value)} placeholder={pick("ঐচ্ছিক হালনাগাদ", "Optional update")} /></Field></div><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setResponseTarget(null)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving} onClick={() => void respondToSos().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("সাড়া পাঠানো হয়নি।", "Could not send response.")))}>{pick("সাড়া পাঠান", "Send response")}</Button></DialogFooter></fieldset></DialogContent></Dialog>
     </main>
   );
 }

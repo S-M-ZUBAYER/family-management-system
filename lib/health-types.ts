@@ -113,6 +113,7 @@ export type HealthSosResponse = {
 };
 
 export type HealthPayload = {
+  scope?: { familyId: string; actorId: string };
   family?: { id: string; name_bn: string; name_en: string };
   viewer?: { displayName: string; role: string };
   profile?: HealthProfile | null;

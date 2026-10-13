@@ -91,6 +91,7 @@
     "test:health-export": "node scripts/test-health-export.mjs",
     "test:health-sos": "node scripts/test-health-sos-workflow.mjs",
     "test:health-reminders": "node scripts/test-health-reminders.mjs",
+    "test:health-read": "node scripts/test-health-read.mjs",
     "i18n:audit": "node scripts/audit-translations.mjs"
   },
   "dependencies": {
