@@ -107,7 +107,7 @@ export async function readEventMutation(request: () => Promise<Response>, method
 
 export type EventRsvpPublic = { id: string; event_id: string; is_current_user: boolean; respondent_name: string; response: "going" | "maybe" | "not_going"; guest_count: number; note: string | null; updated_at: string };
 export type EventCommentPublic = { id: string; event_id: string; author_name: string; body: string; created_at: string; is_current_user?: boolean };
-export type EventMediaPublic = { id: string; event_id: string; file_name: string; mime_type: string; file_size: number; caption: string | null; uploader_name: string; created_at: string };
+export type EventMediaPublic = { id: string; event_id: string; file_name: string; mime_type: string; file_size: number; caption: string | null; uploader_name: string; created_at: string; is_current_user?: boolean };
 const validText = (v: unknown, max: number, nullable = false) => (nullable && v === null) || (typeof v === "string" && v.length <= max && (nullable || !!v.trim()));
 const validStamp = (v: unknown) => { try { return typeof v === "string" && !!eventTimestamp(v, true); } catch { return false; } };
 const project = (v: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.map(k => [k, v[k]]));
@@ -137,8 +137,9 @@ export function eventReadSnapshot(raw: unknown, expectedFamilyId?: string) {
         output.push(project(v, ["id", "event_id", "author_name", "body", "created_at", ...(Object.hasOwn(v, "is_current_user") ? ["is_current_user"] : [])]));
       } else {
         if (!validText(v.file_name, 500) || typeof v.mime_type !== "string" || !["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"].includes(v.mime_type)
-          || typeof v.file_size !== "number" || !Number.isSafeInteger(v.file_size) || v.file_size < 1 || v.file_size > 25 * 1024 * 1024 || !validText(v.caption, 5000, true) || !validText(v.uploader_name, 600) || !validStamp(v.created_at)) return null;
-        output.push(project(v, ["id", "event_id", "file_name", "mime_type", "file_size", "caption", "uploader_name", "created_at"]));
+          || typeof v.file_size !== "number" || !Number.isSafeInteger(v.file_size) || v.file_size < 1 || v.file_size > 25 * 1024 * 1024 || !validText(v.caption, 5000, true) || !validText(v.uploader_name, 600) || !validStamp(v.created_at)
+          || (Object.hasOwn(v, "is_current_user") && typeof v.is_current_user !== "boolean")) return null;
+        output.push(project(v, ["id", "event_id", "file_name", "mime_type", "file_size", "caption", "uploader_name", "created_at", ...(Object.hasOwn(v, "is_current_user") ? ["is_current_user"] : [])]));
       }
     }
     return output;

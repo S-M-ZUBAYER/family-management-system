@@ -46,6 +46,7 @@ export function eventRecord(value: unknown, editing = false) {
 }
 export function eventErrorCopy(code: unknown, locale: "bn" | "en") {
   const messages: Record<string, [string, string]> = {
+    EVENT_MEDIA_DELETE_FORBIDDEN: ["শুধু নিজের uploaded media মুছতে পারবেন; অন্যের media সরাতে Family Admin permission প্রয়োজন।", "You can delete only your uploaded media; removing someone else's media requires family admin permission."],
     EVENT_COMMENT_VERSION_REQUIRED: ["মন্তব্যের আগের লেখা প্রয়োজন। তালিকা লোড করে আবার চেষ্টা করুন।", "The original comment text is required. Reload the list before trying again."],
     EVENT_COMMENT_CHANGED: ["মন্তব্যটি বদলেছে বা মুছে গেছে। তালিকা লোড করে বর্তমান লেখা দেখুন; পুরোনো লেখা দিয়ে আবার পাঠাবেন না।", "The comment changed or was removed. Reload to review its current text; do not resubmit the old version."],
     EVENT_COMMENT_NOT_FOUND: ["এই পরিবারের মন্তব্য পাওয়া যায়নি।", "The comment was not found in this family."],

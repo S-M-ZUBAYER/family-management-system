@@ -3,6 +3,7 @@ import { canManageEvents, getActiveFamilyMembership } from "@/lib/family-access"
 import { collectPaginatedRows, PaginatedRowLimitError } from "@/lib/paginated-rows";
 import { eventRecord, EventValidationError, eventErrorCopy } from "@/lib/event-validation";
 import { eventPublicRow, eventWrite, eventWriteResponse, EventWriteOutcomeUnknownError, EventWriteRejectedError } from "@/lib/event-write-outcome";
+import { eventMediaPublicRow } from "@/lib/event-media-workflow";
 import {
   BackendNotConfiguredError,
   isBackendConfigured,
@@ -62,6 +63,7 @@ export type EventMediaRow = {
   caption: string | null;
   uploader_name: string;
   created_at: string;
+  uploaded_by_user_id: string;
 };
 
 async function readAllEventRows<T>(table: string, query: URLSearchParams): Promise<T[]> {
@@ -125,7 +127,7 @@ export async function GET() {
         order: "created_at.asc,id.asc",
       });
       const mediaQuery = new URLSearchParams({
-        select: "id,event_id,file_name,mime_type,file_size,caption,uploader_name,created_at",
+        select: "id,event_id,file_name,mime_type,file_size,caption,uploader_name,created_at,uploaded_by_user_id",
         ...common,
         order: "created_at.desc,id.asc",
       });
@@ -166,7 +168,12 @@ export async function GET() {
       events: events.map(event => { const row = eventPublicRow(event); if (!row) throw new EventValidationError("EVENT_INVALID_SNAPSHOT"); return row; }),
       rsvps: safeRsvps,
       comments: safeComments,
-      media,
+      media: media.map(item => {
+        if (typeof item.uploaded_by_user_id !== "string" || !item.uploaded_by_user_id.trim()) throw new EventValidationError("EVENT_INVALID_SNAPSHOT");
+        const row = eventMediaPublicRow(item, item.uploaded_by_user_id === user.userId);
+        if (!row) throw new EventValidationError("EVENT_INVALID_SNAPSHOT");
+        return row;
+      }),
       migrationRequired,
       permissions: { canManage },
     });

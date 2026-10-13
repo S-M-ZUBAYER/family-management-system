@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
-import { canViewEventMedia } from "@/lib/event-media-access";
+import { canViewEventMedia, canDeleteEventMedia } from "@/lib/event-media-access";
 import { canManageEvents, getActiveFamilyMembership } from "@/lib/family-access";
 import { BackendNotConfiguredError, SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 import { eventUuid, EventValidationError, eventErrorCopy } from "@/lib/event-validation";
@@ -53,7 +53,7 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
     const query = new URLSearchParams({ select: "id,event_id,family_id,storage_key,uploaded_by_user_id", id: `eq.${id}`, family_id: `eq.${membership.family_id}`, limit: "1" });
     const [media] = await supabaseRest<StoredMedia[]>(`event_media?${query}`);
     if (!media) return Response.json({ error: "Media not found." }, { status: 404 });
-    if (!canManageEvents(membership.role) && media.uploaded_by_user_id !== user.userId) return Response.json({ error: "Media deletion permission required." }, { status: 403 });
+    if (!canDeleteEventMedia(media.uploaded_by_user_id, user.userId, canManageEvents(membership.role))) return Response.json({ code: "EVENT_MEDIA_DELETE_FORBIDDEN", error: eventErrorCopy("EVENT_MEDIA_DELETE_FORBIDDEN", "en") }, { status: 403 });
     if (!eventUuid(media.event_id) || media.family_id !== membership.family_id || !eventUuid(media.id) || media.id.toLowerCase() !== id.toLowerCase() || typeof media.uploaded_by_user_id !== "string") throw new EventValidationError("EVENT_DELETE_UNAVAILABLE");
     eventCapturedMediaKeys([media], membership.family_id, media.event_id);
     const bucket = (env as RuntimeEnv).BUCKET;

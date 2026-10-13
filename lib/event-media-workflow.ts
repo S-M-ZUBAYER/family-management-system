@@ -41,12 +41,14 @@ export async function validateEventMedia(file: File) {
   if (!eventMediaHeaderMatches(metadata.type, new Uint8Array(await file.slice(0, 4096).arrayBuffer()), metadata.size)) throw new EventValidationError("EVENT_MEDIA_INVALID_FILE");
   return metadata;
 }
-export function eventMediaPublicRow(raw: unknown): EventMediaPublic | null {
+export function eventMediaPublicRow(raw: unknown, own?: boolean): EventMediaPublic | null {
   if (!eventObject(raw) || !eventUuid(raw.id) || !eventUuid(raw.event_id) || typeof raw.uploader_name !== "string" || !raw.uploader_name.trim() || raw.uploader_name.length > 180
-    || !(raw.caption === null || (typeof raw.caption === "string" && raw.caption.length <= 500)) || typeof raw.created_at !== "string") return null;
+    || !(raw.caption === null || (typeof raw.caption === "string" && raw.caption.length <= 500)) || typeof raw.created_at !== "string"
+    || (Object.hasOwn(raw, "is_current_user") && typeof raw.is_current_user !== "boolean")) return null;
   try { eventMediaMetadata({ name: raw.file_name as string, type: raw.mime_type as string, size: raw.file_size as number }); eventTimestamp(raw.created_at, true); } catch { return null; }
   return { id: raw.id, event_id: raw.event_id, file_name: raw.file_name as string, mime_type: raw.mime_type as string, file_size: raw.file_size as number,
-    caption: raw.caption as string | null, uploader_name: raw.uploader_name, created_at: raw.created_at };
+    caption: raw.caption as string | null, uploader_name: raw.uploader_name, created_at: raw.created_at,
+    ...(own !== undefined ? { is_current_user: own } : Object.hasOwn(raw, "is_current_user") ? { is_current_user: raw.is_current_user as boolean } : {}) };
 }
 export class EventMediaPrewriteError extends Error {
   readonly cleanupPending: boolean;
@@ -65,7 +67,7 @@ export async function eventMediaUploadWrite(options: {
   let media: EventMediaPublic;
   try {
     const rows = await options.create(), row = Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
-    const projected = eventMediaPublicRow(row);
+    const projected = eventMediaPublicRow(row, true);
     if (!eventObject(row) || row.family_id !== options.familyId || row.event_id !== options.eventId || row.uploaded_by_user_id !== options.actorId || row.storage_key !== options.key
       || !projected || projected.file_name !== options.file.name || projected.mime_type !== options.file.type || projected.file_size !== options.file.size || projected.caption !== options.caption) throw new EventWriteOutcomeUnknownError();
     media = projected;
