@@ -69,6 +69,7 @@
     "test:chat-attachment-deletion": "node scripts/test-chat-attachment-deletion.mjs",
     "test:chat-send-reaction": "node scripts/test-chat-send-reaction.mjs",
     "test:chat-setup": "node scripts/test-chat-setup-workflow.mjs",
+    "test:chat-lifecycle": "node scripts/test-chat-channel-lifecycle.mjs",
     "test:admin-audit": "node scripts/test-admin-audit-visibility.mjs",
     "test:archive-access": "node scripts/test-archive-access.mjs",
     "test:event-media-access": "node scripts/test-event-media-access.mjs",

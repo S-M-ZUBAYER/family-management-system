@@ -869,6 +869,7 @@ export function FamilyChat() {
           <p className="mt-1 text-xs text-muted-foreground">{pick("সর্বশেষ ১৫০টি message-এর window দেখানো হচ্ছে; পুরো history export-এ পাওয়া যাবে।","The latest 150-message window is shown; export includes the complete history.")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild><a href="/chat/channels">{pick("Channel পরিচালনা", "Manage channels")}</a></Button>
           {selected ? <Button variant="outline" disabled={messagesLoading || working} onClick={()=>void loadMessages(selected.id)}>{pick("Channel আবার লোড করুন","Reload channel")}</Button> : null}
           {notificationPermission !== "granted" && notificationPermission !== "unsupported" ? (
             <Button variant="outline" className="rounded-xl" onClick={() => void requestNotifications()}>
