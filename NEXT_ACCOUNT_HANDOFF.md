@@ -12,7 +12,19 @@ Snapshot: 2026-10-13 (Asia/Dhaka). This is the current entry point; older dated 
 
 ## Read before changing code
 
-### Latest continuation boundary — channel lifecycle, source `51be1c6`
+### Latest continuation boundary — private group membership, source `1486c6a`
+
+Chat → Manage channels → Manage members (`/chat/channels/[id]/members`) implements private custom group invite/remove/promote/demote/reinvite. Require an active family management role **and** active explicit group owner; no admin invitation bypass. Owner/self cannot be removed or changed, no owner promotion/transfer. Family/admin/direct/event/qurbani memberships are not changed here. Only approved active family accounts may be invited/promoted/demoted; inactive former accounts can still have private-group access removed. A profile without a login account is not eligible. Reinvite uses the same row as member role, preserving notification preference and creation/history; remove means status left, not hard delete.
+
+Strict family/actor/channel-version/target/membership tuple, scoped role/status/time/notification CAS, confirmed member before independent audit, no-change without write/audit, 202 pending and 503 unknown/no blind retry. Public owner-authorized roster and eligible account list, specific BN/EN confirmation/Cancel/× and read/verification locks implemented. Group moderator does not grant family admin or other-author message edit/delete permission. Membership administrative changes remain group-owner-only.
+
+**Evidence:** 13 deterministic simulated/source cases, all 76 configured suites, types/lint/security/**70** cancellation handlers/**2,952** BN/EN pairs/build, **100 actual rejection/read-only API checks** and signed membership-page HTTP 200. Existing f8627f9c owner-only QA group has **zero other eligible accounts**. Actual positive invite/remove/promote/demote/reinvite, genuine second-user/revocation/browser/fault/race acceptance are **not done**. No fabricated accounts, membership writes/audits, deletes/files/SQL/role demotion/reset. Own role/version/preference, channel/history/files/audits and both-family metadata remained equal. Retain both QA channels and historical audits; do not rerun earlier completed cleanup/lifecycle scripts.
+
+**Next safe source slice:** full Chat safe read/Retry/export, including roster XLSX. For positive membership acceptance, use a second genuine approved login-enabled account and two authenticated sessions; do not bypass family approval, create synthetic auth accounts, or repurpose current owner roles merely to manufacture tests. Permission/channel-read/member-write/audit are separate calls: not atomic concurrent revocation/send/archive gates, audit repair or permanent idempotency. All remaining matrix real-user/browser/fault/export/mobile/hosted gates remain pending; whole project Partial.
+
+Current 5173 server reused/retained; no PID re-verification or extra preview. Site lookup still NOT_FOUND: no replacement Site/access/auth/binding/secret change or deployment. GitHub source updates are not deployed versions. Earlier next-membership statements are historical.
+
+### Previous checkpoint — channel lifecycle, source `51be1c6`
 
 Chat → Manage channels (`/chat/channels`) supports authorized custom/admin name/description edit, archive and restore. Private managers still need active explicit channel owner/moderator membership; no family-admin bypass. General/direct/event/qurbani system-managed channels are protected. Archive retains history/files and blocks normal feed/send/export/file authorization until restored. Conditional family/type/audience/status/name/description/version checks, safe confirmed acknowledgement before audit, no-change/no audit, 202 audit-pending and 503 unknown review; no automatic retry/delete/repair. BN/EN confirmation/Cancel/× and safe loading/verification are wired.
 
