@@ -2,7 +2,7 @@
 
 A bilingual (বাংলা/English), multi-family web application for family records and day-to-day coordination. The first family is Sheikh Monsuf Family, but the application is designed so each registered family has its own workspace and approval process.
 
-> **Project status:** This is an active, partially tested project—not a finished or newly deployed release. Code in this checkout, database migrations applied to Supabase, and the version currently hosted on Sites may differ. Start with [NEXT_ACCOUNT_HANDOFF.md](NEXT_ACCOUNT_HANDOFF.md), then [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) and [the latest local QA log](QA_ACCEPTANCE_2026-10-12.md) before continuing or deploying.
+> **Project status:** This is an active, partially tested project—not a finished or newly deployed release. Code in this checkout, database migrations applied to Supabase, and the version currently hosted on Sites may differ. Start with [NEXT_ACCOUNT_HANDOFF.md](NEXT_ACCOUNT_HANDOFF.md), then [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) and [the latest local QA log](QA_ACCEPTANCE_2026-10-13.md) before continuing or deploying.
 
 ## What is in the application
 
@@ -15,7 +15,7 @@ A bilingual (বাংলা/English), multi-family web application for family r
 
 Features have different acceptance levels. In particular, external SMS/email/WhatsApp delivery, billing/custom domains, complete two-user access testing, every XLSX's contents, and the latest deployment have **not** been verified. The Contact page's email link opens the visitor's email app; submitting an in-app support ticket does not itself send email.
 
-Latest local checkpoint (2026-10-12, source `7edcc0b`): Events XLSX preserves the four BN/EN sheets with explicit authorized projection, selected-event/linked-child filtering, numeric money/counts, native Excel dates, browser timezone, updated timestamps and readable widths. Invalid snapshots reject before download; export mutex and generation guards suppress duplicate/stale exports and errors. Nine regressions (including 20,000 synthetic parents/RSVPs), 738 actual read-only checks across 12 in-memory workbooks, and spreadsheet import/render verification passed. All 67 suites passed; final export tests, TypeScript/lint/build reran after the stale-error guard. No database/file/audit/schema changes. Next: comment edit/delete/moderation and uploader-only gallery deletion UI. Physical browser downloads/filter races, real separate-user roles, actual faults/concurrency and hosted acceptance remain incomplete; see the latest QA log. Whole product remains partial.
+Latest local checkpoint (2026-10-13, media source `73f616e`, comment source `43c638f`): Events own-comment edit/delete, permanent admin removal and member-owned Gallery deletion controls are implemented with safe ownership flags, confirmations, localized pending/uncertain results and unchanged private account/storage boundaries. Comment fixture passed 210 API checks (including 2,000-character Bengali text); latest media fixture passed 77 lifecycle/cleanup checks, with 7 new ownership cases and 88 read-only checks. Only newly labeled QA rows/files removed; existing data and audits retained. Final 69 suites and type/lint/security/i18n/cancellation/build passed. See [latest QA evidence](QA_ACCEPTANCE_2026-10-13.md). Next: Chat message edit/delete and mutation/file recovery. Real separate-user/browser/fault/concurrency and hosted acceptance remain open; the whole product is still partial.
 
 ## Technology
 
