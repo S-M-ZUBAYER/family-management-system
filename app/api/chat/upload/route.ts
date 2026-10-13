@@ -1,146 +1,53 @@
 import { env } from "cloudflare:workers";
-
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getActiveFamilyMembership } from "@/lib/family-access";
-import {
-  chatErrorResponse,
-  getChatAuthorName,
-  getAccessibleChatChannel,
-  type ChatAttachmentRow,
-  type ChatMessageRow,
-} from "@/lib/family-chat";
-import { supabaseRest } from "@/lib/supabase-rest";
-
+import { chatErrorResponse, getChatAuthorName, getAccessibleChatChannel } from "@/lib/family-chat";
+import { chatAttachmentInput, validateChatAttachment, ChatAttachmentError, chatAttachmentCopy } from "@/lib/chat-attachment-policy";
+import { chatAttachmentWrite } from "@/lib/chat-attachment-write";
+import { SupabaseRequestError, supabaseRest } from "@/lib/supabase-rest";
 type RuntimeEnv = Cloudflare.Env & { BUCKET?: R2Bucket };
 
-const allowedTypes = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "audio/mpeg",
-  "audio/mp4",
-  "audio/webm",
-  "audio/ogg",
-  "audio/wav",
-  "audio/x-m4a",
-  "video/mp4",
-  "video/webm",
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-]);
-
-function fileLimit(mimeType: string) {
-  if (mimeType.startsWith("video/")) return 25 * 1024 * 1024;
-  if (mimeType.startsWith("audio/")) return 15 * 1024 * 1024;
-  if (mimeType.startsWith("image/")) return 8 * 1024 * 1024;
-  return 10 * 1024 * 1024;
-}
-
-function uuidValue(value: FormDataEntryValue | null) {
-  return typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value) ? value : null;
-}
-
 export async function POST(request: Request) {
-  let rollbackFamilyId: string | null = null;
-  let uploadedKey: string | null = null;
-  let createdMessageId: string | null = null;
   try {
     const user = await getChatGPTUser();
     if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
     const membership = await getActiveFamilyMembership(user.userId);
-    if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
-    rollbackFamilyId = membership.family_id;
+    if (!membership) return Response.json({ error: "Active family membership required." }, { status: 403 });
     const bucket = (env as RuntimeEnv).BUCKET;
-    if (!bucket) return Response.json({ error: "Private file storage configured নয়।" }, { status: 503 });
-
-    const formData = await request.formData();
-    const channelId = uuidValue(formData.get("channelId"));
-    const replyToId = uuidValue(formData.get("replyToId"));
-    const file = formData.get("file");
-    const captionValue = formData.get("caption");
-    if (!channelId) return Response.json({ error: "Channel নির্বাচন করুন।" }, { status: 400 });
-    const channel = await getAccessibleChatChannel(membership, user.userId, channelId);
-    if (!channel) return Response.json({ error: "Channel পাওয়া যায়নি।" }, { status: 404 });
-    if (!(file instanceof File) || !allowedTypes.has(file.type)) {
-      return Response.json({ error: "ছবি, audio, MP4/WebM, PDF, Word বা Excel file দিন।" }, { status: 400 });
+    if (!bucket) throw new ChatAttachmentError("CHAT_FILE_STORAGE",503);
+    let form:FormData;try{form=await request.formData();}catch{throw new ChatAttachmentError("CHAT_FILE_INPUT");}
+    const input=chatAttachmentInput(form), channel=await getAccessibleChatChannel(membership,user.userId,input.channelId);
+    if(!channel)return Response.json({error:"Channel not found."},{status:404});
+    const metadata=await validateChatAttachment(input.file);
+    if(input.replyToId){
+      const query=new URLSearchParams({select:"id",id:`eq.${input.replyToId}`,family_id:`eq.${membership.family_id}`,channel_id:`eq.${channel.id}`,limit:"1"});
+      if(!(await supabaseRest<Array<{id:string}>>(`chat_messages?${query}`)).length)throw new ChatAttachmentError("CHAT_FILE_INPUT");
     }
-    if (!file.size || file.size > fileLimit(file.type)) {
-      return Response.json({ error: "File size অনুমোদিত সীমার বেশি।" }, { status: 400 });
-    }
-    if (replyToId) {
-      const replyQuery = new URLSearchParams({
-        select: "id",
-        id: `eq.${replyToId}`,
-        family_id: `eq.${membership.family_id}`,
-        channel_id: `eq.${channel.id}`,
-        limit: "1",
-      });
-      if (!(await supabaseRest<Array<{ id: string }>>(`chat_messages?${replyQuery}`)).length) {
-        return Response.json({ error: "Reply message এই channel-এ নেই।" }, { status: 400 });
-      }
-    }
-
-    const extension = file.name.includes(".")
-      ? file.name.split(".").pop()!.replace(/[^a-z0-9]/gi, "").toLowerCase()
-      : "bin";
-    uploadedKey = `families/${membership.family_id}/chat/${channel.id}/${crypto.randomUUID()}.${extension || "bin"}`;
-    await bucket.put(uploadedKey, file.stream(), {
-      httpMetadata: { contentType: file.type },
-      customMetadata: { originalName: file.name.slice(0, 180), uploaderId: user.userId },
-    });
-
-    const caption = typeof captionValue === "string" && captionValue.trim()
-      ? captionValue.trim().slice(0, 2000)
-      : null;
-    const [message] = await supabaseRest<ChatMessageRow[]>("chat_messages", {
-      method: "POST",
-      headers: { Prefer: "return=representation" },
-      body: JSON.stringify({
-        family_id: membership.family_id,
-        channel_id: channel.id,
-        auth_user_id: user.userId,
-        author_name: await getChatAuthorName(membership.family_id, user),
-        message_type: "attachment",
-        body: caption,
-        reply_to_id: replyToId,
-      }),
-    });
-    createdMessageId = message.id;
-    const [attachment] = await supabaseRest<ChatAttachmentRow[]>("chat_attachments", {
-      method: "POST",
-      headers: { Prefer: "return=representation" },
-      body: JSON.stringify({
-        family_id: membership.family_id,
-        channel_id: channel.id,
-        message_id: message.id,
-        storage_key: uploadedKey,
-        file_name: file.name.slice(0, 220),
-        mime_type: file.type,
-        file_size: file.size,
-        uploaded_by_user_id: user.userId,
-      }),
-    });
-    await supabaseRest(
-      `chat_channels?id=eq.${channel.id}&family_id=eq.${membership.family_id}`,
-      {
-        method: "PATCH",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ updated_at: new Date().toISOString() }),
+    const messageId=crypto.randomUUID(),attachmentId=crypto.randomUUID();
+    const key=`families/${membership.family_id}/chat/${channel.id}/${attachmentId}.${metadata.extension}`;
+    const author=await getChatAuthorName(membership.family_id,user);
+    const post=(table:string,data:Record<string,unknown>)=>supabaseRest(table,{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify(data)});
+    const removeQuery=new URLSearchParams({id:`eq.${messageId}`,family_id:`eq.${membership.family_id}`,channel_id:`eq.${channel.id}`,auth_user_id:`eq.${user.userId}`,message_type:"eq.attachment",edited_at:"is.null"});
+    const result=await chatAttachmentWrite({familyId:membership.family_id,channelId:channel.id,actorId:user.userId,messageId,attachmentId,key,file:metadata,caption:input.caption,replyToId:input.replyToId,
+      put:()=>bucket.put(key,input.file.stream(),{httpMetadata:{contentType:metadata.type},customMetadata:{originalName:metadata.name,uploaderId:user.userId}}),
+      createMessage:()=>post("chat_messages",{id:messageId,family_id:membership.family_id,channel_id:channel.id,auth_user_id:user.userId,author_name:author,message_type:"attachment",body:input.caption,reply_to_id:input.replyToId}),
+      createAttachment:()=>post("chat_attachments",{id:attachmentId,family_id:membership.family_id,channel_id:channel.id,message_id:messageId,storage_key:key,file_name:metadata.name,mime_type:metadata.type,file_size:metadata.size,uploaded_by_user_id:user.userId}),
+      removeMessage:row=>{
+        const target=new URLSearchParams(removeQuery);
+        target.set("created_at",`eq.${row.created_at}`);
+        target.set("body",row.body===null?"is.null":`eq.${row.body}`);
+        target.set("reply_to_id",row.reply_to_id===null?"is.null":`eq.${row.reply_to_id}`);
+        return supabaseRest(`chat_messages?${target}`,{method:"DELETE",headers:{Prefer:"return=representation"}});
       },
-    );
-    return Response.json({ message: { ...message, is_mine: true }, attachment }, { status: 201 });
-  } catch (error) {
-    if (uploadedKey) await (env as RuntimeEnv).BUCKET?.delete(uploadedKey).catch(() => undefined);
-    if (createdMessageId && rollbackFamilyId) {
-      await supabaseRest(`chat_messages?id=eq.${createdMessageId}&family_id=eq.${rollbackFamilyId}`, {
-        method: "DELETE",
-        headers: { Prefer: "return=minimal" },
-      }).catch(() => undefined);
-    }
-    return chatErrorResponse(error, "Unable to upload chat attachment");
+      discard:()=>bucket.delete(key),
+      rejected:e=>e instanceof SupabaseRequestError&&e.status>=400&&e.status<500&&e.status!==408,
+      sync:()=>supabaseRest(`chat_channels?id=eq.${channel.id}&family_id=eq.${membership.family_id}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({updated_at:new Date().toISOString()})}),
+      audit:()=>supabaseRest("audit_logs",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({family_id:membership.family_id,actor_user_id:user.userId,action:"chat_attachment_uploaded",entity_type:"chat_attachments",entity_id:attachmentId,metadata:{channel_id:channel.id,message_id:messageId}})}),
+    });
+    const pending=result.auditPending||result.syncPending;
+    return Response.json({...result,...(pending?{code:"CHAT_FILE_PENDING"}:{})},{status:pending?202:201});
+  } catch(error) {
+    if(error instanceof ChatAttachmentError)return Response.json({code:error.code,error:chatAttachmentCopy(error.code,"en"),...(error.code==="CHAT_FILE_UNKNOWN"?{outcomeUnknown:true}:{})},{status:error.status});
+    return chatErrorResponse(error,"Unable to upload chat attachment");
   }
 }

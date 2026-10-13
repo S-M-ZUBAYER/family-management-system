@@ -4,6 +4,7 @@
 
 import { useActionFeedback, useActionResult } from "@/components/action-modal-provider";
 import { chatTextRecord, chatTextCopy, readChatTextChange, chatFeedSnapshot, reconcileChatMessages } from "@/lib/chat-text-management";
+import { chatAttachmentInput, chatAttachmentCopy, readChatAttachmentChange } from "@/lib/chat-attachment-policy";
 import { useLocale } from "@/components/locale-provider";
 
 import {
@@ -488,6 +489,11 @@ export function FamilyChat() {
   async function sendMessage() {
     if (textState.current.busy || textState.current.blocked) return;
     if (!selected || (!draft.trim() && !pendingFile)) return;
+    const channelId=selected.id;
+    if(pendingFile && (!textState.current.ready || messagesLoading || working))return;
+    const attachmentUpload=!!pendingFile;
+    const epoch=attachmentUpload?++feedEpoch.current:feedEpoch.current;
+    if(attachmentUpload){textState.current.busy=true;setMessagesLoading(false);}
     setWorking(true);
     setFeedback(null);
     try {
@@ -497,12 +503,19 @@ export function FamilyChat() {
         body.set("file", pendingFile);
         body.set("caption", draft);
         if (replyingTo) body.set("replyToId", replyingTo.id);
-        const response = await fetch("/api/chat/upload", { method: "POST", body });
-        if (response.status === 499) return;
-        const payload = (await response.json()) as { message?: ChatMessage; attachment?: ChatAttachment; error?: string };
-        if (!response.ok || !payload.message || !payload.attachment) throw new Error(payload.error ?? pick("সংযুক্তি পাঠানো যায়নি।", "The attachment could not be sent."));
-        setMessages((current) => mergeById(current, [payload.message!]));
-        setAttachments((current) => mergeById(current, [payload.attachment!]));
+        let input:ReturnType<typeof chatAttachmentInput>;
+        try{input=chatAttachmentInput(body);}catch(error){showResult({kind:"error",title:pick("File যাচাই করুন","Check attachment"),message:chatAttachmentCopy(error instanceof Error&&"code" in error?error.code:"CHAT_FILE_INPUT",locale)});return;}
+        const outcome=await readChatAttachmentChange(async()=>{
+          const response=await fetch("/api/chat/upload",{method:"POST",body});
+          if(response.status===499)return response;
+          return response;
+        },input);
+        if(!chatMounted.current)return;
+        if(outcome.kind==="cancelled")return;
+        if(outcome.kind==="unknown"||epoch!==feedEpoch.current||activeChannelIdRef.current!==channelId){textState.current.blocked=true;textState.current.ready=false;setVerifyChannel(channelId);return;}
+        if(outcome.kind==="rejected"){setFeedback(chatAttachmentCopy(outcome.code,locale));return;}
+        setMessages(current=>mergeById(current,[outcome.message]));
+        setAttachments(current=>mergeById(current,[outcome.attachment]));
       } else {
         const response = await fetch("/api/chat", {
           method: "POST",
@@ -527,7 +540,8 @@ export function FamilyChat() {
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : pick("বার্তা পাঠানো যায়নি।", "The message could not be sent."));
     } finally {
-      setWorking(false);
+      if(attachmentUpload)textState.current.busy=false;
+      if(chatMounted.current)setWorking(false);
     }
   }
 
