@@ -12,7 +12,17 @@ Snapshot: 2026-10-13 (Asia/Dhaka). This is the current entry point; older dated 
 
 ## Read before changing code
 
-### Latest continuation boundary — Chat safe reads and UTC XLSX, source `7bc9690`
+### Latest continuation boundary — Health safe read/Retry, source `0ed7520`
+
+Health GET now includes own `scope: {familyId,actorId}`, validates complete arrays/profile/permissions/IDs/format/status/linked SOS responses and private/emergency donor-directory redaction, then rechecks current active family and role before return/no-store. No clinical interpretation or schema migration. Read gate/deadline covers fetch plus JSON even when abort ignored; obsolete state/error/finally suppressed, old medical snapshots cleared, explicit Reload/Retry and typed closeable Error. Locale-stable callback, background refresh skipped while another read/editor/save/export is active. Same-scope drafts retained through transient failure; validated account/family change closes/clears prior forms/file/location/response. Missing edited records and closed SOS targets no longer remain actionable after a successful reload.
+
+All nine Health action entry points have shared synchronous readiness/busy/export guard; five portaled forms disable inputs during saving/export/loading/migration/error. Existing 499 confirmation-cancel guards retained. Existing XLSX layout now fetches a fresh validated same-owner/family snapshot and checks context before import/build/download. Scoped generation checks for old geolocation, reminder timers and agent-summary callbacks. These are client/read hardening, **not complete Health write outcomes, server-side expected-context/version guards, durable idempotency or audit/R2 repair**.
+
+**Evidence:** nine deterministic simulated/helper/source cases, all **78** suites plus final affected reruns, nonincremental types/warning-free lint/security/**70** cancellation/**2,935** literal BN/EN pairs/build. **45 actual read-only checks**, two families, one existing nonempty own profile, projected private records and repeated snapshot equality; signed Health page HTTP 200 only. No Health/SOS/document mutation, notification delivery, SQL/file/reset/cleanup or new browser. User-kept profile/history, both QA channels/audits and other records retained. Existing owner 5173 reused/retained/PID not reverified; Site NOT_FOUND/no deploy/access/auth/binding/secret change.
+
+**Next safe source: Health ordinary record/audit write outcomes and uncertain-save recovery**, starting from existing `app/api/health/records`, not rerunning completed CRUD/cleanup scripts. Preserve all original profiles/files, never send a real SOS merely to manufacture positive QA. Real separate-user/consent revocation/browser/race/geo/reminder/positive SOS/storage/physical-export/mobile/hydration/hosted acceptance and remaining matrix gates stay open. Whole product Partial; previous next-Health-loader statements below are historical.
+
+### Previous checkpoint — Chat safe reads and UTC XLSX, source `7bc9690`
 
 Chat metadata/feed now use complete validation, abort/generation guards and a deadline covering fetch plus deferred JSON. Stale state hidden during reads/failures; scope/role/UUID/version/arrays validated, mutation/export readiness guarded, explicit Retry and typed closeable error provided. Successful full snapshot re-enables normal feed; uncertain-write verification remains explicit. Locale changes do not recreate these callbacks or clear drafts/files; repeated background read errors are deduplicated until successful read. Live batches are not applied before a valid feed, and periodic snapshot/busy/read overlap still needs two-client acceptance.
 
