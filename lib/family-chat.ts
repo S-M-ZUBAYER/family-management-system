@@ -41,6 +41,7 @@ export type ChatChannelMemberRow = {
   role: "owner" | "moderator" | "member";
   notification_level: "all" | "mentions" | "muted";
   status: "active" | "left";
+  updated_at: string;
 };
 
 export type ChatMessageRow = {

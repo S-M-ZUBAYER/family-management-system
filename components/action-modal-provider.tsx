@@ -39,6 +39,7 @@ import { chatTextActionCopy, chatTextFeedback } from "@/lib/chat-text-management
 import { chatAttachmentFeedback, chatAttachmentActionCopy } from "@/lib/chat-attachment-policy";
 import { chatAttachmentDeleteFeedback, chatAttachmentDeleteActionCopy } from "@/lib/chat-attachment-deletion";
 import { chatFlowFeedback, chatFlowActionCopy } from "@/lib/chat-send-reaction";
+import { chatSetupFeedback, chatSetupActionCopy } from "@/lib/chat-setup-workflow";
 import { magazineActionCopy } from "@/lib/magazine-action-copy";
 import { magazineErrorCopy } from "@/lib/magazine-validation";
 import { magazineWriteFeedback } from "@/lib/magazine-cover-write";
@@ -283,6 +284,8 @@ function actionCopy(pathname: string, method: string, body: Record<string, unkno
   if(attachmentDeleteCopy)return attachmentDeleteCopy;
   const flowCopy=chatFlowActionCopy(pathname,method,body,locale);
   if(flowCopy)return flowCopy;
+  const setupCopy=chatSetupActionCopy(pathname,method,body,locale);
+  if(setupCopy)return setupCopy;
   if (pathname === "/api/events" || pathname.startsWith("/api/events/") || pathname.startsWith("/api/event-media/") || pathname.startsWith("/api/event-comments/")) {
     const eventCopy = eventActionCopy(pathname, method, body, locale);
     if (eventCopy) return eventCopy;
@@ -498,6 +501,10 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
           const flowBody=parseBody(init?.body);
           const flowPayload=url.pathname==="/api/chat"&&["send_message","toggle_reaction"].includes(flowBody.action as string)?await response.clone().json().then((v:unknown)=>v&&typeof v==="object"&&!Array.isArray(v)?v as Record<string,unknown>:{}).catch(()=>({})):null;
           const flowResult=flowPayload?chatFlowFeedback(url.pathname,response.status,flowPayload,locale,method,flowBody):null;
+          const setupPayload=url.pathname==="/api/chat"&&["create_channel","update_notification"].includes(flowBody.action as string)?await response.clone().json().then((v:unknown)=>v&&typeof v==="object"&&!Array.isArray(v)?v as Record<string,unknown>:{}).catch(()=>({})):null;
+          // Display-only request context; API authorization never trusts this hint.
+          const setupActor=new Headers(init?.headers).get("X-Fms-Chat-Actor")??"";
+          const setupResult=setupPayload?chatSetupFeedback(url.pathname,response.status,setupPayload,locale,method,flowBody,setupActor):null;
           const mediaPayload = /^\/api\/events\/[^/]+\/media$|^\/api\/event-media\/[^/]+$/.test(url.pathname)
             ? await response.clone().json().then((value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}).catch(() => ({})) : null;
           const mediaResult = mediaPayload ? eventMediaFeedback(url.pathname, response.status, mediaPayload, locale, method, init?.body) : null;
@@ -505,7 +512,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
             ? copy.successMessage
             : response.ok && ["/api/finance/records", "/api/finance/status", "/api/health/records"].includes(url.pathname) ? copy.successMessage
             : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."), locale);
-          const nextResult = noticeResult ?? eventResult ?? participationResult ?? commentChangeResult ?? chatTextResult ?? attachmentResult ?? attachmentDeleteResult ?? flowResult ?? mediaResult ?? magazineResult ?? welfareResult ?? (memberResult?.noChange
+          const nextResult = noticeResult ?? eventResult ?? participationResult ?? commentChangeResult ?? chatTextResult ?? attachmentResult ?? attachmentDeleteResult ?? flowResult ?? setupResult ?? mediaResult ?? magazineResult ?? welfareResult ?? (memberResult?.noChange
             ? { kind: "info" as const, title: locale === "bn" ? "পরিবর্তন প্রয়োজন নেই" : "No change needed", message }
             : mutationResponseResult(memberResult?.status ?? response.status, message, locale));
           lastMutationResult.current = { kind: nextResult.kind, message: nextResult.message, at: Date.now() };
@@ -526,10 +533,11 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
         const attachmentFailure=chatAttachmentFeedback(url.pathname,503,{outcomeUnknown:true},locale);
         const attachmentDeleteFailure=chatAttachmentDeleteFeedback(url.pathname,503,{outcomeUnknown:true},locale,method);
         const flowFailure=chatFlowFeedback(url.pathname,503,{outcomeUnknown:true},locale,method,parseBody(init?.body));
+        const setupFailure=chatSetupFeedback(url.pathname,503,{outcomeUnknown:true},locale,method,parseBody(init?.body),new Headers(init?.headers).get("X-Fms-Chat-Actor")??"");
         const mediaFailure = eventMediaFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
-        const propagatedError = flowFailure ? new Error(flowFailure.message) : attachmentDeleteFailure ? new Error(attachmentDeleteFailure.message) : attachmentFailure ? new Error(attachmentFailure.message) : chatTextFailure ? new Error(chatTextFailure.message) : commentChangeFailure ? new Error(commentChangeFailure.message) : mediaFailure ? new Error(mediaFailure.message) : participationFailure ? new Error(participationFailure.message) : eventFailure ? new Error(eventFailure.message) : noticeFailure ? new Error(noticeFailure.message) : magazineFailure ? new Error(magazineFailure.message) : welfareFailure ? new Error(welfareFailure.message) : error;
+        const propagatedError = setupFailure ? new Error(setupFailure.message) : flowFailure ? new Error(flowFailure.message) : attachmentDeleteFailure ? new Error(attachmentDeleteFailure.message) : attachmentFailure ? new Error(attachmentFailure.message) : chatTextFailure ? new Error(chatTextFailure.message) : commentChangeFailure ? new Error(commentChangeFailure.message) : mediaFailure ? new Error(mediaFailure.message) : participationFailure ? new Error(participationFailure.message) : eventFailure ? new Error(eventFailure.message) : noticeFailure ? new Error(noticeFailure.message) : magazineFailure ? new Error(magazineFailure.message) : welfareFailure ? new Error(welfareFailure.message) : error;
         if (mounted.current) {
-          const nextResult: ResultState = flowFailure ?? attachmentDeleteFailure ?? attachmentFailure ?? chatTextFailure ?? noticeFailure ?? eventFailure ?? participationFailure ?? commentChangeFailure ?? mediaFailure ?? magazineFailure ?? welfareFailure ?? {
+          const nextResult: ResultState = setupFailure ?? flowFailure ?? attachmentDeleteFailure ?? attachmentFailure ?? chatTextFailure ?? noticeFailure ?? eventFailure ?? participationFailure ?? commentChangeFailure ?? mediaFailure ?? magazineFailure ?? welfareFailure ?? {
             kind: "error",
             title: locale === "bn" ? "সংযোগজনিত error" : "Connection error",
             message: error instanceof Error ? error.message : (locale === "bn" ? "Server-এর সাথে যোগাযোগ করা যায়নি। আবার চেষ্টা করুন।" : "Could not contact the server. Please try again."),

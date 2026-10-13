@@ -7,6 +7,7 @@ import { chatTextRecord, chatTextCopy, readChatTextChange, chatFeedSnapshot, rec
 import { chatAttachmentInput, chatAttachmentCopy, readChatAttachmentChange } from "@/lib/chat-attachment-policy";
 import { chatAttachmentDeleteInput, readChatAttachmentDeletion, chatAttachmentDeleteCopy } from "@/lib/chat-attachment-deletion";
 import { chatSendInput, chatReactionInput, readChatFlow, chatFlowCopy } from "@/lib/chat-send-reaction";
+import { chatCreateInput,chatPreferenceInput,readChatSetup,chatSetupCopy,chatSetupVerification,chatPreferenceAllowsNotification } from "@/lib/chat-setup-workflow";
 import { useLocale } from "@/components/locale-provider";
 
 import {
@@ -90,6 +91,7 @@ type ChatChannel = {
   memberCount: number;
   memberIds: string[];
   notificationLevel: "all" | "mentions" | "muted";
+  ownPreference: {membershipId:string;updatedAt:string}|null;
 };
 
 type ChatMember = {
@@ -201,6 +203,9 @@ export function FamilyChat() {
   const [verifyChannel, setVerifyChannel] = useState<string | null>(null);
   const [verifyKind,setVerifyKind]=useState<"text"|"upload"|"attachment-delete"|"send"|"reaction">("text");
   const sendRequest=useRef<{fingerprint:string;id:string}|null>(null);
+  const createRequest=useRef<{fingerprint:string;id:string}|null>(null);
+  const notificationSettings=useRef<{channelId:string|null;level:ChatChannel["notificationLevel"];name:string}>({channelId:null,level:"muted",name:""});
+  const [verifyWorkspace,setVerifyWorkspace]=useState<{input:ReturnType<typeof chatCreateInput>|ReturnType<typeof chatPreferenceInput>;familyId:string;actor:string;channelId:string|null}|null>(null);
   const textState = useRef({ busy: false, blocked: false, ready: false });
   const feedEpoch = useRef(0);
   const removedText = useRef(new Set<string>());
@@ -245,6 +250,7 @@ export function FamilyChat() {
     if (selected.visibility === "admins") return members.filter((member) => member.role !== "member");
     return members.filter((member) => selected.memberIds.includes(member.authUserId));
   }, [members, selected]);
+  useEffect(()=>{notificationSettings.current={channelId:selected?.id??null,level:selected?.notificationLevel??"muted",name:viewer?.name??""};},[selected?.id,selected?.notificationLevel,viewer?.name]);
 
   const loadMetadata = useCallback(async (preferredChannelId?: string) => {
     setFeedback(null);
@@ -347,19 +353,21 @@ export function FamilyChat() {
       (payload.attachments ?? []).filter(attachment=>refreshedMessageIds.has(attachment.message_id)),
     ));
     const newestIncoming = incomingMessages[incomingMessages.length - 1];
+    const notificationMessage=[...incomingMessages].reverse().find(message=>!message.is_mine&&chatPreferenceAllowsNotification(notificationSettings.current.level,message.body,notificationSettings.current.name));
     if (newestIncoming && lastReadMessageIdRef.current.get(channelId) !== newestIncoming.id) {
       lastReadMessageIdRef.current.set(channelId, newestIncoming.id);
       void markRead(channelId, newestIncoming.id);
       if (
         notify
         &&
-        !newestIncoming.is_mine
+        !!notificationMessage
+        && notificationSettings.current.channelId===channelId
         && document.hidden
         && typeof Notification !== "undefined"
         && Notification.permission === "granted"
       ) {
         new Notification("Family chat", {
-          body: `${newestIncoming.author_name}: ${newestIncoming.body ?? pick("নতুন সংযুক্তি", "New attachment")}`,
+          body: `${notificationMessage!.author_name}: ${notificationMessage!.body ?? pick("নতুন সংযুক্তি", "New attachment")}`,
         });
       }
     }
@@ -457,38 +465,27 @@ export function FamilyChat() {
   }, [messages.length, messagesLoading]);
 
   async function createChannel() {
-    if (textState.current.busy || textState.current.blocked) return;
-    if (createType === "direct" && !createMemberIds.length) return;
-    if (createType !== "direct" && createName.trim().length < 2) return;
-    setWorking(true);
-    setFeedback(null);
+    if(working||loading||textState.current.busy||textState.current.blocked||!family||!viewer||migrationRequired)return;
+    let input:ReturnType<typeof chatCreateInput>;
+    try{input=chatCreateInput({action:"create_channel",channelType:createType,name:createName,description:createDescription,visibility:createVisibility,memberIds:createMemberIds});
+      const fingerprint=JSON.stringify([family.id,viewer.authUserId,input]);
+      if(createRequest.current?.fingerprint!==fingerprint)createRequest.current={fingerprint,id:crypto.randomUUID()};
+      input={...input,clientChannelId:createRequest.current.id};
+    }catch{showResult({kind:"error",title:pick("Channel input যাচাই করুন","Check channel input"),message:chatSetupCopy("CHAT_CHANNEL_INPUT",locale)});return;}
+    const actor=viewer.authUserId,familyId=family.id,epoch=++feedEpoch.current;
+    textState.current.busy=true;setWorking(true);setMessagesLoading(false);setFeedback(null);
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "create_channel",
-          channelType: createType,
-          name: createName,
-          description: createDescription,
-          visibility: createVisibility,
-          memberIds: createMemberIds,
-        }),
-      });
-      if (response.status === 499) return;
-      const payload = (await response.json()) as { channelId?: string; existing?: boolean; error?: string };
-      if (!response.ok || !payload.channelId) throw new Error(payload.error ?? pick("চ্যানেল তৈরি হয়নি।", "Channel could not be created."));
-      setCreateOpen(false);
-      setCreateName("");
-      setCreateDescription("");
-      setCreateMemberIds([]);
-      await loadMetadata(payload.channelId);
-      setFeedback(payload.existing ? pick("আগের ব্যক্তিগত কথোপকথন খোলা হয়েছে।", "The existing private conversation was opened.") : pick("নতুন চ্যাট চ্যানেল তৈরি হয়েছে।", "A new chat channel was created."));
-    } catch (error) {
-      setFeedback(error instanceof Error ? error.message : pick("চ্যানেল তৈরি হয়নি।", "Channel could not be created."));
-    } finally {
-      setWorking(false);
-    }
+      const outcome=await readChatSetup(async()=>{
+        const response=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json","X-Fms-Chat-Actor":actor},body:JSON.stringify(input)});
+        if(response.status===499)return response;
+        return response;
+      },input,actor);
+      if(!chatMounted.current||outcome.kind==="cancelled")return;
+      if(outcome.kind==="unknown"||epoch!==feedEpoch.current){textState.current.blocked=true;textState.current.ready=false;setVerifyWorkspace({input,familyId,actor,channelId:outcome.kind==="unknown"?outcome.channelId??input.clientChannelId??null:input.clientChannelId??null});return;}
+      if(outcome.kind==="rejected"){setFeedback(chatSetupCopy(outcome.code??"CHAT_SETUP_REJECTED",locale));return;}
+      setCreateOpen(false);setCreateName("");setCreateDescription("");setCreateMemberIds([]);createRequest.current=null;
+      if(await loadMetadata(outcome.channelId)){textState.current.busy=false;await loadMessages(outcome.channelId,false,true);}
+    }finally{textState.current.busy=false;if(chatMounted.current)setWorking(false);}
   }
 
   async function sendMessage() {
@@ -641,23 +638,45 @@ export function FamilyChat() {
   }
 
   async function updateNotification(level: ChatChannel["notificationLevel"]) {
-    if (textState.current.busy || textState.current.blocked) return;
-    if (!selected) return;
+    if(working||messagesLoading||textState.current.busy||textState.current.blocked||!textState.current.ready||!selected||!family||!viewer)return;
+    let input:ReturnType<typeof chatPreferenceInput>;
+    try{input=chatPreferenceInput({action:"update_notification",channelId:selected.id,level,expectedLevel:selected.notificationLevel,expectedMembershipId:selected.ownPreference?.membershipId??null,expectedUpdatedAt:selected.ownPreference?.updatedAt??null});}
+    catch{showResult({kind:"error",title:pick("Setting যাচাই করুন","Check setting"),message:chatSetupCopy("CHAT_PREFERENCE_INPUT",locale)});return;}
+    const actor=viewer.authUserId,familyId=family.id,channelId=selected.id,epoch=++feedEpoch.current;
+    textState.current.busy=true;setWorking(true);setMessagesLoading(false);
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update_notification", channelId: selected.id, level }),
-      });
-      if (response.status === 499) return;
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? pick("নোটিফিকেশন হালনাগাদ হয়নি।", "Notifications could not be updated."));
-      setChannels((current) => current.map((channel) => channel.id === selected.id
-        ? { ...channel, notificationLevel: level }
-        : channel));
-    } catch (error) {
-      setFeedback(error instanceof Error ? error.message : pick("নোটিফিকেশন হালনাগাদ হয়নি।", "Notifications could not be updated."));
-    }
+      const outcome=await readChatSetup(async()=>{
+        const response=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json","X-Fms-Chat-Actor":actor},body:JSON.stringify(input)});
+        if(response.status===499)return response;
+        return response;
+      },input,actor);
+      if(!chatMounted.current||outcome.kind==="cancelled")return;
+      if(outcome.kind==="unknown"||epoch!==feedEpoch.current||activeChannelIdRef.current!==channelId){textState.current.blocked=true;textState.current.ready=false;setVerifyWorkspace({input,familyId,actor,channelId});return;}
+      if(outcome.kind==="rejected"){setFeedback(chatSetupCopy(outcome.code??"CHAT_SETUP_REJECTED",locale));return;}
+      const p=outcome.preference;if(!p)return;
+      notificationSettings.current={channelId,level:p.level,name:viewer.name};
+      setChannels(current=>current.map(c=>c.id===channelId?{...c,notificationLevel:p.level,ownPreference:p.membershipId&&p.updatedAt?{membershipId:p.membershipId,updatedAt:p.updatedAt}:null}:c));
+    }finally{textState.current.busy=false;if(chatMounted.current)setWorking(false);}
+  }
+
+  async function verifySetupOutcome() {
+    if(!verifyWorkspace||working||textState.current.busy)return;
+    const captured=verifyWorkspace,epoch=++feedEpoch.current;
+    textState.current.busy=true;setWorking(true);
+    try {
+      const response=await fetch("/api/chat",{cache:"no-store",signal:AbortSignal.timeout(25000)});
+      const raw:unknown=await response.json();
+      if(!chatMounted.current||epoch!==feedEpoch.current)return;
+      if(!response.ok){showResult({kind:"error",title:pick("বর্তমান অবস্থা পাওয়া যায়নি","Current state could not be loaded"),message:pick("Sign-in, প্রবেশাধিকার বা সংযোগ যাচাই করুন। আগের request আবার পাঠানো হয়নি।","Check sign-in, access or connection. The previous request was not resubmitted.")});return;}
+      const target=chatSetupVerification(raw,captured.familyId,captured.actor,captured.input,captured.channelId);
+      if(!target){showResult({kind:"info",title:pick("Setup এখনও যাচাই হয়নি","Setup still needs review"),message:chatSetupCopy("CHAT_SETUP_UNKNOWN",locale)});return;}
+      if(!await loadMetadata(target)||!chatMounted.current)return;
+      textState.current.busy=false;
+      if(!await loadMessages(target,false,true))return;
+      if(captured.input.action==="create_channel"){setCreateOpen(false);setCreateName("");setCreateDescription("");setCreateMemberIds([]);createRequest.current=null;}
+      setVerifyWorkspace(null);showResult({kind:"info",title:pick("বর্তমান অবস্থা লোড হয়েছে","Current state loaded"),message:pick("Channel/preference মিলিয়ে দেখুন। Reload membership setup বা audit repair করে না; কোনো request আবার পাঠায় না।","Review channel/preference state. Reload does not repair membership setup or audits, or replay a request.")});
+    }catch{if(chatMounted.current)showResult({kind:"info",title:pick("Setup যাচাই করা যায়নি","Setup could not be verified"),message:chatSetupCopy("CHAT_SETUP_UNKNOWN",locale)});}
+    finally{textState.current.busy=false;if(chatMounted.current)setWorking(false);}
   }
 
   async function requestNotifications() {
@@ -829,6 +848,7 @@ export function FamilyChat() {
     );
   }
 
+  if(verifyWorkspace)return <main className="mx-auto max-w-3xl p-6"><Card><CardContent className="space-y-4 p-6"><h1 className="text-xl font-bold">{pick("Chat setup যাচাই প্রয়োজন","Chat setup needs verification")}</h1><p>{chatSetupCopy("CHAT_SETUP_UNKNOWN",locale)}</p><Button disabled={working} onClick={()=>void verifySetupOutcome()}>{pick("বর্তমান অবস্থা লোড করুন","Load current state")}</Button><Button variant="outline" asChild><a href="/contact">{pick("Support-এর সহায়তা নিন","Contact support")}</a></Button></CardContent></Card></main>;
   if (verifyChannel) return <main className="mx-auto max-w-3xl p-6"><Card><CardContent className="space-y-4 p-6"><h1 className="text-xl font-bold">{pick("Message-এর ফল যাচাই প্রয়োজন","Message outcome needs verification")}</h1><p>{verifyKind==="send"||verifyKind==="reaction"?chatFlowCopy("CHAT_FLOW_UNKNOWN",locale):verifyKind==="attachment-delete"?chatAttachmentDeleteCopy("CHAT_FILE_DELETE_UNKNOWN",locale):verifyKind==="upload"?chatAttachmentCopy("CHAT_FILE_UNKNOWN",locale):chatTextCopy("CHAT_TEXT_UNKNOWN",locale)}</p><Button disabled={messagesLoading || working} onClick={()=>void verifyTextOutcome()}>{pick("তালিকা লোড করে যাচাই করুন","Reload to verify")}</Button></CardContent></Card></main>;
 
   if (!family) return <main className="mx-auto max-w-3xl p-6 md:p-10"><Card className="rounded-3xl border-dashed"><CardContent className="p-8 text-center"><MessageCircle className="mx-auto size-10 text-muted-foreground" /><h1 className="mt-4 text-2xl font-bold">{pick("চ্যাটের তথ্য লোড হয়নি", "Chat data did not load")}</h1><p className="mt-2 text-muted-foreground">{pick("পুরোনো চ্যাট দেখানো হচ্ছে না। আবার চেষ্টা করুন।", "Previous chat data has been cleared. Please try again.")}</p><Button className="mt-5" onClick={() => void loadMetadata()}>{pick("আবার চেষ্টা করুন", "Retry")}</Button></CardContent></Card></main>;
@@ -958,7 +978,7 @@ export function FamilyChat() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{pick("সব নোটিফিকেশন", "All notifications")}</SelectItem>
-                    <SelectItem value="mentions">{pick("শুধু উল্লেখ", "Mentions only")}</SelectItem>
+                    <SelectItem value="mentions">{pick("শুধু @[নাম] উল্লেখ", "Only @[name] mentions")}</SelectItem>
                     <SelectItem value="muted">{pick("নীরব", "Muted")}</SelectItem>
                   </SelectContent>
                 </Select>
@@ -1158,6 +1178,7 @@ export function FamilyChat() {
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-lg">
+          <fieldset disabled={working} aria-busy={working} className="contents">
           <DialogHeader>
             <DialogTitle>{pick("নতুন চ্যাট তৈরি করুন", "Create a new chat")}</DialogTitle>
             <DialogDescription>{pick("গ্রুপ, অ্যাডমিন রুম অথবা একজনের সঙ্গে সরাসরি কথোপকথন খুলুন।", "Open a group, admin room, or one-to-one direct conversation.")}</DialogDescription>
@@ -1203,6 +1224,7 @@ export function FamilyChat() {
               {working ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />} {pick("তৈরি করুন", "Create")}
             </Button>
           </DialogFooter>
+          </fieldset>
         </DialogContent>
       </Dialog>
       </fieldset>

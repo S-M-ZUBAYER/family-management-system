@@ -26,6 +26,7 @@ import {
 import { readAllSupabaseRows } from "@/lib/supabase-pagination";
 import { noticeObject, noticeUuid } from "@/lib/notice-validation";
 import { ChatFlowError,chatSendInput,chatReactionInput,chatSendWrite,chatReactionWrite,chatFlowResponse,chatFlowCopy } from "@/lib/chat-send-reaction";
+import { ChatSetupError,chatCreateInput,chatCreateWrite,chatPreferenceInput,chatPreferenceWrite,chatSetupResponse,chatSetupCopy } from "@/lib/chat-setup-workflow";
 
 type SafeMember = {
   authUserId: string;
@@ -129,7 +130,7 @@ export async function GET(request: Request) {
       order: "updated_at.desc,id.asc",
     });
     const channelMemberQuery = new URLSearchParams({
-      select: "id,channel_id,auth_user_id,role,notification_level,status",
+      select: "id,channel_id,auth_user_id,role,notification_level,status,updated_at",
       family_id: `eq.${membership.family_id}`,
       status: "eq.active",
       order: "id.asc",
@@ -200,6 +201,7 @@ export async function GET(request: Request) {
               : explicitMembers.length,
         memberIds: explicitMembers.map((item) => item.auth_user_id),
         notificationLevel: ownChannelMembership?.notification_level ?? "all",
+        ownPreference: ownChannelMembership?{membershipId:ownChannelMembership.id,updatedAt:ownChannelMembership.updated_at}:null,
       };
     });
 
@@ -221,126 +223,45 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  let createdChannelId: string | null = null;
-  let rollbackFamilyId: string | null = null;
   try {
     const user = await getChatGPTUser();
     if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
     const membership = await getActiveFamilyMembership(user.userId);
     if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
-    rollbackFamilyId = membership.family_id;
     const parsed:unknown = await request.json().catch(()=>{throw new ChatFlowError("CHAT_FLOW_REJECTED");});
     if(!noticeObject(parsed))throw new ChatFlowError("CHAT_FLOW_REJECTED");
     const body=parsed;
     const action = textValue(body.action, 40);
     const sendInput=action==="send_message"?chatSendInput(body):null;
     const reactionInput=action==="toggle_reaction"?chatReactionInput(body):null;
+    const createInput=action==="create_channel"?chatCreateInput(body):null;
+    const preferenceInput=action==="update_notification"?chatPreferenceInput(body):null;
 
-    if (action === "create_channel") {
-      const channelType = textValue(body.channelType, 20);
-      if (!channelType || !["custom", "admin", "direct"].includes(channelType)) {
-        return Response.json({ error: "Channel type সঠিক নয়।" }, { status: 400 });
-      }
-      const members = await getSafeFamilyMembers(membership.family_id, user);
-      const validAuthIds = new Set(members.map((member) => member.authUserId));
-      const requestedAuthIds = Array.isArray(body.memberIds)
-        ? [...new Set(body.memberIds.filter((value): value is string => typeof value === "string" && value.length > 0 && value.length <= 240))]
-        : [];
-      if (requestedAuthIds.some((id) => !validAuthIds.has(id))) {
-        return Response.json({ error: "শুধু active family member নির্বাচন করুন।" }, { status: 400 });
-      }
-
-      if (channelType === "direct") {
-        const targetId = requestedAuthIds.find((id) => id !== user.userId);
-        if (!targetId) return Response.json({ error: "একজন family member নির্বাচন করুন।" }, { status: 400 });
-        const directKey = [user.userId, targetId].sort().join(":");
-        const existingQuery = new URLSearchParams({
-          select: "id",
-          family_id: `eq.${membership.family_id}`,
-          direct_key: `eq.${directKey}`,
-          status: "eq.active",
-          limit: "1",
-        });
-        const existing = (await supabaseRest<Array<{ id: string }>>(`chat_channels?${existingQuery}`))[0];
-        if (existing) return Response.json({ channelId: existing.id, existing: true });
-        const target = members.find((member) => member.authUserId === targetId)!;
-        const [channel] = await supabaseRest<ChatChannelRow[]>("chat_channels", {
-          method: "POST",
-          headers: { Prefer: "return=representation" },
-          body: JSON.stringify({
-            family_id: membership.family_id,
-            name: `Direct · ${target.name}`,
-            description: "ব্যক্তিগত কথোপকথন",
-            channel_type: "direct",
-            visibility: "invite_only",
-            direct_key: directKey,
-            created_by_user_id: user.userId,
-          }),
-        });
-        createdChannelId = channel.id;
-        await supabaseRest("chat_channel_members", {
-          method: "POST",
-          headers: { Prefer: "return=minimal" },
-          body: JSON.stringify([
-            { family_id: membership.family_id, channel_id: channel.id, auth_user_id: user.userId, role: "owner" },
-            { family_id: membership.family_id, channel_id: channel.id, auth_user_id: targetId, role: "member" },
-          ]),
-        });
-        return Response.json({ channelId: channel.id }, { status: 201 });
-      }
-
-      if (!canManageChat(membership.role)) {
-        return Response.json({ error: "Group channel তৈরি করার permission নেই।" }, { status: 403 });
-      }
-      const name = textValue(body.name, 100);
-      if (!name || name.length < 2) {
-        return Response.json({ error: "Channel name দিন।" }, { status: 400 });
-      }
-      const visibility = channelType === "admin"
-        ? "admins"
-        : body.visibility === "invite_only" ? "invite_only" : "family";
-      const [channel] = await supabaseRest<ChatChannelRow[]>("chat_channels", {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify({
-          family_id: membership.family_id,
-          name,
-          description: textValue(body.description, 500),
-          channel_type: channelType,
-          visibility,
-          created_by_user_id: user.userId,
-        }),
-      });
-      createdChannelId = channel.id;
-      if (visibility === "invite_only") {
-        const selectedIds = [...new Set([user.userId, ...requestedAuthIds])];
-        await supabaseRest("chat_channel_members", {
-          method: "POST",
-          headers: { Prefer: "return=minimal" },
-          body: JSON.stringify(selectedIds.map((authUserId) => ({
-            family_id: membership.family_id,
-            channel_id: channel.id,
-            auth_user_id: authUserId,
-            role: authUserId === user.userId ? "owner" : "member",
-          }))),
-        });
-      }
-      await supabaseRest("audit_logs", {
-        method: "POST",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({
-          family_id: membership.family_id,
-          actor_user_id: user.userId,
-          action: "chat_channel_created",
-          entity_type: "chat_channel",
-          entity_id: channel.id,
-          metadata: { channel_type: channelType, visibility },
-        }),
-      });
-      return Response.json({ channelId: channel.id }, { status: 201 });
+    if (createInput) {
+      if(createInput.channelType!=="direct"&&!canManageChat(membership.role))return Response.json({code:"CHAT_SETUP_REJECTED"},{status:403});
+      const members=await getSafeFamilyMembers(membership.family_id,user),activeIds=new Set(members.map(m=>m.authUserId));
+      if(createInput.memberIds.some(id=>!activeIds.has(id)))throw new ChatSetupError("CHAT_CHANNEL_INPUT");
+      const targets=createInput.memberIds.filter(id=>id!==user.userId);
+      if(createInput.channelType==="direct"&&targets.length!==1)throw new ChatSetupError("CHAT_CHANNEL_INPUT");
+      const memberIds=createInput.visibility==="invite_only"?[...new Set([user.userId,...createInput.memberIds])].sort():[];
+      const directKey=createInput.channelType==="direct"?memberIds.join(":"):null;
+      const name=createInput.channelType==="direct"?("Direct · "+members.find(m=>m.authUserId===targets[0])!.name).slice(0,100):createInput.name;
+      const description=createInput.channelType==="direct"?"ব্যক্তিগত কথোপকথন":createInput.description;
+      const id=createInput.clientChannelId??crypto.randomUUID(),select="id,family_id,name,description,channel_type,visibility,direct_key,status,created_by_user_id,created_at,updated_at";
+      const query=new URLSearchParams({select,family_id:`eq.${membership.family_id}`,...(directKey?{direct_key:`eq.${directKey}`,status:"eq.active"}:{id:`eq.${id}`,created_by_user_id:`eq.${user.userId}`}),limit:"2"});
+      const memberQuery=(channelId:string)=>new URLSearchParams({select:"id,family_id,channel_id,auth_user_id,role,notification_level,status,created_at,updated_at",family_id:`eq.${membership.family_id}`,channel_id:`eq.${channelId}`,status:"eq.active"});
+      const result=await chatCreateWrite({id,familyId:membership.family_id,actorId:user.userId,name,description,channelType:createInput.channelType,visibility:createInput.visibility,directKey,memberIds,
+        readExisting:()=>supabaseRest(`chat_channels?${query}`),
+        write:()=>supabaseRest("chat_channels",{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify({id,family_id:membership.family_id,name,description,channel_type:createInput.channelType,visibility:createInput.visibility,direct_key:directKey,created_by_user_id:user.userId})}),
+        readMembers:channelId=>supabaseRest(`chat_channel_members?${memberQuery(channelId)}`),
+        writeMembers:channelId=>supabaseRest("chat_channel_members",{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify(memberIds.map(authUserId=>({id:crypto.randomUUID(),family_id:membership.family_id,channel_id:channelId,auth_user_id:authUserId,role:authUserId===user.userId?"owner":"member",notification_level:"all",status:"active"})))}),
+        collision:e=>e instanceof SupabaseRequestError&&e.status===409,
+        rejected:e=>e instanceof SupabaseRequestError&&e.status>=400&&e.status<500&&e.status!==408,
+        audit:channelId=>supabaseRest("audit_logs",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({family_id:membership.family_id,actor_user_id:user.userId,action:"chat_channel_created",entity_type:"chat_channel",entity_id:channelId,metadata:{channel_type:createInput.channelType,visibility:createInput.visibility}})}),
+      });return chatSetupResponse(result);
     }
 
-    const channelId = sendInput?.channelId??reactionInput?.channelId??uuidValue(body.channelId);
+    const channelId = sendInput?.channelId??reactionInput?.channelId??preferenceInput?.channelId??uuidValue(body.channelId);
     if (!channelId) return Response.json({ error: "Channel নির্বাচন করুন।" }, { status: 400 });
     const channel = await getAccessibleChatChannel(membership, user.userId, channelId);
     if (!channel) return Response.json({ error: "Channel পাওয়া যায়নি।" }, { status: 404 });
@@ -406,54 +327,22 @@ export async function POST(request: Request) {
       return Response.json({ read: true });
     }
 
-    if (action === "update_notification") {
-      const level = textValue(body.level, 20);
-      if (!level || !["all", "mentions", "muted"].includes(level)) {
-        return Response.json({ error: "Notification preference সঠিক নয়।" }, { status: 400 });
-      }
-      const memberQuery = new URLSearchParams({
-        select: "id",
-        family_id: `eq.${membership.family_id}`,
-        channel_id: `eq.${channel.id}`,
-        auth_user_id: `eq.${user.userId}`,
-        limit: "1",
-      });
-      const existing = (await supabaseRest<Array<{ id: string }>>(`chat_channel_members?${memberQuery}`))[0];
-      if (existing) {
-        await supabaseRest(`chat_channel_members?id=eq.${existing.id}&family_id=eq.${membership.family_id}`, {
-          method: "PATCH",
-          headers: { Prefer: "return=minimal" },
-          body: JSON.stringify({ notification_level: level, updated_at: new Date().toISOString() }),
-        });
-      } else {
-        await supabaseRest("chat_channel_members", {
-          method: "POST",
-          headers: { Prefer: "return=minimal" },
-          body: JSON.stringify({
-            family_id: membership.family_id,
-            channel_id: channel.id,
-            auth_user_id: user.userId,
-            role: "member",
-            notification_level: level,
-          }),
-        });
-      }
-      return Response.json({ notificationLevel: level });
+    if (preferenceInput) {
+      const query=new URLSearchParams({select:"id,family_id,channel_id,auth_user_id,role,notification_level,status,created_at,updated_at",family_id:`eq.${membership.family_id}`,channel_id:`eq.${channel.id}`,auth_user_id:`eq.${user.userId}`,limit:"2"});
+      const existing=await supabaseRest<unknown>(`chat_channel_members?${query}`),newId=crypto.randomUUID();
+      const result=await chatPreferenceWrite({familyId:membership.family_id,actorId:user.userId,input:preferenceInput,existing,newId,
+        rejected:e=>e instanceof SupabaseRequestError&&e.status>=400&&e.status<500&&e.status!==408,
+        write:(row,updatedAt)=>row?supabaseRest(`chat_channel_members?${new URLSearchParams({id:`eq.${row.id}`,family_id:`eq.${membership.family_id}`,channel_id:`eq.${channel.id}`,auth_user_id:`eq.${user.userId}`,status:"eq.active",notification_level:`eq.${row.notification_level}`,updated_at:`eq.${row.updated_at}`})}`,{method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify({notification_level:preferenceInput.level,updated_at:updatedAt})})
+          :supabaseRest("chat_channel_members",{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify({id:newId,family_id:membership.family_id,channel_id:channel.id,auth_user_id:user.userId,role:"member",status:"active",notification_level:preferenceInput.level,updated_at:updatedAt})}),
+        audit:()=>supabaseRest("audit_logs",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({family_id:membership.family_id,actor_user_id:user.userId,action:"chat_notification_changed",entity_type:"chat_channel",entity_id:channel.id,metadata:{notification_level:preferenceInput.level}})}),
+      });return chatSetupResponse(result);
     }
 
     return Response.json({ error: "Unsupported chat action." }, { status: 400 });
   } catch (error) {
+    if(error instanceof ChatSetupError)return Response.json({code:error.code,error:chatSetupCopy(error.code,"en"),...(["CHAT_SETUP_UNKNOWN","CHAT_CHANNEL_SETUP_PENDING"].includes(error.code)?{outcomeUnknown:true}:{}),...(error.channelId?{channelId:error.channelId}:{})},{status:error.status});
     if(error instanceof ChatFlowError)return Response.json({code:error.code,error:chatFlowCopy(error.code,"en"),...(error.code==="CHAT_FLOW_UNKNOWN"?{outcomeUnknown:true}:{})},{status:error.status});
-    if (createdChannelId && rollbackFamilyId) {
-      try {
-        await supabaseRest(`chat_channels?id=eq.${createdChannelId}&family_id=eq.${rollbackFamilyId}`, {
-          method: "DELETE",
-          headers: { Prefer: "return=minimal" },
-        });
-      } catch {
-        // Best-effort rollback for a channel whose member setup failed.
-      }
-    }
+
     return chatErrorResponse(error, "Unable to update family chat");
   }
 }
