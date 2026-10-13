@@ -8,6 +8,6 @@ export async function GET() {
     const membership = await getActiveFamilyMembership(user.userId);
     if (!membership || !canManageChat(membership.role)) return Response.json({ code: "CHAT_CHANNEL_FORBIDDEN" }, { status: 403 });
     const channels = await getManagedChatChannels(membership, user.userId);
-    return Response.json({ familyId: membership.family_id, actorId: user.userId, channels: channels.map(managedChannelPublic) }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ familyId: membership.family_id, actorId: user.userId, channels: channels.map(c => ({ ...managedChannelPublic(c), canManageMembers: c.can_manage_members })) }, { headers: { "Cache-Control": "no-store" } });
   } catch { return Response.json({ code: "CHAT_CHANNEL_LOAD", error: chatLifecycleCopy("CHAT_CHANNEL_LOAD", "en") }, { status: 503 }); }
 }

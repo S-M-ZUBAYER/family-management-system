@@ -10,5 +10,7 @@ export async function getManagedChatChannels(membership: ActiveFamilyMembership,
   const m = new URLSearchParams({ select: "id,channel_id,auth_user_id,role,notification_level,status,updated_at", family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${actor}`, status: "eq.active", order: "id.asc", ...(id ? { channel_id: `eq.${id}` } : {}) });
   const [channels, members] = await Promise.all([readAllSupabaseRows<ChatChannelRow>("chat_channels", q), readAllSupabaseRows<ChatChannelMemberRow>("chat_channel_members", m)]);
   if (!Array.isArray(channels) || !Array.isArray(members) || channels.some(c => c.family_id !== membership.family_id)) throw new ChatChannelError("CHAT_CHANNEL_LOAD", 503);
-  return channels.filter(c => chatLifecycleAllowed(c, membership.role, members.find(member => member.channel_id === c.id) ?? null));
+  return channels.filter(c => chatLifecycleAllowed(c, membership.role, members.find(member => member.channel_id === c.id) ?? null)).map(c => ({ ...c,
+    can_manage_members: c.channel_type === "custom" && c.visibility === "invite_only" && c.status === "active" && members.some(m => m.channel_id === c.id && m.role === "owner" && m.status === "active"),
+  }));
 }

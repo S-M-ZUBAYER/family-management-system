@@ -72,16 +72,16 @@ export function chatLifecycleAcknowledged(id: string, input: ChatLifecycleInput,
   return c.id === id && c.name === input.name && c.description === input.description && c.status === input.status && c.channelType === input.expectedChannelType && c.visibility === input.expectedVisibility && !["family_id", "created_by_user_id", "direct_key"].some(k => Object.hasOwn(c, k))
     && stamp(c.createdAt) && stamp(c.updatedAt) && (value.noChange ? input.action === "edit" && input.name === input.expectedName && input.description === input.expectedDescription && input.status === input.expectedStatus && c.updatedAt === input.expectedUpdatedAt && !value.auditPending : Date.parse(c.updatedAt) > Date.parse(input.expectedUpdatedAt));
 }
-export function chatLifecycleSnapshot(value: unknown): { familyId: string; actorId: string; channels: ManagedChatChannel[] } | null {
+export function chatLifecycleSnapshot(value: unknown): { familyId: string; actorId: string; channels: (ManagedChatChannel & { canManageMembers?: boolean })[] } | null {
   if (!noticeObject(value) || !noticeUuid(value.familyId) || typeof value.actorId !== "string" || !value.actorId || !Array.isArray(value.channels) || value.channels.length > 20000) return null;
   const ids = new Set<string>();
   for (const c of value.channels) {
     if (!noticeObject(c) || !noticeUuid(c.id) || ids.has(c.id) || typeof c.name !== "string" || c.name.length < 2 || c.name.length > 100 || !(c.description === null || typeof c.description === "string" && c.description.length <= 500)
       || !["custom", "admin"].includes(c.channelType as string) || !["family", "admins", "invite_only"].includes(c.visibility as string) || !["active", "archived"].includes(c.status as string) || !stamp(c.updatedAt) || !stamp(c.createdAt)
-      || ["family_id", "created_by_user_id", "direct_key"].some(k => Object.hasOwn(c, k))) return null;
+      || c.canManageMembers !== undefined && typeof c.canManageMembers !== "boolean" || ["family_id", "created_by_user_id", "direct_key"].some(k => Object.hasOwn(c, k))) return null;
     ids.add(c.id);
   }
-  return value as { familyId: string; actorId: string; channels: ManagedChatChannel[] };
+  return value as { familyId: string; actorId: string; channels: (ManagedChatChannel & { canManageMembers?: boolean })[] };
 }
 export function chatLifecycleCopy(code: unknown, locale: "bn" | "en") {
   const messages: Record<string, [string, string]> = {
