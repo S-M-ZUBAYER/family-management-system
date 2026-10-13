@@ -71,6 +71,7 @@
     "test:chat-setup": "node scripts/test-chat-setup-workflow.mjs",
     "test:chat-lifecycle": "node scripts/test-chat-channel-lifecycle.mjs",
     "test:chat-membership": "node scripts/test-chat-membership-workflow.mjs",
+    "test:chat-read-export": "node scripts/test-chat-read-export.mjs",
     "test:admin-audit": "node scripts/test-admin-audit-visibility.mjs",
     "test:archive-access": "node scripts/test-archive-access.mjs",
     "test:event-media-access": "node scripts/test-event-media-access.mjs",

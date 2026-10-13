@@ -25,7 +25,7 @@ export function chatTextMayChange(raw: unknown, actor: string) {
   return noticeObject(raw) && raw.message_type === "text" && typeof raw.auth_user_id === "string" && !!actor && raw.auth_user_id === actor && !!chatMessagePublic(raw, true);
 }
 export function chatFeedSnapshot(raw: unknown, channelId: string, maxMessages = 150) {
-  if (![150,200].includes(maxMessages) || !noticeUuid(channelId) || !noticeObject(raw) || !noticeObject(raw.channel) || raw.channel.id !== channelId || !Array.isArray(raw.messages) || raw.messages.length > maxMessages
+  if (![150,200,20000].includes(maxMessages) || !noticeUuid(channelId) || !noticeObject(raw) || !noticeObject(raw.channel) || raw.channel.id !== channelId || !Array.isArray(raw.messages) || raw.messages.length > maxMessages
     || !Array.isArray(raw.reactions) || raw.reactions.length > 20000 || !Array.isArray(raw.attachments) || raw.attachments.length > 20000) return null;
   const messages: ChatPublicMessage[] = [], ids = new Set<string>();
   for (const value of raw.messages) { const row = chatMessagePublic(value); if (!row || row.channel_id !== channelId || ids.has(row.id)) return null; ids.add(row.id); messages.push(row); }

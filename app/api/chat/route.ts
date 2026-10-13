@@ -26,7 +26,7 @@ import {
 import { readAllSupabaseRows } from "@/lib/supabase-pagination";
 import { noticeObject, noticeUuid } from "@/lib/notice-validation";
 import { ChatFlowError,chatSendInput,chatReactionInput,chatSendWrite,chatReactionWrite,chatFlowResponse,chatFlowCopy } from "@/lib/chat-send-reaction";
-import { ChatSetupError,chatCreateInput,chatCreateWrite,chatPreferenceInput,chatPreferenceWrite,chatSetupResponse,chatSetupCopy } from "@/lib/chat-setup-workflow";
+import { ChatSetupError,chatCreateInput,chatCreateWrite,chatPreferenceInput,chatPreferenceWrite,chatSetupResponse,chatSetupCopy,chatChannelPublic } from "@/lib/chat-setup-workflow";
 
 type SafeMember = {
   authUserId: string;
@@ -115,7 +115,18 @@ export async function GET(request: Request) {
       const feed = url.searchParams.get("export") === "1"
         ? await loadChatExport(membership, user, channel.id)
         : await loadChatMessages(membership, user, channel.id, after);
-      return Response.json({ channel, ...feed });
+      const publicChannel = chatChannelPublic(channel);
+      if (!publicChannel) throw new Error("Invalid authorized channel descriptor");
+      let participants: Array<{ name: string; role: FamilyRole }> | undefined;
+      if (url.searchParams.get("export") === "1") {
+        const familyMembers = await getSafeFamilyMembers(membership.family_id, user);
+        const explicit = channel.visibility === "invite_only" ? await readAllSupabaseRows<{ auth_user_id: string }>("chat_channel_members", new URLSearchParams({ select: "auth_user_id", family_id: `eq.${membership.family_id}`, channel_id: `eq.${channel.id}`, status: "eq.active", order: "id.asc" })) : [];
+        const ids = new Set(explicit.map(m => m.auth_user_id));
+        participants = familyMembers.filter(m => channel.visibility === "family" || channel.visibility === "admins" && canManageChat(m.role) || channel.visibility === "invite_only" && ids.has(m.authUserId)).map(m => ({ name: m.name, role: m.role }));
+        const currentMembership=await getActiveFamilyMembership(user.userId);
+        if(!currentMembership||currentMembership.family_id!==membership.family_id||!await getAccessibleChatChannel(currentMembership,user.userId,channel.id))return Response.json({code:"CHAT_READ_ACCESS"},{status:403});
+      }
+      return Response.json({ channel: publicChannel, scope: { familyId: membership.family_id, actorId: user.userId }, ...feed, ...(participants ? { participants } : {}) }, { headers: { "Cache-Control": "no-store" } });
     }
 
     const familyQuery = new URLSearchParams({

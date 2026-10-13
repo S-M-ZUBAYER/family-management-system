@@ -13,7 +13,7 @@ async function identity(context: Context) {
   return { user, membership, id: id.toLowerCase() };
 }
 export async function GET(_request: Request, context: Context) {
-  try { const { user, membership, id } = await identity(context); const p = await getChatMemberSnapshot(membership, user.userId, id); if (!chatMembershipSnapshot(p)) throw new ChatMembershipError("CHAT_MEMBER_LOAD", 503); return Response.json(p, { headers: { "Cache-Control": "no-store" } }); } catch (e) { return failure(e); }
+  try { const { user, membership, id } = await identity(context); const p = await getChatMemberSnapshot(membership, user.userId, id); if (!chatMembershipSnapshot(p)) throw new ChatMembershipError("CHAT_MEMBER_LOAD", 503); const current=await getActiveFamilyMembership(user.userId);if(!current||current.family_id!==membership.family_id)throw new ChatMembershipError("CHAT_MEMBER_FORBIDDEN",403);await getOwnedPrivateChat(current,user.userId,id);return Response.json(p, { headers: { "Cache-Control": "no-store" } }); } catch (e) { return failure(e); }
 }
 export async function POST(request: Request, context: Context) {
   try {

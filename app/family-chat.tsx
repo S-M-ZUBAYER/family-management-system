@@ -8,6 +8,8 @@ import { chatAttachmentInput, chatAttachmentCopy, readChatAttachmentChange } fro
 import { chatAttachmentDeleteInput, readChatAttachmentDeletion, chatAttachmentDeleteCopy } from "@/lib/chat-attachment-deletion";
 import { chatSendInput, chatReactionInput, readChatFlow, chatFlowCopy } from "@/lib/chat-send-reaction";
 import { chatCreateInput,chatPreferenceInput,readChatSetup,chatSetupCopy,chatSetupVerification,chatPreferenceAllowsNotification } from "@/lib/chat-setup-workflow";
+import { ChatReadGate,ChatReadError,chatMetadataSnapshot,chatScopedFeed,readChatJson,chatReadCopy,type ChatScope } from "@/lib/chat-read";
+import { chatExportSnapshot,chatHistoryWorkbook } from "@/lib/chat-export";
 import { useLocale } from "@/components/locale-provider";
 
 import {
@@ -188,6 +190,7 @@ export function FamilyChat() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [feedReadFailed,setFeedReadFailed]=useState(false);
   const [working, setWorking] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [live, setLive] = useState(false);
@@ -210,7 +213,11 @@ export function FamilyChat() {
   const feedEpoch = useRef(0);
   const removedText = useRef(new Set<string>());
   const chatMounted = useRef(true);
-  useEffect(() => { const generation=feedEpoch; chatMounted.current = true; return () => { chatMounted.current = false; generation.current++; }; }, []);
+  const metadataRead=useRef(new ChatReadGate()),feedRead=useRef(new ChatReadGate());
+  const feedErrorShown=useRef(false);
+  const workspaceScope=useRef<ChatScope|null>(null),readLocale=useRef(locale),exportGuard=useRef(false);
+  useEffect(()=>{readLocale.current=locale;},[locale]);
+  useEffect(() => { const generation=feedEpoch,metadata=metadataRead.current,feed=feedRead.current; chatMounted.current = true; return () => { chatMounted.current = false; generation.current++;metadata.invalidate();feed.invalidate(); }; }, []);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -253,53 +260,30 @@ export function FamilyChat() {
   useEffect(()=>{notificationSettings.current={channelId:selected?.id??null,level:selected?.notificationLevel??"muted",name:viewer?.name??""};},[selected?.id,selected?.notificationLevel,viewer?.name]);
 
   const loadMetadata = useCallback(async (preferredChannelId?: string) => {
-    setFeedback(null);
+    const candidate = preferredChannelId ?? activeChannelIdRef.current;
+    const ticket = metadataRead.current.begin();
+    feedRead.current.invalidate(); feedEpoch.current++; textState.current.ready=false;
+    workspaceScope.current=null; activeChannelIdRef.current=null;
+    setLoading(true); setLive(false);
+    setFamily(undefined);setViewer(undefined);setMembers([]);setChannels([]);
+    setMessages([]);setReactions([]);setAttachments([]);setSelectedId(null);
     try {
-      const response = await fetch("/api/chat", { cache: "no-store" });
-      const payload = (await response.json()) as ChatPayload;
-      if (payload.code === "FAMILY_SETUP_REQUIRED") {
-        setSetupRequired(true);
-        setFamily(undefined);
-        setViewer(undefined);
-        setMembers([]);
-        setChannels([]);
-        setMessages([]);
-        setReactions([]);
-        setAttachments([]);
-        setSelectedId(null);
-        setMigrationRequired(false);
-        return false;
-      }
-      if (!response.ok) throw new Error(payload.error ?? "Family chat পাওয়া যায়নি।");
-      const nextChannels = payload.channels ?? [];
-      setFamily(payload.family);
-      setViewer(payload.viewer);
-      setMembers(payload.members ?? []);
-      setChannels(nextChannels);
-      setMigrationRequired(Boolean(payload.migrationRequired));
-      setSetupRequired(false);
-      setSelectedId((current) => {
-        const candidate = preferredChannelId ?? current;
-        if (candidate && nextChannels.some((channel) => channel.id === candidate)) return candidate;
-        return nextChannels.find((channel) => channel.channelType === "general")?.id ?? nextChannels[0]?.id ?? null;
-      });
+      const p=await readChatJson(init=>fetch("/api/chat",init),chatMetadataSnapshot,ticket.controller.signal);
+      if(!chatMounted.current||!metadataRead.current.current(ticket))return false;
+      workspaceScope.current={familyId:p.family.id,actorId:p.viewer.authUserId};
+      setFamily(p.family);setViewer(p.viewer);setMembers(p.members);setChannels(p.channels);
+      setMigrationRequired(p.migrationRequired);setSetupRequired(false);
+      setSelectedId(candidate&&p.channels.some(c=>c.id===candidate)?candidate:p.channels.find(c=>c.channelType==="general")?.id??p.channels[0]?.id??null);
       return true;
-    } catch (error) {
-      setFamily(undefined);
-      setViewer(undefined);
-      setMembers([]);
-      setChannels([]);
-      setMessages([]);
-      setReactions([]);
-      setAttachments([]);
-      setSelectedId(null);
-      setMigrationRequired(false);
-      setFeedback(error instanceof Error ? error.message : pick("ফ্যামিলি চ্যাট পাওয়া যায়নি।", "Family chat could not be loaded."));
+    } catch(e) {
+      if(chatMounted.current&&metadataRead.current.current(ticket)){
+        const code=e instanceof ChatReadError?e.code:"CHAT_READ_FAILED";
+        setMigrationRequired(false);setSetupRequired(code==="CHAT_READ_SETUP");
+        showResult({kind:"error",title:"Error",message:chatReadCopy(code,readLocale.current)});
+      }
       return false;
-    } finally {
-      setLoading(false);
-    }
-  }, [pick, setFeedback]);
+    } finally {if(chatMounted.current&&metadataRead.current.current(ticket))setLoading(false);}
+  }, [showResult]);
 
   const handleLostChatAccess = useCallback((channelId: string) => {
     if (activeChannelIdRef.current !== channelId) return;
@@ -311,9 +295,9 @@ export function FamilyChat() {
     setMessagesLoading(false);
     setLive(false);
     void loadMetadata().then((loaded) => {
-      if (loaded) setFeedback(pick("এই চ্যাটে আপনার প্রবেশাধিকার বদলেছে। উপলব্ধ চ্যানেলগুলো আবার লোড করা হয়েছে।", "Your access to this chat changed. Available channels have been reloaded."));
+      if (loaded) showResult({kind:"info",title:readLocale.current==="bn"?"Access বদলেছে":"Access changed",message:chatReadCopy("CHAT_READ_ACCESS",readLocale.current)});
     });
-  }, [loadMetadata, pick, setFeedback]);
+  }, [loadMetadata, showResult]);
 
   const markRead = useCallback(async (channelId: string, lastMessageId: string) => {
     try {
@@ -336,7 +320,7 @@ export function FamilyChat() {
   }, []);
 
   const applyFeed = useCallback((payload: ChatPayload, channelId: string, notify = false, replace = false) => {
-    if (activeChannelIdRef.current !== channelId || textState.current.busy || textState.current.blocked) return;
+    if (activeChannelIdRef.current !== channelId || textState.current.busy || textState.current.blocked || !textState.current.ready) return;
     const incomingMessages = (payload.messages ?? []).filter(message=>replace||!removedText.current.has(message.id));
     setMessages(current => reconcileChatMessages(current, incomingMessages, removedText.current, replace));
     if (replace) {
@@ -367,39 +351,32 @@ export function FamilyChat() {
         && Notification.permission === "granted"
       ) {
         new Notification("Family chat", {
-          body: `${notificationMessage!.author_name}: ${notificationMessage!.body ?? pick("নতুন সংযুক্তি", "New attachment")}`,
+          body: `${notificationMessage!.author_name}: ${notificationMessage!.body ?? (readLocale.current==="bn"?"নতুন সংযুক্তি":"New attachment")}`,
         });
       }
     }
-  }, [markRead, pick]);
+  }, [markRead]);
 
   const loadMessages = useCallback(async (channelId: string, silent = false, verification = false) => {
-    if (textState.current.busy || (textState.current.blocked && !verification)) return false;
-    const epoch=++feedEpoch.current;
-    if (!silent) setMessagesLoading(true);
+    if(textState.current.busy||(textState.current.blocked&&!verification)||!workspaceScope.current||exportGuard.current)return false;
+    const scope=workspaceScope.current,ticket=feedRead.current.begin(),epoch=++feedEpoch.current;
+    textState.current.ready=false;
+    setMessages([]);setReactions([]);setAttachments([]);setMessagesLoading(true);setFeedReadFailed(false);if(!silent)setLive(false);
     try {
-      const response = await fetch(`/api/chat?channelId=${encodeURIComponent(channelId)}`, { cache: "no-store", signal: AbortSignal.timeout(25000) });
-      if (!chatMounted.current || epoch!==feedEpoch.current || (!verification && activeChannelIdRef.current!==channelId)) return false;
-      if ([401, 403, 404, 409].includes(response.status)) {
-        handleLostChatAccess(channelId);
-        return false;
+      const snapshot=await readChatJson(init=>fetch(`/api/chat?channelId=${encodeURIComponent(channelId)}`,init),raw=>chatScopedFeed(raw,channelId,scope),ticket.controller.signal);
+      if(!chatMounted.current||!feedRead.current.current(ticket)||epoch!==feedEpoch.current||(!verification&&activeChannelIdRef.current!==channelId)||workspaceScope.current!==scope)return false;
+      if(verification){activeChannelIdRef.current=channelId;setSelectedId(channelId);textState.current.blocked=false;}
+      textState.current.ready=true;feedErrorShown.current=false;applyFeed(snapshot,channelId,false,true);return true;
+    }catch(e){
+      if(chatMounted.current&&feedRead.current.current(ticket)&&epoch===feedEpoch.current&&(verification||activeChannelIdRef.current===channelId)){
+        const code=e instanceof ChatReadError?e.code:"CHAT_READ_FAILED";
+        setFeedReadFailed(true);
+        if(["CHAT_READ_SIGN_IN","CHAT_READ_ACCESS","CHAT_READ_SETUP"].includes(code))handleLostChatAccess(channelId);
+        else {if(!silent||!feedErrorShown.current)showResult({kind:"error",title:"Error",message:chatReadCopy(code,readLocale.current)});feedErrorShown.current=true;}
       }
-      const payload = (await response.json()) as ChatPayload;
-      if (!response.ok) throw new Error(payload.error ?? "Messages পাওয়া যায়নি।");
-      const snapshot=chatFeedSnapshot(payload,channelId);
-      if (!snapshot) throw new Error(pick("সম্পূর্ণ chat snapshot সঠিক নয়।", "The complete chat snapshot is invalid."));
-      if (!chatMounted.current || epoch!==feedEpoch.current || (!verification && activeChannelIdRef.current!==channelId)) return false;
-      if (verification) {activeChannelIdRef.current=channelId;setSelectedId(channelId);textState.current.blocked=false;}
-      textState.current.ready=true;
-      applyFeed(snapshot, channelId, false, true);
-      return true;
-    } catch (error) {
-      if (!silent && chatMounted.current && epoch===feedEpoch.current && (verification || activeChannelIdRef.current === channelId)) setFeedback(error instanceof Error ? error.message : pick("বার্তাগুলো পাওয়া যায়নি।", "Messages could not be loaded."));
       return false;
-    } finally {
-      if (!silent && chatMounted.current && epoch===feedEpoch.current && (verification || activeChannelIdRef.current === channelId)) setMessagesLoading(false);
-    }
-  }, [applyFeed, handleLostChatAccess, pick, setFeedback]);
+    }finally{if(chatMounted.current&&feedRead.current.current(ticket)&&epoch===feedEpoch.current&&(verification||activeChannelIdRef.current===channelId))setMessagesLoading(false);}
+  }, [applyFeed,handleLostChatAccess,showResult]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -410,7 +387,7 @@ export function FamilyChat() {
   }, [loadMetadata]);
 
   useEffect(() => {
-    activeChannelIdRef.current = selectedId;
+    activeChannelIdRef.current = selectedId;feedRead.current.invalidate();
     feedEpoch.current++; textState.current.ready=false; removedText.current.clear();
     queueMicrotask(()=>setMessagesLoading(false));
     if (!selectedId || migrationRequired) {
@@ -732,59 +709,25 @@ export function FamilyChat() {
   }
 
   async function exportXlsx() {
-    if (textState.current.busy || textState.current.blocked) return;
-    if (!selected) return;
-    setExporting(true);
-    try {
-      const response = await fetch(`/api/chat?channelId=${encodeURIComponent(selected.id)}&export=1`, { cache: "no-store" });
-      const history = await response.json() as ChatPayload;
-      if (!response.ok) throw new Error(history.error ?? pick("চ্যাট ইতিহাস লোড হয়নি।", "Chat history could not be loaded."));
-      const exportMessages = history.messages ?? [];
-      const exportReactions = history.reactions ?? [];
-      const exportAttachments = history.attachments ?? [];
-      const XLSX = await import("xlsx");
-      const messageById = new Map(exportMessages.map((message) => [message.id, message]));
-      const attachmentsByMessage = new Map<string, string[]>();
-      for (const attachment of exportAttachments) {
-        attachmentsByMessage.set(attachment.message_id, [...(attachmentsByMessage.get(attachment.message_id) ?? []), attachment.file_name]);
-      }
-      const reactionsByMessage = new Map<string, Record<string, number>>();
-      for (const reaction of exportReactions) {
-        const summary = reactionsByMessage.get(reaction.message_id) ?? {};
-        summary[reaction.emoji] = (summary[reaction.emoji] ?? 0) + 1;
-        reactionsByMessage.set(reaction.message_id, summary);
-      }
-      const messageRows = exportMessages.map((message, index) => {
-        const reply = message.reply_to_id ? messageById.get(message.reply_to_id) : null;
-        const messageAttachments = attachmentsByMessage.get(message.id) ?? [];
-        const reactionSummary = reactionsByMessage.get(message.id) ?? {};
-        return {
-          [pick("ক্রমিক", "SL")]: index + 1,
-          [pick("সময়", "Time")]: new Date(message.created_at).toLocaleString(locale === "bn" ? "bn-BD" : "en-BD"),
-          [pick("প্রেরক", "Sender")]: message.author_name,
-          [pick("ধরন", "Type")]: message.message_type,
-          [pick("বার্তা", "Message")]: message.body ?? "",
-          [pick("যার উত্তর", "Reply to")]: reply ? `${reply.author_name}: ${reply.body ?? pick("সংযুক্তি", "Attachment")}` : "",
-          [pick("সংযুক্তি", "Attachment")]: messageAttachments.join(", "),
-          [pick("প্রতিক্রিয়া", "Reactions")]: Object.entries(reactionSummary).map(([emoji, count]) => `${emoji} ${count}`).join(" · "),
-        };
-      });
-      const memberRows = selectedMembers.map((member, index) => ({
-        [pick("ক্রমিক", "SL")]: index + 1,
-        [pick("সদস্য", "Member")]: member.name,
-        [pick("ভূমিকা", "Role")]: member.role,
-      }));
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(messageRows), pick("বার্তা", "Messages"));
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(memberRows), pick("সদস্য", "Members"));
-      const fileName = selected.name.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "family-chat";
-      XLSX.writeFile(workbook, `${fileName}-chat.xlsx`);
-      setFeedback(pick("পুরো চ্যাট XLSX তৈরি হয়েছে।", "The full chat XLSX was created."));
-    } catch (error) {
-      setFeedback(error instanceof Error ? error.message : pick("চ্যাট XLSX তৈরি হয়নি।", "The chat XLSX could not be created."));
-    } finally {
-      setExporting(false);
-    }
+    if(textState.current.busy||textState.current.blocked||!textState.current.ready||!selected||!workspaceScope.current||exportGuard.current)return;
+    const channelId=selected.id,scope=workspaceScope.current,epoch=feedEpoch.current,capturedLocale=locale;
+    exportGuard.current=true;setExporting(true);
+    const current=()=>chatMounted.current&&workspaceScope.current===scope&&activeChannelIdRef.current===channelId&&feedEpoch.current===epoch&&!textState.current.busy&&!textState.current.blocked;
+    try{
+      const history=await readChatJson(init=>fetch(`/api/chat?channelId=${encodeURIComponent(channelId)}&export=1`,init),raw=>chatExportSnapshot(raw,channelId,scope));
+      if(!current())throw new ChatReadError("CHAT_READ_SUPERSEDED");
+      // The parser returns a safe projection. Rebuild the scoped input rather
+      // than mixing export history with a cached sidebar participant roster.
+      const raw={...history,scope};
+      const XLSX=await import("xlsx");
+      if(!current())throw new ChatReadError("CHAT_READ_SUPERSEDED");
+      const book=chatHistoryWorkbook(XLSX,raw,channelId,scope,capturedLocale);
+      if(!current())throw new ChatReadError("CHAT_READ_SUPERSEDED");
+      const name=history.channel.name.replace(/[^\p{L}\p{N}]+/gu,"-").replace(/^-|-$/g,"")||"family-chat";
+      XLSX.writeFile(book,`${name}-chat.xlsx`);
+      showResult({kind:"success",title:pick("XLSX তৈরি হয়েছে","XLSX created"),message:pick("সম্পূর্ণ অনুমোদিত history workbook তৈরি হয়েছে; সব সময় UTC।","The complete authorized history workbook was created; all timestamps are UTC.")});
+    }catch(e){if(chatMounted.current)showResult({kind:"error",title:"Error",message:chatReadCopy(e instanceof ChatReadError?e.code:"CHAT_READ_INVALID",readLocale.current)});}
+    finally{exportGuard.current=false;if(chatMounted.current)setExporting(false);}
   }
 
   useEffect(() => {
@@ -876,7 +819,7 @@ export function FamilyChat() {
               <Bell className="size-4" /> {pick("নোটিফিকেশন চালু করুন", "Enable notifications")}
             </Button>
           ) : null}
-          <Button variant="outline" className="rounded-xl" onClick={() => void exportXlsx()} disabled={!selected || exporting}>
+          <Button variant="outline" className="rounded-xl" onClick={() => void exportXlsx()} disabled={!selected || exporting || messagesLoading || working || feedReadFailed}>
             {exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} {pick("XLSX রপ্তানি", "Export XLSX")}
           </Button>
           <Button className="rounded-xl" onClick={() => setCreateOpen(true)} disabled={migrationRequired}>
@@ -988,6 +931,8 @@ export function FamilyChat() {
               <div className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,_var(--color-muted)_0,_transparent_38%)] px-3 py-5 md:px-6">
                 {messagesLoading ? (
                   <div className="grid h-full place-items-center"><LoaderCircle className="size-6 animate-spin text-primary" /></div>
+                ) : feedReadFailed ? (
+                  <div className="grid h-full place-items-center text-center"><div><p>{chatReadCopy("CHAT_READ_FAILED",locale)}</p><Button className="mt-3" onClick={()=>void loadMessages(selected.id)}>{pick("আবার লোড করুন","Retry loading")}</Button></div></div>
                 ) : !messages.length ? (
                   <div className="grid h-full place-items-center text-center">
                     <div>

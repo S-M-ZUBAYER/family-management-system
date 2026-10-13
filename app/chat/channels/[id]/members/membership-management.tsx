@@ -7,6 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { chatMembershipInput, chatMembershipSnapshot, chatMembershipAcknowledged, chatMembershipCopy, type ChatMembershipInput, type ChatMembershipSnapshot } from "@/lib/chat-membership-workflow";
 import { noticeUuid } from "@/lib/notice-validation";
+import { readChatJson,ChatReadError,chatReadCopy } from "@/lib/chat-read";
+import { chatMembershipWorkbook } from "@/lib/chat-export";
 export function ChatMembershipManagement({ channelId }: { channelId: string }) {
   const { locale } = useLocale(), show = useActionResult();
   const pick = (bn: string, en: string) => locale === "bn" ? bn : en;
@@ -14,6 +16,7 @@ export function ChatMembershipManagement({ channelId }: { channelId: string }) {
   const [target, setTarget] = useState("");
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(false);
   const [uncertain, setUncertain] = useState<ChatMembershipInput | null>(null);
+  const [exporting,setExporting]=useState(false);
   const gate = useRef(false), mounted = useRef(false), generation = useRef(0), controller = useRef<AbortController | null>(null);
   const loadRef = useRef<() => Promise<ChatMembershipSnapshot | null>>(async () => null);
   const load = useCallback(async () => {
@@ -24,9 +27,8 @@ export function ChatMembershipManagement({ channelId }: { channelId: string }) {
     setLoading(true); setSnapshot(null); setTarget(""); setError(false);
     try {
       if (!noticeUuid(channelId)) throw Error("Invalid channel");
-      const r = await fetch(`/api/chat-channels/${channelId}/members`, { cache: "no-store", signal: abort.signal });
-      const p = chatMembershipSnapshot(await r.json());
-      if (!r.ok || !p || p.channel.id !== channelId || abort.signal.aborted) throw Error("Invalid authorized snapshot");
+      const p = await readChatJson(init=>fetch(`/api/chat-channels/${channelId}/members`,init),raw=>{const parsed=chatMembershipSnapshot(raw);return parsed?.channel.id===channelId?parsed:null;},abort.signal);
+      if (abort.signal.aborted) throw Error("Invalid authorized snapshot");
       if (!mounted.current || epoch !== generation.current) return null;
       setSnapshot(p); return p;
     } catch {
@@ -71,12 +73,29 @@ export function ChatMembershipManagement({ channelId }: { channelId: string }) {
     show({ kind: "info", title: pick("বর্তমান তালিকা লোড হয়েছে", "Current list loaded"), message: pick("নতুন সিদ্ধান্তের আগে member role ও status যাচাই করুন। কোনো কাজ আবার পাঠানো হয়নি; reload audit মেরামত করে না।", "Review member role and status before a new decision. Nothing was resubmitted; reload does not repair audits.") });
   }
   const available = snapshot?.eligible.filter(e => !snapshot.members.some(m => m.userId === e.userId && m.status === "active")) ?? [];
+  async function exportMembers(){
+    if(!snapshot||uncertain||loading||busy||gate.current)return;
+    const captured=snapshot,epoch=generation.current,exportLocale=locale;
+    gate.current=true;setExporting(true);
+    const current=()=>mounted.current&&generation.current===epoch;
+    try{
+      const p=await readChatJson(init=>fetch(`/api/chat-channels/${channelId}/members`,init),raw=>{const parsed=chatMembershipSnapshot(raw);return parsed?.channel.id===channelId&&parsed.familyId===captured.familyId&&parsed.actorId===captured.actorId?parsed:null;});
+      if(!current())throw new ChatReadError("CHAT_READ_SUPERSEDED");
+      const XLSX=await import("xlsx");if(!current())throw new ChatReadError("CHAT_READ_SUPERSEDED");
+      const book=chatMembershipWorkbook(XLSX,p,channelId,{familyId:p.familyId,actorId:p.actorId},exportLocale);
+      if(!current())throw new ChatReadError("CHAT_READ_SUPERSEDED");
+      XLSX.writeFile(book,`private-group-members-${channelId}.xlsx`);
+      show({kind:"success",title:pick("XLSX তৈরি হয়েছে","XLSX created"),message:pick("নতুন করে অনুমতি যাচাই করা member list export হয়েছে; সব সময় UTC।","The freshly authorized member list was exported; all timestamps are UTC.")});
+    }catch(e){if(current()){setSnapshot(null);setError(true);show({kind:"error",title:"Error",message:chatReadCopy(e instanceof ChatReadError?e.code:"CHAT_READ_INVALID",locale)});}}
+    finally{if(current()){gate.current=false;setExporting(false);}}
+  }
   return <main className="mx-auto max-w-4xl space-y-5 p-4 md:p-8">
     <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold">{pick("Private group সদস্য পরিচালনা", "Private group membership")}</h1><Button asChild variant="outline"><a href="/chat/channels">{pick("Channel তালিকায় ফিরুন", "Back to channels")}</a></Button></div>
     <p className="text-sm text-muted-foreground">{pick("Approved login-enabled family account-কে invite করা যায়। Owner সুরক্ষিত; remove করলে history মুছবে না। Family/admin/direct channel membership এখানে বদলানো যায় না। Moderator role family admin বা অন্যের message edit/delete-এর permission দেয় না।", "Invite approved login-enabled family accounts. Owners are protected; removal retains history. Family/admin/direct channel memberships cannot change here. Moderator role does not grant family-admin or other-author message edit/delete permission.")}</p>
     {uncertain ? <Card><CardContent className="space-y-3 p-5"><p>{chatMembershipCopy("CHAT_MEMBER_UNKNOWN", locale)}</p><Button disabled={busy || loading} onClick={() => void verify()}>{pick("বর্তমান তালিকা যাচাই করুন", "Verify current list")}</Button><Button asChild variant="outline"><a href="/contact">Support</a></Button></CardContent></Card> : <Button disabled={busy || loading} variant="outline" onClick={() => void load()}>{pick("তালিকা আবার লোড করুন", "Reload list")}</Button>}
     {loading ? <p role="status">{pick("লোড হচ্ছে…", "Loading…")}</p> : error ? <p role="alert">{chatMembershipCopy("CHAT_MEMBER_LOAD", locale)}</p> : null}
-    {!uncertain && snapshot ? <fieldset disabled={loading || busy} aria-busy={busy} className="space-y-4">
+    {!uncertain && snapshot ? <fieldset disabled={loading || busy || exporting} aria-busy={busy || exporting} className="space-y-4">
+      <Button variant="outline" onClick={()=>void exportMembers()}>{pick("সদস্য XLSX রপ্তানি","Export members XLSX")}</Button>
       <h2 className="text-lg font-semibold">{snapshot.channel.name}</h2>
       <Card><CardContent className="space-y-3 p-5"><Label htmlFor="invite-account">{pick("সদস্য invite করুন", "Invite a member")}</Label><select id="invite-account" className="w-full rounded-xl border bg-background p-3" value={target} onChange={e => setTarget(e.target.value)}><option value="">{pick("Approved account নির্বাচন করুন", "Select an approved account")}</option>{available.map(e => <option key={e.userId} value={e.userId}>{e.name}</option>)}</select><Button disabled={!target} onClick={() => void change(target, "invite")}>{pick("Invite নিশ্চিত করুন", "Confirm invitation")}</Button>{!available.length ? <p className="text-sm text-muted-foreground">{pick("নতুন eligible account নেই। Family approval ও login account থাকা প্রয়োজন; শুধু profile যথেষ্ট নয়।", "No new eligible account. Family approval and a login account are required; a profile alone is not enough.")}</p> : null}</CardContent></Card>
       {snapshot.members.map(m => <Card key={m.id}><CardContent className="flex flex-wrap items-center justify-between gap-3 p-5"><div><p className="font-semibold">{m.userId === snapshot.actorId ? pick("Group owner (আপনি)", "Group owner (you)") : snapshot.eligible.find(e => e.userId === m.userId)?.name ?? pick("অনুপলব্ধ account", "Unavailable account")}</p><p className="text-sm text-muted-foreground">{m.role === "owner" ? pick("মালিক", "Owner") : m.role === "moderator" ? pick("মডারেটর", "Moderator") : pick("সদস্য", "Member")} · {m.status === "active" ? pick("চালু", "Active") : pick("Access বন্ধ", "Access removed")}</p></div>
