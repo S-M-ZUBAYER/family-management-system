@@ -1,6 +1,6 @@
 # Continue this project from another account
 
-Snapshot: 2026-10-13 (Asia/Dhaka). This is the current entry point; older dated sections of `PROJECT_HANDOFF.md` are history and may describe work that was later completed or superseded. Recheck facts before acting.
+Snapshot: 2026-10-14 (Asia/Dhaka). This is the current entry point; older dated sections of `PROJECT_HANDOFF.md` are history and may describe work that was later completed or superseded. Recheck facts before acting.
 
 ## Open the existing checkout
 
@@ -8,9 +8,17 @@ Snapshot: 2026-10-13 (Asia/Dhaka). This is the current entry point; older dated 
 - GitHub: `https://github.com/S-M-ZUBAYER/family-management-system.git`
 - Run `git status -sb` and `git log -1 --oneline` for the newest checkpoint; preserve any user edits. Do not assume a dated commit hash here is the latest checkpoint.
 - `.env.local` exists locally. Never print, paste, commit, or send its Supabase secret. It is not in GitHub, so a different PC needs a separately configured local environment.
-- Local development: use the correct checkout's printed origin. On October 12 the owner restarted the preview to apply the 26 MiB multipart parser configuration. Current FMS **5173/PID 26812** was verified and **left running**; older PID 19720 references below are history. A separate 5174 wrapper refused and started no extra server. Run `npm.cmd run dev` only if a suitable server is not running. Verify identity and never forcibly stop user/unrelated servers. Open `/signin-with-chatgpt?return_to=/` on the FMS origin if sign-in is needed.
+- Local development: on October 14 localhost:5173 was not listening. An owned temporary QA preview was started and stopped successfully after read-only API checks; no user/unrelated server was stopped. Recheck the port/process/checkout before starting `npm.cmd run dev`; old PID notes below are historical. Use the printed origin and `/signin-with-chatgpt?return_to=/` when local sign-in is needed.
 
 ## Read before changing code
+
+### Latest continuation boundary — Health ordinary writes, source `a3620bd`
+
+Read `QA_ACCEPTANCE_2026-10-14.md`. Profile/medicine/appointment/measurement now require independently authorized active family/actor plus expectedScope and complete expectedRecord (explicit null for create). Scoped returned-row acknowledgement precedes confirmed audit; distinguish 202 audit-pending, 503 unknown and stale/rejected writes. Profile merge upsert removed; timestamp CAS or measurement full-content CAS, no-change without write/audit. Client captures original editor record, validates outcome, preserves cancel/draft and suppresses stale context. Unknown outcomes block mutations, recording only marker `1` per family/actor in sessionStorage; ordinary reload does not clear it. Explicit same-scope review loads current data/clears old editors but does not prove prior save/audit. Storage may be unavailable/cleared; this is not durable server recovery, idempotency, ABA-proof versioning or automatic audit repair. Independent record/membership/audit calls are not an atomic transaction; mutation deadlines still open.
+
+**Evidence:** 12 helper/source/simulated actual-handler cases, all **79** configured suites/final affected/types/warning-free lint/security/**68** cancellation/**2,938** BN-EN/build passed. **209 actual local rejection/read-only assertions**, two families/one own profile; snapshots unchanged, no actual successful write/SOS/audit/file/SQL/delivery. No real-user/browser/injected production fault acceptance. Original/user-kept data and QA/audits preserved. Previous 5173 was not listening; owned temporary preview used and stopped, no new browser. Site NOT_FOUND/no deploy/auth/access/binding/secret changes.
+
+**Next safe source:** Health document upload/delete acknowledgements, storage/audit pending and uncertain-outcome recovery, then SOS create/respond/close record-audit outcomes. Preserve existing files; do not send a real emergency for QA, reset data, rerun all SQL or repeat completed cleanup. Old ordinary Health QA requests lacking expectedScope/expectedRecord are historical; never weaken guards to make them pass. Real positive-save/CAS/browser unknown review, two-user privacy/consent, fault/concurrency/durable repair, SOS/delivery/files/physical exports/mobile/palettes/hydration/hosted and remaining matrix gates remain open. Whole product Partial; older next-ordinary-write/read statements below are history.
 
 ### Latest continuation boundary — Health safe read/Retry, source `0ed7520`
 
