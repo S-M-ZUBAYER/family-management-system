@@ -7,6 +7,7 @@ import { canMemberSeeWelfareContribution, canMemberSeeWelfareDocument, canMember
 import { publicWelfareDocument } from "@/lib/welfare-document-upload";
 import { WelfareWriteOutcomeUnknownError } from "@/lib/welfare-write-outcome";
 import { welfareErrorCopy } from "@/lib/welfare-error-copy";
+import { welfareReadSnapshot } from "@/lib/welfare-read";
 
 type ContributionRow = Omit<WelfareContribution, "is_mine">;
 type RequestRow = Omit<WelfareRequest, "is_mine">;
@@ -49,7 +50,8 @@ export async function GET() {
     if (!membership) return Response.json({ code: "FAMILY_SETUP_REQUIRED", error: "প্রথম family setup সম্পন্ন করুন।" }, { status: 409 });
     const canManage = canManageWelfare(membership.role);
     const familyQuery = new URLSearchParams({ select: "id,name_bn,name_en", id: `eq.${membership.family_id}`, limit: "1" });
-    const family = (await supabaseRest<Array<{ id: string; name_bn: string; name_en: string }>>(`families?${familyQuery}`))[0];
+    const familyRows = await supabaseRest<Array<{ id: string; name_bn: string; name_en: string }>>(`families?${familyQuery}`);
+    const family = familyRows.length === 1 ? familyRows[0] : undefined;
 
     let funds: WelfareFund[] = [];
     let contributions: ContributionRow[] = [];
@@ -90,8 +92,14 @@ export async function GET() {
       documents = documents.filter((item) => canMemberSeeWelfareDocument(item, visibleEntityIds[item.entity_type].has(item.entity_id), user.userId));
     }
 
-    return Response.json({
+    const freshUser = await getChatGPTUser();
+    const freshMembership = freshUser?.userId === user.userId ? await getActiveFamilyMembership(user.userId) : null;
+    if (!freshMembership || freshMembership.id !== membership.id || freshMembership.family_id !== membership.family_id || freshMembership.role !== membership.role) {
+      return Response.json({ code: "WELFARE_READ_CONTEXT", error: "Family access changed during loading." }, { status: 409, headers: { "Cache-Control": "no-store" } });
+    }
+    const snapshot = welfareReadSnapshot({
       family,
+      scope: { familyId: membership.family_id, actorId: user.userId },
       viewer: { displayName: user.displayName, role: membership.role },
       funds,
       contributions: contributions.map((item) => ({ ...item, is_mine: item.contributor_user_id === user.userId })),
@@ -102,7 +110,11 @@ export async function GET() {
       permissions: { canManage },
       migrationRequired,
     });
+    if (!snapshot) return Response.json({ code: "WELFARE_READ_INVALID", error: "A complete valid Welfare snapshot was not available." }, { status: 502, headers: { "Cache-Control": "no-store" } });
+    return Response.json(snapshot, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return welfareErrorResponse(error, "Unable to load Welfare Fund");
+    const response = welfareErrorResponse(error, "Unable to load Welfare Fund");
+    response.headers.set("Cache-Control", "no-store");
+    return response;
   }
 }
