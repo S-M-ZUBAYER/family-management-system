@@ -12,7 +12,18 @@ Snapshot: 2026-10-14 (Asia/Dhaka). This is the current entry point; older dated 
 
 ## Read before changing code
 
-### Latest continuation boundary — SOS write outcomes, source `90b55b3`
+### Latest continuation boundary — Welfare reads/Retry/export, source `947e743`
+
+Read the newest `QA_ACCEPTANCE_2026-10-14.md` section. `welfare-read.ts` requires complete six arrays, valid family/actor/role/permissions, field/ID/date/money/ownership/visibility/parent checks, <=20,000 rows and valid ledger precision. GET final-rechecks account + active membership ID/family/role and emits validated no-store data. Client clears old rows/permissions/readiness immediately; object-ticket/abort/unmount and true 25-second fetch+JSON deadline, stable language callbacks, Refresh/Retry/closeable coded errors. MigrationRequired is not rendered as zero accounts. Scope changes reset editors/files.
+
+XLSX and summary read fresh same-family/actor/role data; no cached fallback/obsolete download. Visible fund balances exclude own contributions to hidden funds while private history and own pledges remain available. Seven action entry guards/synchronous busy flag and two portal fieldsets prevent read/save/export overlap. Existing account-ID contract fields in contribution/request/pledge were retained, excluded from export. Membership/data/export are separate calls, not transactional revocation; mutation expected scope/original record/strict outcome/session recovery are **not completed by this read batch**.
+
+**Evidence:** 13 helper/source/simulated GET-handler cases; all **82** suites before final corrections, then **21** affected cases/final types/warning-free lint/build. Security/**65** cancellation/**2,938** BN-EN audits passed. **54 actual read-only assertions**, Nojir one row in each of five non-document sections/zero documents, Sheikh empty, same-owner scope checks and unchanged snapshots, unsigned denied and signed page HTTP200 only. No actual CRUD/audit/file/SQL/notification/storage changes. Initial cancellation/ref/memoization/feedback-locale dependency issues corrected/rerun. Owned temporary 5173 stopped; Site lookup transport failure then NOT_FOUND, no deploy/access/auth/binding/secret/new browser.
+
+**Next safe source:** Welfare ordinary mutation expected family/actor/original-record checks, typed acknowledgements and scoped pending/unknown verification recovery; then document/storage/audit outcomes as needed. Preserve existing atomic outflow RPCs. No repeated completed cleanup/rollback-only SQL or broad resets. Actual different-user/role/browser/export/fault/concurrency/storage/RPC boundary/durable repair/mobile/hydration/hosted gates remain open. Whole product Partial; Qurbani changes/new page deferred until current checking/update cycle finishes and is reported.
+
+
+### Previous checkpoint — SOS write outcomes, source `90b55b3`
 
 Read the newest `QA_ACCEPTANCE_2026-10-14.md` section. Current SOS API uses `health-sos-write.ts`, not the deprecated close/respond compatibility helpers in `health-sos-workflow.ts` (old pure tests remain historical). Require expectedScope plus complete original expectedAlert, explicit null for create; strict action/data/type/length/location validation. Fresh active membership/role independently authorizes before primary write. Confirm one exact scoped alert/response row before audit. Close and first response acknowledgement use original status/version/reporter CAS and preserve immutable fields. Confirmed child with failed/empty/stale parent update returns parentPending 202; audit failure returns auditPending 202. Lost/malformed/unknown primary result is 503 without compensation, phantom audit or automatic replay.
 

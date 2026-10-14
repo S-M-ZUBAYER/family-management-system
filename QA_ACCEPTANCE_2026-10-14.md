@@ -1,6 +1,25 @@
 # Family Management System acceptance — 2026-10-14
 
-## Latest: guarded SOS record/audit outcomes
+## Latest: Welfare complete reads, Retry and fresh scoped exports
+
+Source checkpoint: `947e743`. **Partial** bounded source/helper/simulated-handler and actual read-only evidence; no actual CRUD/file/browser/real-user/hosted acceptance claim.
+
+- New `welfare-read.ts` validates all six required arrays, family/actor/role, permission booleans, IDs/duplicates, field whitelists, money/dates/statuses/ownership/visibility and visible parent links. Rejects malformed/extra storage fields, incomplete data, >20,000 rows/section and ledger precision overflow instead of treating them as empty balances. Existing own hidden-fund history remains visible but does not inflate the visible funds' available balance; own pledge totals remain separate. Existing account-ID fields in contribution/request/pledge contracts were not redacted in this batch; exports omit them.
+- GET requires an actual family row, independently rechecks signed-in account and active membership ID/family/role after all paged reads, validates the returned snapshot and uses no-store for data/failure responses. Explicit migrationRequired is not shown as valid zero accounts. Independent reads/rechecks are not a transactional snapshot or atomic concurrent revocation; browser deadline does not cancel all server database reads.
+- Client clears every loaded array/permission and ready snapshot at read start. Abort/object-ticket/mounted guards and a real 25-second fetch-plus-JSON race suppress obsolete/unmounted results even if an adapter ignores abort. Locale-stable callbacks and coded BN/EN closeable result feedback, normal Refresh data and failure/migration Retry. Successful changed scope closes/reset editors/files; ordinary failed reads retain component drafts but keep them inaccessible until a valid reload.
+- XLSX fetches a new validated same-family/actor/role snapshot, uses its rows, captures language and checks source/ticket before import/build/download. Stale/failed/context-change exports do not download cached rows. The read-only summary tool also fetches fresh same-scope data and visible-fund totals instead of returning cached accounts. Shared synchronous busy/readiness guards cover seven ordinary action entry points; two portal fieldsets and action controls disable during save/export. This is read/export safety, **not** a complete rewrite of mutation expected-context, typed acknowledgement or unknown-outcome recovery.
+- `test:welfare-read`: **13** deterministic/helper/source/in-memory actual GET-handler cases, owner/admin/manager/member simulations, hidden-fund rollup, row cap/precision, deadline/abort/context/privacy branches. All **82 configured suites** passed before final corrections, then **21 affected read/export/ledger cases**, final nonincremental TypeScript/warning-free lint and build passed. Tenant/cancellation/translation audits passed: **65** cancellation handlers, **2,938** literal BN/EN pairs. Initial pre-aborted promise/unhandled rejection and React ref/memoization/lint and locale-dependent feedback callback issues were corrected and clean reruns passed.
+- `qa-welfare-read-local.mjs`: **54 actual localhost read-only assertions**, two families; Nojir one fund/contribution/expense/request/pledge and zero documents; Sheikh all six arrays empty. Complete scope/permission/projection/no-store/helper read and repeated unchanged snapshots; unsigned GET denied, signed Welfare HTTP 200 only. **Zero actual mutations, audit/SQL/file/notification changes.** Same mock owner switching families is not two independent users; documents/positive file storage were not exercised.
+- Owned temporary localhost:5173 preview started and stopped successfully; no user server/new browser/account touched. Site lookup first transport-failed, bounded retry returned **NOT_FOUND**: no deployment or identity/access/auth/binding/secret change, no duplicate Site. Existing/user-kept fixtures, original/finalized history and audits retained; no migrations required.
+
+### Current continuation and user sequencing
+
+Next safe source: **Welfare ordinary mutation expected-context/original-record checks, strict acknowledgements and scoped pending/unknown verification recovery**, then document storage/record/audit outcomes as needed. Inspect existing code/tests; do not repeat completed destructive QA cleanup or rollback-only SQL. Financial atomic RPC guards remain in place. Real different users/roles/outflow UI, two-session races, fault injection/RPC precision/null/overflow, finalized-document API/storage races, durable idempotency/reconciliation, actual modal/Retry/download/theme/hydration/mobile and hosted acceptance remain open across the matrix.
+
+User wants notification **after the current checking/update cycle actually finishes**, then plans Qurbani modifications and an additional route/page. Both remain deferred and unspecified; whole product is **Partial**, not finished.
+
+
+## Previous: guarded SOS record/audit outcomes
 
 Source checkpoint: `90b55b3`. **Partial** bounded source/helper/simulated-handler and actual rejection/read-only evidence. No clinical/emergency/real-user/browser/hosted acceptance claim.
 
