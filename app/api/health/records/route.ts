@@ -1,26 +1,15 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageHealth, getActiveFamilyMembership } from "@/lib/family-access";
 import { getChatAuthorName } from "@/lib/family-chat";
-import type {
-  HealthAppointment,
-  HealthMeasurement,
-  HealthMedication,
-  HealthProfile,
-  HealthSosAlert,
-} from "@/lib/health-types";
+import type { HealthSosAlert } from "@/lib/health-types";
 import { healthErrorResponse } from "../route";
-import { supabaseRest } from "@/lib/supabase-rest";
+import { supabaseRest, SupabaseRequestError } from "@/lib/supabase-rest";
+import { HealthRecordWriteError, healthOrdinaryKind, healthRecordTables, healthWriteContext, healthRecordWrite, healthRecordWriteResponse, type HealthRecordKind } from "@/lib/health-record-write";
 import { healthDate, healthDecimal, healthReminderMinutes, healthReminderTimes, healthTimestamp, healthUuid } from "@/lib/health-validation";
 
 import { closeHealthSos, respondHealthSos, healthSosLocation, publicHealthSosRecord, HealthSosWorkflowError } from "@/lib/health-sos-workflow";
 
 type EditableHealthKind = "medication" | "appointment" | "measurement";
-const editableTables: Record<EditableHealthKind, string> = {
-  medication: "health_medications",
-  appointment: "health_appointments",
-  measurement: "health_measurements",
-};
-
 const textValue = (value: unknown, max: number) =>
   typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 
@@ -33,129 +22,16 @@ export async function POST(request: Request) {
     if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
     const membership = await getActiveFamilyMembership(user.userId);
     if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
-    const body = (await request.json()) as Record<string, unknown>;
+    const raw: unknown = await request.json();
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return Response.json({code:"HEALTH_WRITE_EXPECTATION"},{status:400});
+    const body = raw as Record<string, unknown>;
+    const ordinaryKind = healthOrdinaryKind("POST", body);
+    if (ordinaryKind) return await writeOrdinaryHealth("POST", body, ordinaryKind, membership.family_id, user.userId);
     const action = textValue(body.action, 40);
     const data = body.data && typeof body.data === "object" && !Array.isArray(body.data)
       ? body.data as Record<string, unknown>
       : body;
     const authorName = await getChatAuthorName(membership.family_id, user);
-    const owner = { family_id: membership.family_id, auth_user_id: user.userId };
-
-    if (action === "save_profile") {
-      const visibility = textValue(data.visibility, 20) ?? "private";
-      const bloodGroup = textValue(data.bloodGroup, 8);
-      const height = healthDecimal(data.heightCm);
-      const weight = healthDecimal(data.weightKg);
-      const dateOfBirth = healthDate(data.dateOfBirth), lastDonationDate = healthDate(data.lastDonationDate);
-      if (dateOfBirth === undefined || lastDonationDate === undefined) return Response.json({ code: "HEALTH_INVALID_DATE", error: "সঠিক তারিখ দিন।" }, { status: 400 });
-      if (!["private", "emergency", "family"].includes(visibility)) {
-        return Response.json({ error: "Privacy setting সঠিক নয়।" }, { status: 400 });
-      }
-      if (bloodGroup && !["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Unknown"].includes(bloodGroup)) {
-        return Response.json({ error: "Blood group সঠিক নয়।" }, { status: 400 });
-      }
-      if (height === undefined || weight === undefined || (height !== null && (height < 30 || height > 300)) || (weight !== null && (weight < 1 || weight > 700))) {
-        return Response.json({ error: "Height বা weight value সঠিক নয়।" }, { status: 400 });
-      }
-      const now = new Date().toISOString();
-      const [profile] = await supabaseRest<HealthProfile[]>("health_profiles?on_conflict=family_id,auth_user_id", {
-        method: "POST",
-        headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-        body: JSON.stringify({
-          ...owner,
-          member_name: authorName,
-          blood_group: bloodGroup,
-          date_of_birth: dateOfBirth,
-          height_cm: height,
-          weight_kg: weight,
-          conditions: textValue(data.conditions, 4000),
-          allergies: textValue(data.allergies, 4000),
-          emergency_notes: textValue(data.emergencyNotes, 4000),
-          doctor_name: textValue(data.doctorName, 180),
-          doctor_phone: textValue(data.doctorPhone, 50),
-          emergency_contact_name: textValue(data.emergencyContactName, 180),
-          emergency_contact_phone: textValue(data.emergencyContactPhone, 50),
-          donor_available: data.donorAvailable === true,
-          last_donation_date: lastDonationDate,
-          visibility,
-          updated_at: now,
-        }),
-      });
-      await audit(membership.family_id, user.userId, "health_profile_saved", "health_profiles", profile.id);
-      return Response.json({ record: profile });
-    }
-
-    if (action === "create_medication") {
-      const changes = healthRecordChanges("medication", data);
-      if (changes instanceof Response) return changes;
-      const [record] = await supabaseRest<HealthMedication[]>("health_medications", {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify({
-          ...owner,
-          ...changes,
-          status: "active",
-        }),
-      });
-      await audit(membership.family_id, user.userId, "health_medication_created", "health_medications", record.id);
-      return Response.json({ record }, { status: 201 });
-    }
-
-    if (action === "create_appointment") {
-      const changes = healthRecordChanges("appointment", data);
-      if (changes instanceof Response) return changes;
-      const [record] = await supabaseRest<HealthAppointment[]>("health_appointments", {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify({
-          ...owner,
-          ...changes,
-          status: "scheduled",
-        }),
-      });
-      await audit(membership.family_id, user.userId, "health_appointment_created", "health_appointments", record.id);
-      return Response.json({ record }, { status: 201 });
-    }
-
-    if (action === "create_measurement") {
-      const changes = healthRecordChanges("measurement", data);
-      if (changes instanceof Response) return changes;
-      const [record] = await supabaseRest<HealthMeasurement[]>("health_measurements", {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify({
-          ...owner,
-          ...changes,
-        }),
-      });
-      await audit(membership.family_id, user.userId, "health_measurement_created", "health_measurements", record.id);
-      return Response.json({ record }, { status: 201 });
-    }
-
-    if (action === "update_status") {
-      const entity = textValue(data.entity, 30);
-      const id = uuidValue(data.id);
-      const status = textValue(data.status, 20);
-      const rules = entity === "medication"
-        ? { table: "health_medications", values: ["active", "paused", "completed"] }
-        : entity === "appointment"
-          ? { table: "health_appointments", values: ["scheduled", "completed", "cancelled"] }
-          : null;
-      if (!rules || !id || !status || !rules.values.includes(status)) {
-        return Response.json({ error: "Update request সঠিক নয়।" }, { status: 400 });
-      }
-      const [record] = await supabaseRest<Array<Record<string, unknown>>>(
-        `${rules.table}?id=eq.${id}&family_id=eq.${membership.family_id}&auth_user_id=eq.${user.userId}`,
-        {
-          method: "PATCH",
-          headers: { Prefer: "return=representation" },
-          body: JSON.stringify({ status, updated_at: new Date().toISOString() }),
-        },
-      );
-      if (!record) return Response.json({ error: "Record পাওয়া যায়নি।" }, { status: 404 });
-      await audit(membership.family_id, user.userId, `health_${entity}_status_updated`, rules.table, String(record.id));
-      return Response.json({ record });
-    }
 
     if (action === "create_sos") {
       const alertType = textValue(data.alertType, 20) ?? "medical";
@@ -210,6 +86,8 @@ export async function POST(request: Request) {
 
     return Response.json({ error: "Unsupported health action." }, { status: 400 });
   } catch (error) {
+    if (error instanceof HealthRecordWriteError) return Response.json({ code: error.code, outcomeUnknown: error.code === "HEALTH_WRITE_UNKNOWN" }, { status: error.status });
+    if (error instanceof SyntaxError) return Response.json({code:"HEALTH_WRITE_EXPECTATION"},{status:400});
     if (error instanceof HealthSosWorkflowError) return Response.json({ code: error.code, error: error.message }, { status: error.status });
     return healthErrorResponse(error, "Unable to update health workspace");
   }
@@ -221,20 +99,14 @@ export async function PATCH(request: Request) {
     if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
     const membership = await getActiveFamilyMembership(user.userId);
     if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
-    const body = await request.json() as { kind?: EditableHealthKind; recordId?: unknown; data?: Record<string, unknown> };
-    const kind = body.kind, recordId = uuidValue(body.recordId);
-    if (!kind || !Object.hasOwn(editableTables, kind) || !recordId) return Response.json({ error: "Valid health record প্রয়োজন।" }, { status: 400 });
-    const table = editableTables[kind];
-    const lookup = new URLSearchParams({ select: "id", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}`, limit: "1" });
-    if (!(await supabaseRest<Array<{ id: string }>>(`${table}?${lookup}`))[0]) return Response.json({ error: "নিজের health record পাওয়া যায়নি।" }, { status: 404 });
-    const changes = healthRecordChanges(kind, body.data ?? {});
-    if (changes instanceof Response) return changes;
-    if (kind !== "measurement") changes.updated_at = new Date().toISOString();
-    const filter = new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}` });
-    const [record] = await supabaseRest<Array<Record<string, unknown>>>(`${table}?${filter}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(changes) });
-    await audit(membership.family_id, user.userId, `health_${kind}_updated`, table, recordId);
-    return Response.json({ record });
+    const raw: unknown = await request.json();
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return Response.json({code:"HEALTH_WRITE_EXPECTATION"},{status:400});
+    const ordinaryBody = raw as Record<string, unknown>, ordinaryKind = healthOrdinaryKind("PATCH", ordinaryBody);
+    if (!ordinaryKind) return Response.json({code:"HEALTH_WRITE_EXPECTATION"},{status:400});
+    return await writeOrdinaryHealth("PATCH", ordinaryBody, ordinaryKind, membership.family_id, user.userId);
   } catch (error) {
+    if (error instanceof HealthRecordWriteError) return Response.json({ code: error.code, outcomeUnknown: error.code === "HEALTH_WRITE_UNKNOWN" }, { status: error.status });
+    if (error instanceof SyntaxError) return Response.json({code:"HEALTH_WRITE_EXPECTATION"},{status:400});
     return healthErrorResponse(error, "Unable to update health record");
   }
 }
@@ -245,19 +117,68 @@ export async function DELETE(request: Request) {
     if (!user) return Response.json({ error: "Sign in is required." }, { status: 401 });
     const membership = await getActiveFamilyMembership(user.userId);
     if (!membership) return Response.json({ error: "Active family membership প্রয়োজন।" }, { status: 403 });
-    const body = await request.json() as { kind?: EditableHealthKind; recordId?: unknown };
-    const kind = body.kind, recordId = uuidValue(body.recordId);
-    if (!kind || !Object.hasOwn(editableTables, kind) || !recordId) return Response.json({ error: "Valid health record প্রয়োজন।" }, { status: 400 });
-    const table = editableTables[kind];
-    const filter = new URLSearchParams({ id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}` });
-    const existing = (await supabaseRest<Array<{ id: string }>>(`${table}?${new URLSearchParams({ select: "id", id: `eq.${recordId}`, family_id: `eq.${membership.family_id}`, auth_user_id: `eq.${user.userId}`, limit: "1" })}`))[0];
-    if (!existing) return Response.json({ error: "নিজের health record পাওয়া যায়নি।" }, { status: 404 });
-    await supabaseRest(`${table}?${filter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    await audit(membership.family_id, user.userId, `health_${kind}_deleted`, table, recordId);
-    return Response.json({ message: `${kind} record স্থায়ীভাবে delete হয়েছে।` });
+    const raw: unknown = await request.json();
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return Response.json({code:"HEALTH_WRITE_EXPECTATION"},{status:400});
+    const ordinaryBody = raw as Record<string, unknown>, ordinaryKind = healthOrdinaryKind("DELETE", ordinaryBody);
+    if (!ordinaryKind) return Response.json({code:"HEALTH_WRITE_EXPECTATION"},{status:400});
+    return await writeOrdinaryHealth("DELETE", ordinaryBody, ordinaryKind, membership.family_id, user.userId);
   } catch (error) {
+    if (error instanceof HealthRecordWriteError) return Response.json({ code: error.code, outcomeUnknown: error.code === "HEALTH_WRITE_UNKNOWN" }, { status: error.status });
+    if (error instanceof SyntaxError) return Response.json({code:"HEALTH_WRITE_EXPECTATION"},{status:400});
     return healthErrorResponse(error, "Unable to delete health record");
   }
+}
+
+async function writeOrdinaryHealth(method: string, body: Record<string, unknown>, kind: HealthRecordKind, familyId: string, actorId: string): Promise<Response> {
+  const expected = healthWriteContext(body, familyId, actorId, kind);
+  const data = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data as Record<string, unknown> : {};
+  const isCreate = method === "POST" && body.action !== "update_status" && kind !== "profile";
+  const recordId = method === "PATCH" || method === "DELETE" ? healthUuid(body.recordId) : body.action === "update_status" ? healthUuid(data.id) : expected?.id;
+  if ((!isCreate && kind !== "profile" && (!recordId || !expected || expected.id !== recordId)) || isCreate && expected !== null) throw new HealthRecordWriteError("HEALTH_WRITE_EXPECTATION", 400);
+  const table = healthRecordTables[kind];
+  const q = new URLSearchParams({select:"*",family_id:`eq.${familyId}`,auth_user_id:`eq.${actorId}`,limit:"2"});
+  if (recordId) q.set("id",`eq.${recordId}`);
+  let existing: unknown = null;
+  if (!isCreate) {
+    const rows = await supabaseRest<unknown[]>(`${table}?${q}`);
+    if (!Array.isArray(rows) || rows.length > 1) throw new HealthRecordWriteError("HEALTH_RECORD_CHANGED");
+    existing = rows[0] ?? null;
+  }
+  let changes: Record<string, unknown> | Response = {};
+  if (method !== "DELETE") {
+    const textLimits:Record<string,number>=kind==="profile"?{visibility:20,bloodGroup:8,conditions:4000,allergies:4000,emergencyNotes:4000,doctorName:180,doctorPhone:50,emergencyContactName:180,emergencyContactPhone:50}:kind==="medication"?{medicineName:180,dosage:120,frequency:120,instructions:2000,prescribingDoctor:180}:kind==="appointment"?{title:180,doctorName:180,facility:220,notes:2000}:{measurementType:30,unit:30,notes:1000};
+    for(const [key,max]of Object.entries(textLimits)){const value=data[key];if(value!==undefined&&value!==null&&(typeof value!=="string"||value.trim().length>max))throw new HealthRecordWriteError("HEALTH_WRITE_EXPECTATION",400);}
+    if (kind === "profile") changes = healthProfileChanges(data);
+    else if (body.action === "update_status") {
+      const values = kind === "medication" ? ["active","paused","completed"] : ["scheduled","completed","cancelled"];
+      if (typeof data.status !== "string" || !values.includes(data.status)) throw new HealthRecordWriteError("HEALTH_WRITE_EXPECTATION",400);
+      changes = {status:data.status};
+    } else changes = healthRecordChanges(kind, data);
+    if (changes instanceof Response) return changes;
+  }
+  if (isCreate) { if (kind === "medication") changes.status="active"; if(kind === "appointment") changes.status="scheduled"; }
+  const current = await getActiveFamilyMembership(actorId);
+  if(!current || current.family_id!==familyId) throw new HealthRecordWriteError("HEALTH_WRITE_CONTEXT");
+  const result = await healthRecordWrite({kind,familyId,actorId,expected,existing,changes,deletion:method==="DELETE",
+    rejected:e=>e instanceof SupabaseRequestError && e.status>=400 && e.status<500 && e.status!==408,
+    write:async (values,filter)=> {
+      if (method==="DELETE") return supabaseRest(`${table}?${filter}`,{method:"DELETE",headers:{Prefer:"return=representation"}});
+      if (filter) return supabaseRest(`${table}?${filter}`,{method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify(values)});
+      const user=await getChatGPTUser();
+      if(!user||user.userId!==actorId) throw new HealthRecordWriteError("HEALTH_WRITE_CONTEXT");
+      const memberName=kind==="profile" ? await getChatAuthorName(familyId,user) : null;
+      return supabaseRest(table,{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify({...values,family_id:familyId,auth_user_id:actorId,...(memberName?{member_name:memberName}:{})})});
+    },
+    audit:id=>audit(familyId,actorId,kind==="profile"?"health_profile_saved":`health_${kind}_${method==="DELETE"?"deleted":body.action==="update_status"?"status_updated":isCreate?"created":"updated"}`,table,id),
+  });
+  return healthRecordWriteResponse(result,isCreate?201:200);
+}
+
+function healthProfileChanges(data: Record<string, unknown>): Record<string, unknown> | Response {
+  const visibility=textValue(data.visibility,20)??"private",bloodGroup=textValue(data.bloodGroup,8),height=healthDecimal(data.heightCm),weight=healthDecimal(data.weightKg),dateOfBirth=healthDate(data.dateOfBirth),lastDonationDate=healthDate(data.lastDonationDate);
+  if(dateOfBirth===undefined||lastDonationDate===undefined)return Response.json({code:"HEALTH_INVALID_DATE"},{status:400});
+  if(!["private","emergency","family"].includes(visibility)||bloodGroup&&!["A+","A-","B+","B-","AB+","AB-","O+","O-","Unknown"].includes(bloodGroup)||height===undefined||weight===undefined||height!==null&&(height<30||height>300)||weight!==null&&(weight<1||weight>700)||typeof data.donorAvailable!=="boolean")return Response.json({code:"HEALTH_WRITE_EXPECTATION"},{status:400});
+  return {blood_group:bloodGroup,date_of_birth:dateOfBirth,height_cm:height,weight_kg:weight,conditions:textValue(data.conditions,4000),allergies:textValue(data.allergies,4000),emergency_notes:textValue(data.emergencyNotes,4000),doctor_name:textValue(data.doctorName,180),doctor_phone:textValue(data.doctorPhone,50),emergency_contact_name:textValue(data.emergencyContactName,180),emergency_contact_phone:textValue(data.emergencyContactPhone,50),donor_available:data.donorAvailable,last_donation_date:lastDonationDate,visibility};
 }
 
 function healthRecordChanges(kind: EditableHealthKind, data: Record<string, unknown>): Record<string, unknown> | Response {
@@ -281,5 +202,6 @@ function healthRecordChanges(kind: EditableHealthKind, data: Record<string, unkn
 }
 
 async function audit(familyId: string, userId: string, action: string, entityType: string, entityId: string) {
-  await supabaseRest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: familyId, actor_user_id: userId, action, entity_type: entityType, entity_id: entityId, metadata: { module: "health", private: true } }) });
+  const rows = await supabaseRest<Array<Record<string,unknown>>>("audit_logs", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ family_id: familyId, actor_user_id: userId, action, entity_type: entityType, entity_id: entityId, metadata: { module: "health", private: true } }) });
+  if(!Array.isArray(rows)||rows.length!==1||!healthUuid(rows[0].id)||rows[0].family_id!==familyId||rows[0].actor_user_id!==userId||rows[0].entity_id!==entityId||rows[0].action!==action)throw new Error("Health audit acknowledgement missing.");
 }

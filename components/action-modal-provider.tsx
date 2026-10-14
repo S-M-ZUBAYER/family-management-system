@@ -48,6 +48,7 @@ import { magazineWriteFeedback } from "@/lib/magazine-cover-write";
 import { qurbaniErrorCopy, qurbaniRecordActionCopy, qurbaniStatusActionCopy } from "@/lib/qurbani-action-copy";
 import { financeErrorCopy, financeRecordActionCopy, financeStatusActionCopy } from "@/lib/finance-action-copy";
 import { healthActionCopy, healthErrorCopy } from "@/lib/health-action-copy";
+import { healthRecordFeedback } from "@/lib/health-record-write";
 import {
   Dialog,
   DialogClose,
@@ -505,6 +506,8 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
           const attachmentDeletePayload=/^\/api\/chat-file\/[^/]+$/.test(url.pathname)&&method==="DELETE"?await response.clone().json().then((v:unknown)=>v&&typeof v==="object"&&!Array.isArray(v)?v as Record<string,unknown>:{}).catch(()=>({})):null;
           const attachmentDeleteResult=attachmentDeletePayload?chatAttachmentDeleteFeedback(url.pathname,response.status,attachmentDeletePayload,locale,method,parseBody(init?.body)):null;
           const flowBody=parseBody(init?.body);
+          const healthPayload=url.pathname==="/api/health/records"?await response.clone().json().catch(()=>null):null;
+          const healthResult=healthRecordFeedback(url.pathname,response.status,healthPayload,locale,method,flowBody);
           const membershipPayload=/^\/api\/chat-channels\/[^/]+\/members$/.test(url.pathname)?await response.clone().json().catch(()=>null):null;
           const membershipResult=chatMembershipFeedback(url.pathname,response.status,membershipPayload,locale,method,flowBody);
           const lifecyclePayload=/^\/api\/chat-channels\/[^/]+$/.test(url.pathname)?await response.clone().json().catch(()=>null):null;
@@ -522,7 +525,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
             ? copy.successMessage
             : response.ok && ["/api/finance/records", "/api/finance/status", "/api/health/records"].includes(url.pathname) ? copy.successMessage
             : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."), locale);
-          const nextResult = noticeResult ?? membershipResult ?? lifecycleResult ?? eventResult ?? participationResult ?? commentChangeResult ?? chatTextResult ?? attachmentResult ?? attachmentDeleteResult ?? flowResult ?? setupResult ?? mediaResult ?? magazineResult ?? welfareResult ?? (memberResult?.noChange
+          const nextResult = noticeResult ?? healthResult ?? membershipResult ?? lifecycleResult ?? eventResult ?? participationResult ?? commentChangeResult ?? chatTextResult ?? attachmentResult ?? attachmentDeleteResult ?? flowResult ?? setupResult ?? mediaResult ?? magazineResult ?? welfareResult ?? (memberResult?.noChange
             ? { kind: "info" as const, title: locale === "bn" ? "পরিবর্তন প্রয়োজন নেই" : "No change needed", message }
             : mutationResponseResult(memberResult?.status ?? response.status, message, locale));
           lastMutationResult.current = { kind: nextResult.kind, message: nextResult.message, at: Date.now() };
@@ -536,6 +539,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
           ? welfareRecordFeedback(503, { code: "WELFARE_WRITE_OUTCOME_UNKNOWN", outcomeUnknown: true }, locale) : null;
         const magazineFailure = magazineWriteFeedback(url.pathname, 503, { code: "MAGAZINE_COVER_OUTCOME_UNKNOWN", outcomeUnknown: true }, locale);
         const noticeFailure = noticeWriteFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
+        const healthFailure=healthRecordFeedback(url.pathname,503,{outcomeUnknown:true},locale,method,parseBody(init?.body));
         const eventFailure = eventWriteFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
         const participationFailure = eventParticipationFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
         const commentChangeFailure = eventCommentChangeFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
@@ -549,7 +553,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
         const mediaFailure = eventMediaFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
         const propagatedError = membershipFailure ? new Error(membershipFailure.message) : lifecycleFailure ? new Error(lifecycleFailure.message) : setupFailure ? new Error(setupFailure.message) : flowFailure ? new Error(flowFailure.message) : attachmentDeleteFailure ? new Error(attachmentDeleteFailure.message) : attachmentFailure ? new Error(attachmentFailure.message) : chatTextFailure ? new Error(chatTextFailure.message) : commentChangeFailure ? new Error(commentChangeFailure.message) : mediaFailure ? new Error(mediaFailure.message) : participationFailure ? new Error(participationFailure.message) : eventFailure ? new Error(eventFailure.message) : noticeFailure ? new Error(noticeFailure.message) : magazineFailure ? new Error(magazineFailure.message) : welfareFailure ? new Error(welfareFailure.message) : error;
         if (mounted.current) {
-          const nextResult: ResultState = membershipFailure ?? lifecycleFailure ?? setupFailure ?? flowFailure ?? attachmentDeleteFailure ?? attachmentFailure ?? chatTextFailure ?? noticeFailure ?? eventFailure ?? participationFailure ?? commentChangeFailure ?? mediaFailure ?? magazineFailure ?? welfareFailure ?? {
+          const nextResult: ResultState = healthFailure ?? membershipFailure ?? lifecycleFailure ?? setupFailure ?? flowFailure ?? attachmentDeleteFailure ?? attachmentFailure ?? chatTextFailure ?? noticeFailure ?? eventFailure ?? participationFailure ?? commentChangeFailure ?? mediaFailure ?? magazineFailure ?? welfareFailure ?? {
             kind: "error",
             title: locale === "bn" ? "সংযোগজনিত error" : "Connection error",
             message: error instanceof Error ? error.message : (locale === "bn" ? "Server-এর সাথে যোগাযোগ করা যায়নি। আবার চেষ্টা করুন।" : "Could not contact the server. Please try again."),
