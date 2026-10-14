@@ -105,6 +105,8 @@ export function WelfareCenter() {
   const [migrationRequired, setMigrationRequired] = useState(false);
   const [setupRequired, setSetupRequired] = useState(false);
   const [, setFeedback] = useActionFeedback();
+  const feedbackRef = useRef(setFeedback);
+  useEffect(() => { feedbackRef.current = setFeedback; }, [setFeedback]);
   const [kind, setKind] = useState<CreateKind | null>(null);
   const [editingRecord, setEditingRecord] = useState<{ id: string; kind: CreateKind } | null>(null);
   const [form, setForm] = useState<FormState>({});
@@ -135,10 +137,10 @@ export function WelfareCenter() {
       if (!mounted.current || !readGate.current.current(ticket)) return;
       const code = error instanceof WelfareReadError ? error.code : "WELFARE_READ_FAILED";
       if (code === "WELFARE_READ_SETUP") setSetupRequired(true);
-      else { setLoadError(code); setFeedback(welfareReadCopy(code, localeRef.current)); }
+      else { setLoadError(code); feedbackRef.current(welfareReadCopy(code, localeRef.current)); }
     }
     finally { if (mounted.current && readGate.current.current(ticket)) setLoading(false); }
-  }, [setFeedback, setKind, setEditingRecord, setForm, setUploadOpen, setUploadFile, setUploadForm]);
+  }, [setKind, setEditingRecord, setForm, setUploadOpen, setUploadFile, setUploadForm]);
 
   useEffect(() => { const reads = readGate.current, exports = exportGate.current; mounted.current = true; queueMicrotask(() => void load()); return () => { mounted.current = false; snapshotRef.current = null; reads.invalidate(); exports.invalidate(); }; }, [load]);
 
