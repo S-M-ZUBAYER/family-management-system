@@ -10,6 +10,7 @@ import { healthLocalInputToIso } from "@/lib/health-validation";
 import { healthErrorCopy } from "@/lib/health-action-copy";
 import { healthOrdinaryKind, healthPublicRecord, readHealthRecordMutation, healthRecordWriteCopy, type HealthRecordKind } from "@/lib/health-record-write";
 import { healthDocumentPublic, healthDocumentCopy, readHealthDocumentMutation } from "@/lib/health-document-workflow";
+import { readHealthSosMutation, healthSosWriteCopy } from "@/lib/health-sos-write";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -204,6 +205,7 @@ export function HealthCenter() {
   const [locating, setLocating] = useState(false);
   const locationRequest=useRef(0);
   const [responseTarget, setResponseTarget] = useState<HealthSosAlert | null>(null);
+  const responseExpected=useRef<HealthSosAlert|null>(null);
   const [responseType, setResponseType] = useState("acknowledged");
   const [responseNote, setResponseNote] = useState("");
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("default");
@@ -345,22 +347,32 @@ export function HealthCenter() {
     // Reviewing a snapshot does not prove an unknown write or its audit succeeded.
     setProfileOpen(false);setRecordKind(null);setEditingRecord(null);editorExpected.current=null;
     setUploadOpen(false);setUploadFile(null);setUploadForm({category:"prescription",documentDate:today()});if(fileInputRef.current)fileInputRef.current.value="";
+    setSosOpen(false);setSosForm({alertType:"medical"});setLocation(null);setResponseTarget(null);setResponseNote("");responseExpected.current=null;
     verificationRef.current=false;setVerificationBlocked(false);
     try{window.sessionStorage.removeItem(healthReviewKey(scope));}catch{/* Session storage can be unavailable. */}
     showResult({kind:"info",title:pick("বর্তমান Health তথ্য দেখুন","Review current Health data"),message:pick("নতুন তথ্য লোড হয়েছে; এটি আগের পরিবর্তন সফল হওয়ার প্রমাণ নয়। রেকর্ড দেখে তারপর নতুন কাজ করুন। সন্দেহ হলে Support-এ জানান।","Current data was loaded; this does not prove the earlier change succeeded. Review the record before another action. Contact support if uncertain.")});
   }
-  async function postAction(action: string, data: Record<string, unknown>) {
+  function openSosResponse(alert:HealthSosAlert){
+    if(!healthWork.current.ready||healthWork.current.busy||healthWork.current.exporting||verificationRef.current||!["active","acknowledged"].includes(alert.status))return;
+    responseExpected.current=alert;setResponseType("acknowledged");setResponseNote("");setResponseTarget(alert);
+  }
+  async function postAction(action: string, data: Record<string, unknown>, expectedAlert:HealthSosAlert|null=null) {
     const ordinaryKind=healthOrdinaryKind("POST",{action,data});
     if(ordinaryKind)return mutateHealthRecord("POST",{action,data},action==="save_profile"?editorExpected.current:action==="update_status"?currentHealthRecord(ordinaryKind,String(data.id)):null);
-    const response = await fetch("/api/health/records", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, data }),
-    });
-    if (response.status === 499) return null;
-    const payload = (await response.json()) as { record?: unknown; error?: string; code?: string };
-    if (!response.ok || !payload.record) throw new Error(healthErrorCopy(payload.code, locale) ?? payload.error ?? pick("স্বাস্থ্য রেকর্ড সংরক্ষণ হয়নি।", "Health record could not be saved."));
-    return payload.record;
+    const captured=snapshotRef.current,sequence=loadSequence.current;if(!captured)return false;
+    const body={action,data,expectedScope:captured.scope,expectedAlert};
+    const outcome=await readHealthSosMutation(()=>fetch("/api/health/records",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}),body);
+    // Retain only an old-scope review marker even if its late result must not
+    // touch the current account/family UI. Returning later still requires review.
+    if(outcome.kind==="unknown")try{window.sessionStorage.setItem(healthReviewKey(captured.scope),"1");}catch{/* Never store SOS location/contact/draft. */}
+    if(!healthMounted.current||sequence!==loadSequence.current||acceptedScope.current?.familyId!==captured.scope.familyId||acceptedScope.current?.actorId!==captured.scope.actorId)return false;
+    if(outcome.kind==="cancelled")return false;
+    if(outcome.kind==="unknown"){
+      verificationRef.current=true;setVerificationBlocked(true);
+      showResult({kind:"info",title:pick("SOS ফল review করুন","Review SOS outcome"),message:healthSosWriteCopy("HEALTH_SOS_UNKNOWN",locale)!});return false;
+    }
+    if(outcome.kind==="rejected")throw new Error(healthSosWriteCopy(outcome.payload.code,locale)??healthErrorCopy(outcome.payload.code,locale)??pick("SOS পরিবর্তন হয়নি। বর্তমান তালিকা review করুন।","SOS change was rejected. Review the current list."));
+    return true;
   }
 
   async function saveProfile() {
@@ -533,7 +545,7 @@ export function HealthCenter() {
     if (!responseTarget) return;
     if(!beginHealthAction())return;
     try {
-      if (!(await postAction("respond_sos", { alertId: responseTarget.id, responseType, note: responseNote }))) return;
+      if (!(await postAction("respond_sos", { alertId: responseTarget.id, responseType, note: responseNote },responseExpected.current))) return;
       setResponseTarget(null);
       setResponseNote("");
       await loadHealth();
@@ -545,7 +557,7 @@ export function HealthCenter() {
   async function closeSos(alert: HealthSosAlert, status: "resolved" | "cancelled") {
     if(!beginHealthAction())return;
     try {
-      if (!(await postAction("update_sos", { alertId: alert.id, status, note: status === "resolved" ? pick("পরিবারের পক্ষ থেকে সমাধান হয়েছে", "Resolved by the family") : pick("SOS বাতিল করা হয়েছে", "SOS cancelled") }))) return;
+      if (!(await postAction("update_sos", { alertId: alert.id, status, note: status === "resolved" ? pick("পরিবারের পক্ষ থেকে সমাধান হয়েছে", "Resolved by the family") : pick("SOS বাতিল করা হয়েছে", "SOS cancelled") },alert))) return;
       await loadHealth();
     } finally {
       finishHealthAction();
@@ -643,7 +655,7 @@ export function HealthCenter() {
             <Button variant="secondary" className="rounded-xl" onClick={() => void enableNotifications()}><Bell className="size-4" /> {pick("রিমাইন্ডার চালু", "Enable reminders")}</Button>
             <Button variant="outline" className="rounded-xl" onClick={()=>void loadHealth()} disabled={saving || exporting}>{pick("Health আবার লোড করুন","Reload Health")}</Button>
             <Button variant="secondary" className="rounded-xl" onClick={() => void exportXlsx()} disabled={exporting || saving || migrationRequired}>{exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />} {pick("XLSX রপ্তানি", "Export XLSX")}</Button>
-            <Button className="rounded-xl bg-rose-500 text-white hover:bg-rose-600" onClick={() => setSosOpen(true)} disabled={migrationRequired}><Siren className="size-4" /> {pick("জরুরি SOS", "Emergency SOS")}</Button>
+            <Button className="rounded-xl bg-rose-500 text-white hover:bg-rose-600" onClick={() => setSosOpen(true)} disabled={migrationRequired || saving || exporting || verificationBlocked}><Siren className="size-4" /> {pick("জরুরি SOS", "Emergency SOS")}</Button>
           </div>
         </div>
         <p className="mt-3 text-xs text-white/70">{pick("ব্রাউজার রিমাইন্ডার শুধু এই পৃষ্ঠা খোলা থাকলে ও নোটিফিকেশনের অনুমতি থাকলে কাজ করে। এটি অফলাইন বা জরুরি সেবা নয়।", "Browser reminders work only while this page stays open with notification permission. This is not an offline or emergency service.")}</p>
@@ -652,7 +664,7 @@ export function HealthCenter() {
       {migrationRequired ? <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-100">{pick("Supabase SQL Editor-এ ", "Run ")}<b>supabase/migrations/20260927_health_sos.sql</b>{pick(" চালালে স্বাস্থ্য ও SOS তথ্য সক্রিয় হবে।", " in the Supabase SQL Editor to enable Health and SOS data.")}</div> : null}
       {feedback ? <div className="flex items-start justify-between gap-3 rounded-2xl border bg-card px-4 py-3 text-sm"><span>{feedback}</span><Button size="icon-xs" variant="ghost" onClick={() => setFeedback(null)}><X /></Button></div> : null}
       {verificationBlocked?<div role="status" className="space-y-3 rounded-2xl border border-amber-500 bg-card p-4 text-sm"><p>{healthRecordWriteCopy("HEALTH_WRITE_UNKNOWN",locale)}</p><Button variant="outline" disabled={saving||exporting||loading} onClick={()=>void reviewHealthOutcome()}>{pick("বর্তমান তথ্য লোড করে review করুন","Load current data for review")}</Button></div>:null}
-      {activeAlerts.length ? <div className="space-y-2">{activeAlerts.map((alert) => <SosBanner key={alert.id} alert={alert} onRespond={() => setResponseTarget(alert)} onClose={(status) => void closeSos(alert, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("SOS হালনাগাদ হয়নি।", "SOS could not be updated.")))} canClose={alert.is_reporter || canManageSos} />)}</div> : null}
+      {activeAlerts.length ? <div className="space-y-2">{activeAlerts.map((alert) => <SosBanner key={alert.id} alert={alert} onRespond={() => openSosResponse(alert)} onClose={(status) => void closeSos(alert, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("SOS হালনাগাদ হয়নি।", "SOS could not be updated.")))} canClose={alert.is_reporter || canManageSos} />)}</div> : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric icon={<Pill />} label={pick("সক্রিয় ওষুধ", "Active medicines")} value={String(activeMedications.length)} note={activeMedications.length ? pick(`${activeMedications.reduce((sum, item) => sum + item.reminder_times.length, 0)}টি দৈনিক রিমাইন্ডার সময়`, `${activeMedications.reduce((sum, item) => sum + item.reminder_times.length, 0)} daily reminder times`) : pick("ওষুধ যোগ করুন", "Add medicine")} />
@@ -724,7 +736,7 @@ export function HealthCenter() {
         </TabsContent>
 
         <TabsContent value="emergency" className="space-y-4">
-          <Card className="rounded-3xl shadow-none"><CardHeader><CardTitle>{pick("সক্রিয় ও সাম্প্রতিক SOS সতর্কতা", "Active & recent SOS alerts")}</CardTitle><p className="text-sm text-muted-foreground">{pick("এটি শুধু পারিবারিক সমন্বয়ের জন্য—প্রয়োজনে স্থানীয় জরুরি সেবায় সরাসরি কল করুন।", "For family coordination only—call local emergency services directly when needed.")}</p></CardHeader><CardContent className="space-y-3">{alerts.map((alert) => <SosCard key={alert.id} alert={alert} responses={responses.filter((item) => item.alert_id === alert.id)} onRespond={() => setResponseTarget(alert)} onClose={(status) => void closeSos(alert, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("SOS হালনাগাদ হয়নি।", "Could not update SOS.")))} canClose={alert.is_reporter || canManageSos} />)}{!alerts.length ? <Empty icon={<Ambulance />} title={pick("কোনো SOS ইতিহাস নেই", "No SOS history")} text={pick("জরুরি অবস্থায় SOS বোতাম ব্যবহার করলে সতর্কতা এখানে দেখা যাবে।", "Alerts will appear here when the SOS button is used.")} /> : null}</CardContent></Card>
+          <Card className="rounded-3xl shadow-none"><CardHeader><CardTitle>{pick("সক্রিয় ও সাম্প্রতিক SOS সতর্কতা", "Active & recent SOS alerts")}</CardTitle><p className="text-sm text-muted-foreground">{pick("এটি শুধু পারিবারিক সমন্বয়ের জন্য—প্রয়োজনে স্থানীয় জরুরি সেবায় সরাসরি কল করুন।", "For family coordination only—call local emergency services directly when needed.")}</p></CardHeader><CardContent className="space-y-3">{alerts.map((alert) => <SosCard key={alert.id} alert={alert} responses={responses.filter((item) => item.alert_id === alert.id)} onRespond={() => openSosResponse(alert)} onClose={(status) => void closeSos(alert, status).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("SOS হালনাগাদ হয়নি।", "Could not update SOS.")))} canClose={alert.is_reporter || canManageSos} />)}{!alerts.length ? <Empty icon={<Ambulance />} title={pick("কোনো SOS ইতিহাস নেই", "No SOS history")} text={pick("জরুরি অবস্থায় SOS বোতাম ব্যবহার করলে সতর্কতা এখানে দেখা যাবে।", "Alerts will appear here when the SOS button is used.")} /> : null}</CardContent></Card>
           <Card className="rounded-3xl shadow-none"><CardHeader className="flex-row items-center justify-between"><div><CardTitle>{pick("রক্ত ও জরুরি নির্দেশিকা", "Blood & emergency directory")}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{pick("সদস্যের স্বাস্থ্য-শেয়ারিং ও Privacy পছন্দ মেনে দেখানো তথ্য", "Information shown according to each member's health sharing and privacy choices")}</p></div><Badge variant="secondary">{donors.length} {pick("রক্তদাতা", "donors")}</Badge></CardHeader><CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{directory.map((item) => <EmergencyCard key={`${item.member_name}-${item.blood_group}`} item={item} />)}{!directory.length ? <div className="md:col-span-2 xl:col-span-3"><Empty icon={<Droplets />} title={pick("নির্দেশিকা খালি", "Directory is empty")} text={pick("স্বাস্থ্য প্রোফাইলে তথ্য শেয়ার এবং Privacy-তে জরুরি নির্দেশিকার অনুমতি দিলে এখানে দেখা যাবে।", "Profiles appear here when health sharing and emergency-directory access are enabled.")} /></div> : null}</CardContent></Card>
         </TabsContent>
       </Tabs>

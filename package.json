@@ -94,6 +94,7 @@
     "test:health-read": "node scripts/test-health-read.mjs",
     "test:health-record-write": "node scripts/test-health-record-write.mjs",
     "test:health-document-workflow": "node scripts/test-health-document-workflow.mjs",
+    "test:health-sos-write": "node scripts/test-health-sos-write.mjs",
     "i18n:audit": "node scripts/audit-translations.mjs"
   },
   "dependencies": {

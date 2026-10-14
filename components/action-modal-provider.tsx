@@ -50,6 +50,7 @@ import { financeErrorCopy, financeRecordActionCopy, financeStatusActionCopy } fr
 import { healthActionCopy, healthErrorCopy } from "@/lib/health-action-copy";
 import { healthRecordFeedback } from "@/lib/health-record-write";
 import { healthDocumentActionCopy, healthDocumentFeedback } from "@/lib/health-document-workflow";
+import { healthSosFeedback } from "@/lib/health-sos-write";
 import {
   Dialog,
   DialogClose,
@@ -511,6 +512,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
           const flowBody=parseBody(init?.body);
           const healthPayload=url.pathname==="/api/health/records"?await response.clone().json().catch(()=>null):null;
           const healthResult=healthRecordFeedback(url.pathname,response.status,healthPayload,locale,method,flowBody);
+          const sosResult=healthSosFeedback(url.pathname,response.status,healthPayload,locale,method,flowBody);
           const healthDocumentPayload=url.pathname==="/api/health/upload"||/^\/api\/health-document\/[^/]+$/.test(url.pathname)&&method==="DELETE"?await response.clone().json().catch(()=>null):null;
           const healthDocumentResult=healthDocumentFeedback(url.pathname,response.status,healthDocumentPayload,locale,method,init?.body instanceof FormData?init.body:flowBody);
           const membershipPayload=/^\/api\/chat-channels\/[^/]+\/members$/.test(url.pathname)?await response.clone().json().catch(()=>null):null;
@@ -530,7 +532,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
             ? copy.successMessage
             : response.ok && ["/api/finance/records", "/api/finance/status", "/api/health/records"].includes(url.pathname) ? copy.successMessage
             : await responseMessage(response, response.ok ? copy.successMessage : (locale === "bn" ? "Action সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।" : "The action could not be completed. Please try again."), locale);
-          const nextResult = noticeResult ?? healthResult ?? healthDocumentResult ?? membershipResult ?? lifecycleResult ?? eventResult ?? participationResult ?? commentChangeResult ?? chatTextResult ?? attachmentResult ?? attachmentDeleteResult ?? flowResult ?? setupResult ?? mediaResult ?? magazineResult ?? welfareResult ?? (memberResult?.noChange
+          const nextResult = noticeResult ?? healthResult ?? sosResult ?? healthDocumentResult ?? membershipResult ?? lifecycleResult ?? eventResult ?? participationResult ?? commentChangeResult ?? chatTextResult ?? attachmentResult ?? attachmentDeleteResult ?? flowResult ?? setupResult ?? mediaResult ?? magazineResult ?? welfareResult ?? (memberResult?.noChange
             ? { kind: "info" as const, title: locale === "bn" ? "পরিবর্তন প্রয়োজন নেই" : "No change needed", message }
             : mutationResponseResult(memberResult?.status ?? response.status, message, locale));
           lastMutationResult.current = { kind: nextResult.kind, message: nextResult.message, at: Date.now() };
@@ -545,6 +547,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
         const magazineFailure = magazineWriteFeedback(url.pathname, 503, { code: "MAGAZINE_COVER_OUTCOME_UNKNOWN", outcomeUnknown: true }, locale);
         const noticeFailure = noticeWriteFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
         const healthFailure=healthRecordFeedback(url.pathname,503,{outcomeUnknown:true},locale,method,parseBody(init?.body));
+        const sosFailure=healthSosFeedback(url.pathname,503,{outcomeUnknown:true},locale,method,parseBody(init?.body));
         const healthDocumentFailure=healthDocumentFeedback(url.pathname,503,{outcomeUnknown:true},locale,method,init?.body instanceof FormData?init.body:parseBody(init?.body));
         const eventFailure = eventWriteFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
         const participationFailure = eventParticipationFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
@@ -559,7 +562,7 @@ export function ActionModalProvider({ children }: { children: React.ReactNode })
         const mediaFailure = eventMediaFeedback(url.pathname, 503, { outcomeUnknown: true }, locale);
         const propagatedError = membershipFailure ? new Error(membershipFailure.message) : lifecycleFailure ? new Error(lifecycleFailure.message) : setupFailure ? new Error(setupFailure.message) : flowFailure ? new Error(flowFailure.message) : attachmentDeleteFailure ? new Error(attachmentDeleteFailure.message) : attachmentFailure ? new Error(attachmentFailure.message) : chatTextFailure ? new Error(chatTextFailure.message) : commentChangeFailure ? new Error(commentChangeFailure.message) : mediaFailure ? new Error(mediaFailure.message) : participationFailure ? new Error(participationFailure.message) : eventFailure ? new Error(eventFailure.message) : noticeFailure ? new Error(noticeFailure.message) : magazineFailure ? new Error(magazineFailure.message) : welfareFailure ? new Error(welfareFailure.message) : error;
         if (mounted.current) {
-          const nextResult: ResultState = healthFailure ?? healthDocumentFailure ?? membershipFailure ?? lifecycleFailure ?? setupFailure ?? flowFailure ?? attachmentDeleteFailure ?? attachmentFailure ?? chatTextFailure ?? noticeFailure ?? eventFailure ?? participationFailure ?? commentChangeFailure ?? mediaFailure ?? magazineFailure ?? welfareFailure ?? {
+          const nextResult: ResultState = healthFailure ?? sosFailure ?? healthDocumentFailure ?? membershipFailure ?? lifecycleFailure ?? setupFailure ?? flowFailure ?? attachmentDeleteFailure ?? attachmentFailure ?? chatTextFailure ?? noticeFailure ?? eventFailure ?? participationFailure ?? commentChangeFailure ?? mediaFailure ?? magazineFailure ?? welfareFailure ?? {
             kind: "error",
             title: locale === "bn" ? "সংযোগজনিত error" : "Connection error",
             message: error instanceof Error ? error.message : (locale === "bn" ? "Server-এর সাথে যোগাযোগ করা যায়নি। আবার চেষ্টা করুন।" : "Could not contact the server. Please try again."),

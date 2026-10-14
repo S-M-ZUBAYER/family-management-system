@@ -29,6 +29,7 @@ async function lookup(rest: Rest, familyId: string, alertId: string) {
 async function audit(rest: Rest, familyId: string, userId: string, action: string, entity: string, id: string) {
   await rest("audit_logs", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ family_id: familyId, actor_user_id: userId, action, entity_type: entity, entity_id: id, metadata: { module: "health", scope: "family_sos" } }) });
 }
+/** @deprecated Historical compatibility helper; current API writes use health-sos-write.ts. */
 export async function closeHealthSos(rest: Rest, familyId: string, userId: string, canManage: boolean, alertId: string, status: "resolved" | "cancelled", note: string | null) {
   const alert = await lookup(rest, familyId, alertId);
   if (alert.reporter_user_id !== userId && !canManage) throw new HealthSosWorkflowError("HEALTH_SOS_FORBIDDEN", 403, "Only the reporter or a health manager can close this SOS.");
@@ -39,6 +40,7 @@ export async function closeHealthSos(rest: Rest, familyId: string, userId: strin
   await audit(rest, familyId, userId, `health_sos_${status}`, "health_sos_alert", alertId);
   return publicHealthSosRecord(record, userId);
 }
+/** @deprecated Historical compatibility helper; current API writes use health-sos-write.ts. */
 export async function respondHealthSos(rest: Rest, familyId: string, userId: string, authorName: string, alertId: string, responseType: string, note: string | null) {
   if (!["acknowledged", "on_the_way", "called_emergency", "update"].includes(responseType)) throw new HealthSosWorkflowError("HEALTH_SOS_RESPONSE", 400, "Choose a valid SOS response.");
   const alert = await lookup(rest, familyId, alertId);

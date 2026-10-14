@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import ts from 'typescript';
 import * as healthWrites from '../lib/health-record-write.ts';
 import * as healthValidation from '../lib/health-validation.ts';
+import * as healthSosWrites from '../lib/health-sos-write.ts';
 import {HealthRecordWriteError,healthRecordWrite,healthRecordWriteResponse,healthPublicRecord,healthWriteContext,healthRecordFilter,healthRecordAcknowledged,readHealthRecordMutation,healthRecordFeedback,healthOrdinaryKind} from '../lib/health-record-write.ts';
 const family='20000000-0000-4000-8000-000000000002',id='20000000-0000-4000-8000-000000000090',actor='qa-owner',stamp='2026-10-14T08:00:00.123456+00:00',scope={familyId:family,actorId:actor};
 const owner={family_id:family,auth_user_id:actor};
@@ -83,7 +84,7 @@ function routeHarness({auditFail=false,lostWrite=false}={}){
   '../route':{healthErrorResponse:()=>Response.json({error:'Synthetic backend error'},{status:500})},
   '@/lib/supabase-rest':{supabaseRest:rest,SupabaseRequestError:RequestError},
   '@/lib/health-record-write':healthWrites,'@/lib/health-validation':healthValidation,
-  '@/lib/health-sos-workflow':{HealthSosWorkflowError:class extends Error{}},
+  '@/lib/health-sos-write':healthSosWrites,
  };
  const source=readFileSync(new URL('../app/api/health/records/route.ts',import.meta.url),'utf8');
  const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;

@@ -1,19 +1,17 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { canManageHealth, getActiveFamilyMembership } from "@/lib/family-access";
 import { getChatAuthorName } from "@/lib/family-chat";
-import type { HealthSosAlert } from "@/lib/health-types";
 import { healthErrorResponse } from "../route";
 import { supabaseRest, SupabaseRequestError } from "@/lib/supabase-rest";
 import { HealthRecordWriteError, healthOrdinaryKind, healthRecordTables, healthWriteContext, healthRecordWrite, healthRecordWriteResponse, type HealthRecordKind } from "@/lib/health-record-write";
 import { healthDate, healthDecimal, healthReminderMinutes, healthReminderTimes, healthTimestamp, healthUuid } from "@/lib/health-validation";
 
-import { closeHealthSos, respondHealthSos, healthSosLocation, publicHealthSosRecord, HealthSosWorkflowError } from "@/lib/health-sos-workflow";
+import { healthSosInput, writeHealthSos, HealthSosWriteError, healthSosWriteCopy } from "@/lib/health-sos-write";
 
 type EditableHealthKind = "medication" | "appointment" | "measurement";
 const textValue = (value: unknown, max: number) =>
   typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 
-const uuidValue = healthUuid;
 const timestampValue = healthTimestamp;
 
 export async function POST(request: Request) {
@@ -27,68 +25,21 @@ export async function POST(request: Request) {
     const body = raw as Record<string, unknown>;
     const ordinaryKind = healthOrdinaryKind("POST", body);
     if (ordinaryKind) return await writeOrdinaryHealth("POST", body, ordinaryKind, membership.family_id, user.userId);
-    const action = textValue(body.action, 40);
-    const data = body.data && typeof body.data === "object" && !Array.isArray(body.data)
-      ? body.data as Record<string, unknown>
-      : body;
-    const authorName = await getChatAuthorName(membership.family_id, user);
-
-    if (action === "create_sos") {
-      const alertType = textValue(data.alertType, 20) ?? "medical";
-      const message = textValue(data.message, 1000);
-      if (!["medical", "accident", "fire", "safety", "other"].includes(alertType) || !message || message.length < 3) {
-        return Response.json({ code: "HEALTH_SOS_INVALID", error: "SOS type and a message of at least three characters are required." }, { status: 400 });
-      }
-      const location = healthSosLocation(data);
-      const [record] = await supabaseRest<HealthSosAlert[]>("health_sos_alerts", {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify({
-          family_id: membership.family_id,
-          reporter_user_id: user.userId,
-          reporter_name: authorName,
-          alert_type: alertType,
-          message,
-          preferred_contact: textValue(data.preferredContact, 50),
-          ...location,
-          location_label: textValue(data.locationLabel, 300),
-          status: "active",
-        }),
+    if (["create_sos","respond_sos","update_sos"].includes(body.action as string)) {
+      const input=healthSosInput(body,{familyId:membership.family_id,actorId:user.userId});
+      const authorName=await getChatAuthorName(membership.family_id,user);
+      const result=await writeHealthSos({rest:supabaseRest,input,authorName,canManage:canManageHealth(membership.role),
+        authorize:async()=>{const current=await getActiveFamilyMembership(user.userId);if(!current||current.family_id!==membership.family_id||current.role!==membership.role)throw new HealthSosWriteError("HEALTH_SOS_CONTEXT",409);},
+        rejected:e=>e instanceof SupabaseRequestError&&e.status>=400&&e.status<500&&e.status!==408,
       });
-      await supabaseRest("audit_logs", {
-        method: "POST",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({
-          family_id: membership.family_id,
-          actor_user_id: user.userId,
-          action: "health_sos_created",
-          entity_type: "health_sos_alert",
-          entity_id: record.id,
-          metadata: { alert_type: alertType, has_location: location.latitude !== null },
-        }),
-      });
-      return Response.json({ record: publicHealthSosRecord(record, user.userId) }, { status: 201 });
-    }
-
-    if (action === "respond_sos") {
-      const alertId = uuidValue(data.alertId), responseType = textValue(data.responseType, 30);
-      if (!alertId || !responseType) return Response.json({ code: "HEALTH_SOS_RESPONSE", error: "Valid alert and response are required." }, { status: 400 });
-      const record = await respondHealthSos(supabaseRest, membership.family_id, user.userId, authorName, alertId, responseType, textValue(data.note, 1000));
-      return Response.json({ record }, { status: 201 });
-    }
-
-    if (action === "update_sos") {
-      const alertId = uuidValue(data.alertId), status = textValue(data.status, 20);
-      if (!alertId || (status !== "resolved" && status !== "cancelled")) return Response.json({ code: "HEALTH_SOS_INVALID", error: "Valid SOS alert and closing status are required." }, { status: 400 });
-      const record = await closeHealthSos(supabaseRest, membership.family_id, user.userId, canManageHealth(membership.role), alertId, status, textValue(data.note, 1000));
-      return Response.json({ record });
+      return Response.json(result,{status:result.auditPending||result.parentPending?202:input.action==="update_sos"?200:201,headers:{"Cache-Control":"no-store"}});
     }
 
     return Response.json({ error: "Unsupported health action." }, { status: 400 });
   } catch (error) {
     if (error instanceof HealthRecordWriteError) return Response.json({ code: error.code, outcomeUnknown: error.code === "HEALTH_WRITE_UNKNOWN" }, { status: error.status });
     if (error instanceof SyntaxError) return Response.json({code:"HEALTH_WRITE_EXPECTATION"},{status:400});
-    if (error instanceof HealthSosWorkflowError) return Response.json({ code: error.code, error: error.message }, { status: error.status });
+    if (error instanceof HealthSosWriteError) return Response.json({code:error.code,error:healthSosWriteCopy(error.code,"en"),outcomeUnknown:error.code==="HEALTH_SOS_UNKNOWN"},{status:error.status});
     return healthErrorResponse(error, "Unable to update health workspace");
   }
 }
