@@ -9,6 +9,7 @@ import { useCurrentTime } from "@/components/use-current-time";
 import { healthLocalInputToIso } from "@/lib/health-validation";
 import { healthErrorCopy } from "@/lib/health-action-copy";
 import { healthOrdinaryKind, healthPublicRecord, readHealthRecordMutation, healthRecordWriteCopy, type HealthRecordKind } from "@/lib/health-record-write";
+import { healthDocumentPublic, healthDocumentCopy, readHealthDocumentMutation } from "@/lib/health-document-workflow";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -343,6 +344,7 @@ export function HealthCenter() {
     if(!latest||latest.scope.actorId!==scope.actorId||latest.scope.familyId!==scope.familyId)return;
     // Reviewing a snapshot does not prove an unknown write or its audit succeeded.
     setProfileOpen(false);setRecordKind(null);setEditingRecord(null);editorExpected.current=null;
+    setUploadOpen(false);setUploadFile(null);setUploadForm({category:"prescription",documentDate:today()});if(fileInputRef.current)fileInputRef.current.value="";
     verificationRef.current=false;setVerificationBlocked(false);
     try{window.sessionStorage.removeItem(healthReviewKey(scope));}catch{/* Session storage can be unavailable. */}
     showResult({kind:"info",title:pick("বর্তমান Health তথ্য দেখুন","Review current Health data"),message:pick("নতুন তথ্য লোড হয়েছে; এটি আগের পরিবর্তন সফল হওয়ার প্রমাণ নয়। রেকর্ড দেখে তারপর নতুন কাজ করুন। সন্দেহ হলে Support-এ জানান।","Current data was loaded; this does not prove the earlier change succeeded. Review the record before another action. Contact support if uncertain.")});
@@ -430,10 +432,12 @@ export function HealthCenter() {
   async function deleteDocument(id: string) {
     if(!beginHealthAction())return;
     try {
-      const response = await fetch(`/api/health-document/${id}`, { method: "DELETE" });
-      if (response.status === 499) return;
-      const payload = await response.json() as { message?: string; error?: string };
-      if (!response.ok) throw new Error(payload.error ?? pick("নথি মোছা যায়নি।", "Document could not be deleted."));
+      const captured=snapshotRef.current,sequence=loadSequence.current;
+      const expectedDocument=healthDocumentPublic(captured?.documents.find(d=>d.id===id));
+      if(!captured||!expectedDocument)return;
+      const path=`/api/health-document/${id}`,body={expectedScope:captured.scope,expectedDocument};
+      const outcome=await readHealthDocumentMutation(()=>fetch(path,{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}),path,"DELETE",body);
+      if(!acceptDocumentOutcome(outcome,captured.scope,sequence))return;
       await loadHealth();
     } finally { finishHealthAction(); }
   }
@@ -452,13 +456,14 @@ export function HealthCenter() {
     if (!uploadFile) return;
     if(!beginHealthAction())return;
     try {
+      const captured=snapshotRef.current,sequence=loadSequence.current;
+      if(!captured)return;
       const formData = new FormData();
       formData.set("file", uploadFile);
       Object.entries(uploadForm).forEach(([key, value]) => formData.set(key, value));
-      const response = await fetch("/api/health/upload", { method: "POST", body: formData });
-      if (response.status === 499) return;
-      const payload = (await response.json()) as { document?: HealthDocument; error?: string };
-      if (!response.ok || !payload.document) throw new Error(payload.error ?? pick("নথি আপলোড হয়নি।", "Document could not be uploaded."));
+      formData.set("expectedFamilyId",captured.scope.familyId);formData.set("expectedActorId",captured.scope.actorId);
+      const outcome=await readHealthDocumentMutation(()=>fetch("/api/health/upload",{method:"POST",body:formData}),"/api/health/upload","POST",formData);
+      if(!acceptDocumentOutcome(outcome,captured.scope,sequence))return;
       setUploadOpen(false);
       setUploadFile(null);
       setUploadForm({ category: "prescription", documentDate: today() });
@@ -467,6 +472,18 @@ export function HealthCenter() {
     } finally {
       finishHealthAction();
     }
+  }
+
+  function acceptDocumentOutcome(outcome:Awaited<ReturnType<typeof readHealthDocumentMutation>>,scope:{familyId:string;actorId:string},sequence:number){
+    if(!healthMounted.current||sequence!==loadSequence.current||acceptedScope.current?.familyId!==scope.familyId||acceptedScope.current?.actorId!==scope.actorId)return false;
+    if(outcome.kind==="cancelled")return false;
+    if(outcome.kind==="unknown"){
+      verificationRef.current=true;setVerificationBlocked(true);
+      try{window.sessionStorage.setItem(healthReviewKey(scope),"1");}catch{/* Marker only; never store medical files/drafts. */}
+      showResult({kind:"info",title:pick("Document ফল review করুন","Review document outcome"),message:healthDocumentCopy(outcome.payload.code==="HEALTH_DOC_UNLINKED_PENDING"?outcome.payload.code:"HEALTH_DOC_UNKNOWN",locale)!});return false;
+    }
+    if(outcome.kind==="rejected")throw new Error(healthDocumentCopy(outcome.payload.code,locale)??pick("Document পরিবর্তন প্রত্যাখ্যান হয়েছে। তালিকা reload করুন।","Document change was rejected. Reload the list."));
+    return true;
   }
 
   function requestLocation() {
@@ -718,7 +735,7 @@ export function HealthCenter() {
 
       <Dialog open={Boolean(recordKind)} onOpenChange={(open) => { if (!open) { setRecordKind(null); setEditingRecord(null); } }}><DialogContent className="max-h-[92vh] overflow-y-auto rounded-3xl sm:max-w-2xl"><fieldset disabled={saving || exporting || migrationRequired || loading || loadError || verificationBlocked} className="contents"><DialogHeader><DialogTitle>{recordKind === "medication" ? pick("ওষুধ", "Medicine") : recordKind === "appointment" ? pick("অ্যাপয়েন্টমেন্ট", "Appointment") : pick("স্বাস্থ্য পরিমাপ", "Health measurement")} {editingRecord ? pick("সম্পাদনা", "edit") : pick("যোগ করুন", "add")}</DialogTitle><DialogDescription>{pick("এই তথ্য আপনার ব্যক্তিগত স্বাস্থ্য কর্মক্ষেত্রে থাকবে।", "This information stays in your private health workspace.")}</DialogDescription></DialogHeader>{recordKind ? <RecordForm kind={recordKind} form={recordForm} setForm={setRecordForm} /> : null}<DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => { setRecordKind(null); setEditingRecord(null); }}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving} onClick={() => void saveRecord().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("সংরক্ষণ হয়নি।", "Could not save.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : editingRecord ? <Pencil className="size-4" /> : <Plus className="size-4" />} {editingRecord ? pick("হালনাগাদ", "Update") : pick("সংরক্ষণ", "Save")}</Button></DialogFooter></fieldset></DialogContent></Dialog>
 
-      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}><DialogContent className="rounded-3xl sm:max-w-xl"><fieldset disabled={saving || exporting || migrationRequired || loading || loadError || verificationBlocked} className="contents"><DialogHeader><DialogTitle>{pick("চিকিৎসা নথি আপলোড", "Medical document upload")}</DialogTitle><DialogDescription>{pick("শুধু আপনি এই ব্যক্তিগত ফাইল দেখতে পারবেন। সর্বোচ্চ ১২ MB।", "Only you can view this private file. Maximum 12 MB.")}</DialogDescription></DialogHeader><div className="space-y-4"><Field label="Title" id="health-doc-title"><Input id="health-doc-title" value={uploadForm.title ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, title: event.target.value })} /></Field><div className="grid gap-4 sm:grid-cols-2"><Field label="Category" id="health-doc-category"><Select value={uploadForm.category} onValueChange={(value) => setUploadForm({ ...uploadForm, category: value })}><SelectTrigger id="health-doc-category"><SelectValue /></SelectTrigger><SelectContent>{[["prescription", pick("প্রেসক্রিপশন", "Prescription")], ["lab_report", pick("ল্যাব রিপোর্ট", "Lab report")], ["imaging", pick("ইমেজিং", "Imaging")], ["vaccine", pick("টিকা", "Vaccine")], ["insurance", pick("বীমা", "Insurance")], ["other", pick("অন্যান্য", "Other")]].map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field><Field label="Document date" id="health-doc-date"><Input id="health-doc-date" type="date" value={uploadForm.documentDate ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, documentDate: event.target.value })} /></Field></div><Field label="File" id="health-doc-file"><Input ref={fileInputRef} id="health-doc-file" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.doc,.docx" onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} /></Field><Field label="Notes" id="health-doc-notes"><Textarea id="health-doc-notes" value={uploadForm.notes ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, notes: event.target.value })} /></Field></div><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setUploadOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving || !uploadFile} onClick={() => void uploadDocument().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("আপলোড হয়নি।", "Could not upload.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Upload className="size-4" />} {pick("আপলোড", "Upload")}</Button></DialogFooter></fieldset></DialogContent></Dialog>
+      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}><DialogContent className="rounded-3xl sm:max-w-xl"><fieldset disabled={saving || exporting || migrationRequired || loading || loadError || verificationBlocked} className="contents"><DialogHeader><DialogTitle>{pick("চিকিৎসা নথি আপলোড", "Medical document upload")}</DialogTitle><DialogDescription>{pick("শুধু আপনি এই ব্যক্তিগত ফাইল দেখতে পারবেন। সর্বোচ্চ ১২ MiB।", "Only you can view this private file. Maximum 12 MiB.")}</DialogDescription></DialogHeader><div className="space-y-4"><Field label="Title" id="health-doc-title"><Input id="health-doc-title" value={uploadForm.title ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, title: event.target.value })} /></Field><div className="grid gap-4 sm:grid-cols-2"><Field label="Category" id="health-doc-category"><Select value={uploadForm.category} onValueChange={(value) => setUploadForm({ ...uploadForm, category: value })}><SelectTrigger id="health-doc-category"><SelectValue /></SelectTrigger><SelectContent>{[["prescription", pick("প্রেসক্রিপশন", "Prescription")], ["lab_report", pick("ল্যাব রিপোর্ট", "Lab report")], ["imaging", pick("ইমেজিং", "Imaging")], ["vaccine", pick("টিকা", "Vaccine")], ["insurance", pick("বীমা", "Insurance")], ["other", pick("অন্যান্য", "Other")]].map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field><Field label="Document date" id="health-doc-date"><Input id="health-doc-date" type="date" value={uploadForm.documentDate ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, documentDate: event.target.value })} /></Field></div><Field label="File" id="health-doc-file"><Input ref={fileInputRef} id="health-doc-file" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.doc,.docx" onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} /></Field><Field label="Notes" id="health-doc-notes"><Textarea id="health-doc-notes" value={uploadForm.notes ?? ""} onChange={(event) => setUploadForm({ ...uploadForm, notes: event.target.value })} /></Field></div><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setUploadOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl" disabled={saving || !uploadFile} onClick={() => void uploadDocument().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("আপলোড হয়নি।", "Could not upload.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Upload className="size-4" />} {pick("আপলোড", "Upload")}</Button></DialogFooter></fieldset></DialogContent></Dialog>
 
       <Dialog open={sosOpen} onOpenChange={setSosOpen}><DialogContent className="rounded-3xl sm:max-w-xl"><fieldset disabled={saving || exporting || migrationRequired || loading || loadError || verificationBlocked} className="contents"><DialogHeader><DialogTitle className="flex items-center gap-2 text-rose-600"><Siren /> {pick("জরুরি SOS পাঠান", "Send emergency SOS")}</DialogTitle><DialogDescription>{pick("এটি পরিবারের SOS পাতায় প্রকাশ হয়; SMS, ইমেইল বা জরুরি সেবায় স্বয়ংক্রিয়ভাবে পাঠায় না। জীবন-ঝুঁকিতে জরুরি সেবায় সরাসরি কল করুন।", "This appears on the family SOS page; it does not automatically send SMS, email or call emergency services. Call emergency services directly for life-threatening emergencies.")}</DialogDescription></DialogHeader><div className="space-y-4"><Field label="Emergency type" id="sos-type"><Select value={sosForm.alertType} onValueChange={(value) => setSosForm({ ...sosForm, alertType: value })}><SelectTrigger id="sos-type"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(locale === "bn" ? sosLabelsBn : sosLabelsEn).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></Field><Field label={pick("কী হয়েছে?", "What happened?")} id="sos-message"><Textarea id="sos-message" rows={4} value={sosForm.message ?? ""} onChange={(event) => setSosForm({ ...sosForm, message: event.target.value })} placeholder={pick("পরিবার যেন দ্রুত বুঝতে পারে এমন সংক্ষিপ্ত তথ্য", "Brief information the family can understand quickly")} /></Field><div className="grid gap-4 sm:grid-cols-2"><Field label={pick("যোগাযোগ নম্বর", "Contact number")} id="sos-contact"><Input id="sos-contact" value={sosForm.preferredContact ?? ""} onChange={(event) => setSosForm({ ...sosForm, preferredContact: event.target.value })} /></Field><Field label="Location label" id="sos-location-label"><Input id="sos-location-label" value={sosForm.locationLabel ?? ""} onChange={(event) => setSosForm({ ...sosForm, locationLabel: event.target.value })} placeholder={pick("যেমন: বাসা, ৩য় তলা", "For example: home, third floor")} /></Field></div><div className="rounded-2xl border p-4"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-semibold">{pick("বর্তমান অবস্থান (ঐচ্ছিক)", "Current location (optional)")}</p><p className="text-xs text-muted-foreground">{pick("শুধু অনুমোদিত ফ্যামিলি সদস্যরা এই SOS-এর সাথে অবস্থানটি দেখবে।", "Only approved family members can see it with this SOS.")}</p></div><Button variant="outline" className="rounded-xl" onClick={requestLocation} disabled={locating}>{locating ? <LoaderCircle className="size-4 animate-spin" /> : <Navigation className="size-4" />} {location ? pick("হালনাগাদ", "Update") : pick("অবস্থান যোগ করুন", "Add location")}</Button></div>{location ? <p className="mt-3 flex items-center gap-2 text-xs text-emerald-600"><CheckCircle2 className="size-4" /> {pick("অবস্থান প্রস্তুত", "Location ready")} · {pick("নির্ভুলতা প্রায়", "accuracy about")} {Math.round(location.accuracy)}m <button type="button" className="underline" onClick={() => setLocation(null)}>{pick("সরান", "Remove")}</button></p> : null}</div></div><DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setSosOpen(false)}>{pick("বাতিল", "Cancel")}</Button><Button className="rounded-xl bg-rose-600 text-white hover:bg-rose-700" disabled={saving || (sosForm.message?.trim().length ?? 0) < 3} onClick={() => void createSos().catch((error: unknown) => setFeedback(error instanceof Error ? error.message : pick("SOS পাঠানো যায়নি।", "Could not send SOS.")))}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Siren className="size-4" />} {pick("ফ্যামিলি SOS পাঠান", "Send family SOS")}</Button></DialogFooter></fieldset></DialogContent></Dialog>
 

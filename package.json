@@ -93,6 +93,7 @@
     "test:health-reminders": "node scripts/test-health-reminders.mjs",
     "test:health-read": "node scripts/test-health-read.mjs",
     "test:health-record-write": "node scripts/test-health-record-write.mjs",
+    "test:health-document-workflow": "node scripts/test-health-document-workflow.mjs",
     "i18n:audit": "node scripts/audit-translations.mjs"
   },
   "dependencies": {

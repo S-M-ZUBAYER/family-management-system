@@ -133,7 +133,7 @@ export function healthRecordAcknowledged(method: string, body: Record<string, un
 }
 export function healthRecordWriteCopy(code: unknown, locale: "bn" | "en") {
   const copy: Record<string, [string, string]> = {
-    HEALTH_WRITE_UNKNOWN: ["পরিবর্তন হয়েছে কি না নিশ্চিত নয়। আবার Save/Delete করবেন না। Health reload করে বর্তমান রেকর্ড যাচাই করুন; প্রয়োজনে Support-এ জানান।", "The outcome is uncertain. Do not save/delete again. Reload Health and review the current record; contact support if needed."],
+    HEALTH_WRITE_UNKNOWN: ["পরিবর্তন হয়েছে কি না নিশ্চিত নয়। আবার Save/Upload/Delete করবেন না। Health reload করে বর্তমান রেকর্ড যাচাই করুন; প্রয়োজনে Support-এ জানান।", "The outcome is uncertain. Do not save/upload/delete again. Reload Health and review the current record; contact support if needed."],
     HEALTH_AUDIT_PENDING: ["রেকর্ডের পরিবর্তন নিশ্চিত; audit logging বাকি। আবার একই পরিবর্তন পাঠাবেন না; Support-এ জানান।", "The record change is confirmed; audit logging is pending. Do not repeat the change; contact support."],
     HEALTH_RECORD_CHANGED: ["রেকর্ড ইতিমধ্যে বদলেছে বা সরেছে। Health reload করে নতুন তথ্য দেখে আবার সম্পাদনা করুন।", "The record changed or was removed. Reload Health and review the latest data before editing."],
     HEALTH_WRITE_CONTEXT: ["পরিবার বা account বদলেছে। বর্তমান Health workspace reload করুন।", "The family or account changed. Reload the current Health workspace."],
